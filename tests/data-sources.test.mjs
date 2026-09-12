@@ -145,7 +145,7 @@ test('request controller isolates old regions and disposed loads, retains previo
 test('source reconciliation preserves unchanged requests and snapshots when another source changes', async () => {
   const pending = [], updates = [];
   const controller = createDataSourceController({ onChange: value => updates.push(value), loader: (item, code, { signal }) => new Promise((resolve, reject) => pending.push({ id: item.id, code, signal, resolve, reject })) });
-  const a = source({ id: 'ds_a' }), b = source({ id: 'ds_b' });
+  const a = source({ id: 'ds_a', type: 'http', url: '/a?adcode={adcode}' }), b = source({ id: 'ds_b', type: 'http', url: '/b?adcode={adcode}' });
   controller.reconcile([a], '100000');
   controller.reconcile([a, b], '100000');
   assert.deepEqual(pending.map(item => item.id), ['ds_a', 'ds_b']);
@@ -158,7 +158,7 @@ test('source reconciliation preserves unchanged requests and snapshots when anot
   assert.equal(updates.at(-1).ds_b, undefined);
   pending[1].resolve([{ value: 99 }]); await Promise.resolve();
   assert.equal(updates.at(-1).ds_b, undefined, 'removed B cannot publish late data');
-  controller.reconcile([source({ id: 'ds_a', name: ' 运行数据 ' })], '100000');
+  controller.reconcile([{ ...a, name: ' 运行数据 ' }], '100000');
   assert.equal(pending.length, 2, 'equivalent normalized source must not reload');
   controller.reconcile([a, b], '100000');
   pending[2].resolve([{ value: 8 }]); await Promise.resolve();
@@ -170,11 +170,11 @@ test('source reconciliation preserves unchanged requests and snapshots when anot
   assert.equal(pending.length, 4); assert.deepEqual(updates.at(-1).ds_a.rows, [{ value: 12 }]);
   controller.reconcile([a, b], '100000');
   pending[4].resolve([{ value: 8 }]); await Promise.resolve();
-  controller.reconcile([{ ...a, content: '[{"value":15}]' }, b], '100000');
+  controller.reconcile([{ ...a, url: '/a-updated?adcode={adcode}' }, b], '100000');
   assert.equal(pending.length, 6); assert.equal(pending.at(-1).id, 'ds_a');
   assert.deepEqual(updates.at(-1).ds_a.rows, []);
   assert.deepEqual(updates.at(-1).ds_b.rows, snapshotB.rows);
-  controller.reconcile([{ ...a, content: '[{"value":15}]' }, b], '110000');
+  controller.reconcile([{ ...a, url: '/a-updated?adcode={adcode}' }, b], '110000');
   assert.equal(pending[5].signal.aborted, true);
   assert.deepEqual(pending.slice(-2).map(item => item.code), ['110000', '110000']);
   assert.deepEqual(updates.at(-1).ds_a.rows, []); assert.deepEqual(updates.at(-1).ds_b.rows, []);
@@ -182,6 +182,99 @@ test('source reconciliation preserves unchanged requests and snapshots when anot
   assert.deepEqual(updates.at(-1).ds_a.rows, []);
   controller.dispose();
   assert.ok(pending.slice(-2).every(item => item.signal.aborted));
+});
+
+test('region changes reuse real JSON, CSV and fixed HTTP results while source configuration changes still reload', async () => {
+  const calls = [], loads = [], requests = [], updates = [];
+  const controller = createDataSourceController({ onChange: result => updates.push(result), loader: (item, code, options) => {
+    calls.push([item.id, code]);
+    const loading = loadDataSource(item, code, { ...options, fetcher: async url => { requests.push(url); return new Response('{"value":7,"data":[{"value":9}]}'); } });
+    loads.push(loading); return loading;
+  } });
+  let sources = [source({ id: 'ds_json', content: '[{"value":0}]' }), source({ id: 'ds_csv', type: 'csv', content: 'name,value\n区域,2' }), source({ id: 'ds_fixed', type: 'http', url: '/fixed' })];
+  try {
+    controller.reconcile(sources, '100000'); await Promise.all(loads);
+    const original = updates.at(-1), count = updates.length;
+    assert.deepEqual(sources.map(item => original[item.id].rows[0].value), [0, '2', 7]);
+    controller.reconcile(sources, '110000'); controller.reconcile(sources, '120000');
+    assert.equal(calls.length, 3); assert.equal(requests.length, 1); assert.equal(updates.length, count);
+    for (const item of sources) {
+      assert.strictEqual(updates.at(-1)[item.id], original[item.id]);
+      assert.strictEqual(updates.at(-1)[item.id].rows, original[item.id].rows);
+    }
+    sources = sources.map(item => item.id === 'ds_json' ? { ...item, content: '[{"value":3}]' } : item);
+    controller.reconcile(sources, '120000'); await Promise.all(loads);
+    assert.equal(calls.length, 4); assert.equal(updates.at(-1).ds_json.rows[0].value, 3);
+    assert.strictEqual(updates.at(-1).ds_csv, original.ds_csv); assert.strictEqual(updates.at(-1).ds_fixed, original.ds_fixed);
+    sources = sources.map(item => item.id === 'ds_fixed' ? { ...item, url: '/fixed-updated' } : item);
+    controller.reconcile(sources, '120000'); await Promise.all(loads);
+    assert.equal(requests.length, 2); assert.equal(new URL(requests.at(-1)).pathname, '/fixed-updated');
+    sources = sources.map(item => item.id === 'ds_fixed' ? { ...item, rowsPath: 'data' } : item);
+    controller.reconcile(sources, '120000'); await Promise.all(loads);
+    assert.equal(requests.length, 3); assert.deepEqual(updates.at(-1).ds_fixed.rows, [{ value: 9 }]);
+    assert.deepEqual(calls.slice(3), [['ds_json', '120000'], ['ds_fixed', '120000'], ['ds_fixed', '120000']]);
+  } finally { controller.dispose(); }
+});
+
+test('fixed HTTP keeps in-flight loads, stale errors and polling deadlines across regions, then refreshes with the latest code', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const calls = [], loads = [], pending = [], updates = [];
+  const controller = createDataSourceController({ onChange: result => updates.push(result), loader: (item, code, options) => {
+    calls.push(code);
+    const loading = loadDataSource(item, code, { ...options, fetcher: (url, { signal }) => new Promise((resolve, reject) => pending.push({ url, signal, resolve, reject })) });
+    loads.push(loading); return loading;
+  } });
+  const fixed = source({ id: 'ds_fixed', type: 'http', url: '/fixed', refreshSeconds: 15 });
+  try {
+    controller.reconcile([fixed], '100000');
+    const inFlight = updates.at(-1).ds_fixed;
+    t.mock.timers.tick(10000); controller.reconcile([fixed], '110000');
+    assert.equal(pending.length, 1); assert.equal(pending[0].signal.aborted, false);
+    assert.strictEqual(updates.at(-1).ds_fixed, inFlight);
+    pending[0].resolve(new Response('[{"value":0}]')); await loads[0]; await Promise.resolve();
+    const ready = updates.at(-1).ds_fixed;
+    t.mock.timers.tick(4999); assert.equal(pending.length, 1);
+    t.mock.timers.tick(1); assert.equal(pending.length, 2); assert.equal(calls[1], '110000');
+    controller.reconcile([fixed], '120000'); assert.equal(pending[1].signal.aborted, false);
+    pending[1].reject(new TypeError('Failed to fetch')); await assert.rejects(loads[1], /网络/); await Promise.resolve();
+    const failed = updates.at(-1).ds_fixed;
+    assert.equal(failed.status, 'error'); assert.equal(failed.stale, true);
+    assert.strictEqual(failed.rows, ready.rows); assert.equal(failed.updatedAt, ready.updatedAt);
+    const beforeChange = updates.length;
+    controller.reconcile([fixed], '130000');
+    assert.strictEqual(updates.at(-1).ds_fixed, failed); assert.equal(updates.length, beforeChange); assert.equal(pending.length, 2);
+    const manual = controller.refresh('ds_fixed'); assert.equal(calls[2], '130000');
+    pending[2].resolve(new Response('[{"value":5}]')); await manual;
+    assert.equal(updates.at(-1).ds_fixed.rows[0].value, 5);
+    controller.reconcile([fixed], '140000'); t.mock.timers.tick(15000);
+    assert.equal(pending.length, 4); assert.equal(calls[3], '140000', 'the original polling closure uses the latest effective code');
+    pending[3].resolve(new Response('[{"value":6}]')); await loads[3]; await Promise.resolve();
+    assert.equal(updates.at(-1).ds_fixed.rows[0].value, 6);
+    assert.ok(pending.every(request => new URL(request.url).pathname === '/fixed'));
+  } finally { controller.dispose(); }
+});
+
+test('adcode HTTP still clears old snapshots, aborts superseded regions and ignores late real responses', async () => {
+  const pending = [], loads = [], updates = [];
+  const controller = createDataSourceController({ onChange: result => updates.push(result), loader: (item, code, options) => {
+    const loading = loadDataSource(item, code, { ...options, fetcher: (url, { signal }) => new Promise(resolve => pending.push({ url, signal, resolve })) });
+    loads.push(loading); return loading;
+  } });
+  const regional = source({ type: 'http', url: '/metrics?adcode={adcode}' });
+  try {
+    controller.reconcile([regional], '100000');
+    pending[0].resolve(new Response('[{"value":100}]')); await loads[0]; await Promise.resolve();
+    assert.equal(updates.at(-1).ds_test.rows[0].value, 100);
+    controller.reconcile([regional], '110000');
+    assert.deepEqual(updates.at(-1).ds_test.rows, []); assert.equal(updates.at(-1).ds_test.stale, false);
+    controller.reconcile([regional], '120000');
+    assert.equal(pending[1].signal.aborted, true); assert.equal(pending[2].signal.aborted, false);
+    assert.deepEqual(pending.map(request => new URL(request.url).searchParams.get('adcode')), ['100000', '110000', '120000']);
+    pending[2].resolve(new Response('[{"value":120}]')); await loads[2]; await Promise.resolve();
+    const latest = updates.at(-1).ds_test;
+    pending[1].resolve(new Response('[{"value":110}]')); await loads[1]; await Promise.resolve();
+    assert.strictEqual(updates.at(-1).ds_test, latest); assert.deepEqual(latest.rows, [{ value: 120 }]);
+  } finally { controller.dispose(); }
 });
 
 test('reconciliation preserves polling deadlines, visibility pauses and resumes without duplicate timers', async t => {

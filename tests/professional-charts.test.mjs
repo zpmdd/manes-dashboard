@@ -40,6 +40,23 @@ test('all eight professional types draw real ECharts SVG at normal and compact c
   }
 });
 
+test('real SVG axes retain half-step decimals, signed ranges and compact extreme-value labels', () => {
+  const cases = [
+    { values: [0.001, 0.0015, 0.002], ticks: ['0', '0.0005', '0.001', '0.0015', '0.002'] },
+    { values: [-0.003, -0.001, 0.003, 0.005], ticks: ['-0.004', '-0.002', '0', '0.002', '0.004', '0.006'] },
+    { values: [2e-6, 4e-6, 6e-6, 8e-6], ticks: ['0', '2E-6', '4E-6', '6E-6', '8E-6'] },
+    { values: [2e12, 4e12, 6e12, 8e12], ticks: ['0', '2E12', '4E12', '6E12', '8E12'] },
+  ];
+  for (const { values, ticks } of cases) {
+    const rows = values.map((value, i) => ({ time: `T${i}`, series: '实测', value }));
+    const svg = renderProfessionalSVG(config('multiLine', { chartOptions: { legend: false } }), { rows });
+    const labels = [...svg.matchAll(/<text\b[^>]*>([^<]*)<\/text>/g)].map(match => match[1]).filter(value => /^-?\d/.test(value));
+    assert.deepEqual(labels, ticks);
+    assert.equal(new Set(labels).size, labels.length, 'Distinct ticks must not be rounded into identical labels');
+    assert.doesNotMatch(svg, /NaN|Infinity/);
+  }
+});
+
 test('category windows retain every selected series and preserve gaps and input ranking', () => {
   const latest = build('multiLine', trendRows, { rowCount: 2 });
   assert.deepEqual(latest.option.xAxis.data, ['10:00', '11:00']);

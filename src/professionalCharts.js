@@ -1,4 +1,4 @@
-import { finiteNumber, formatWidgetNumber, PROFESSIONAL_TYPES, visibleRowCount } from './widgetData.js';
+import { finiteNumber, formatAxisNumber, formatWidgetNumber, PROFESSIONAL_TYPES, visibleRowCount } from './widgetData.js';
 
 export { PROFESSIONAL_TYPES } from './widgetData.js';
 export const CHART_PALETTES = {
@@ -7,7 +7,7 @@ export const CHART_PALETTES = {
   forest: ['#c4d0b3', '#99b8a5', '#e0d2ae', '#adbdae', '#c8bc9f', '#8caeae', '#bcc49d', '#b8acb9'],
 };
 const ink = '#eee7d8', fillInk = '#342e38', muted = '#cfc6b3', line = '#e7decb24';
-const valueAxis = (name, font) => ({ type: 'value', name, nameTextStyle: { color: muted, fontSize: Math.max(10, font - 1) }, axisLabel: { color: muted, fontSize: font, formatter: value => formatWidgetNumber(value) }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: line, type: 'dashed' } } });
+const valueAxis = (name, font) => ({ type: 'value', name, nameTextStyle: { color: muted, fontSize: Math.max(10, font - 1) }, axisLabel: { color: muted, fontSize: font, formatter: formatAxisNumber }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: line, type: 'dashed' } } });
 const unique = values => [...new Set(values)];
 const label = value => typeof value === 'string' ? value.trim() : typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
 const rowName = (row, index) => label(row.name) || label(row.time) || `第 ${index + 1} 项`;

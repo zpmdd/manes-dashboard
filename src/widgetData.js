@@ -85,8 +85,19 @@ export function formatWidgetNumber(value, precision = 1) {
   const numeric = finiteNumber(value);
   if (numeric === null) return '—';
   const digits = Math.max(0, Math.min(3, Math.floor(finiteNumber(precision) ?? 1)));
-  const scientific = Math.abs(numeric) >= 1e12, index = digits + (scientific ? 4 : 0);
+  const magnitude = Math.abs(numeric);
+  const scientific = magnitude >= 1e12 || (magnitude > 0 && magnitude < 0.5 * 10 ** -digits), index = digits + (scientific ? 4 : 0);
   const formatter = NUMBER_FORMATTERS[index] ||= new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits, notation: scientific ? 'scientific' : 'standard' });
+  return formatter.format(numeric);
+}
+
+const AXIS_NUMBER_FORMATTERS = [];
+export function formatAxisNumber(value) {
+  const numeric = finiteNumber(value);
+  if (numeric === null) return '—';
+  if (numeric === 0) return '0';
+  const magnitude = Math.abs(numeric), scientific = magnitude < 1e-4 || magnitude >= 1e12, index = scientific ? 1 : 0;
+  const formatter = AXIS_NUMBER_FORMATTERS[index] ||= new Intl.NumberFormat('zh-CN', { maximumSignificantDigits: 12, notation: scientific ? 'scientific' : 'standard' });
   return formatter.format(numeric);
 }
 

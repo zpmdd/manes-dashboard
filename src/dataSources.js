@@ -277,11 +277,12 @@ export function createDataSourceController({ onChange, loader = loadDataSource, 
     for (const input of sources) {
       const source = normalizeDataSource(input);
       if (next.has(source.id)) throw new Error('数据源标识重复');
-      next.set(source.id, { source, code, signature: JSON.stringify([code, source]), timer: null });
+      const region = source.type === 'http' && source.url.includes('{adcode}') ? code : null;
+      next.set(source.id, { source, code, signature: JSON.stringify([region, source]), timer: null });
     }
     let removed = false;
     for (const [id, entry] of entries) {
-      if (next.get(id)?.signature === entry.signature) continue;
+      if (next.get(id)?.signature === entry.signature) { entry.code = code; continue; }
       clearInterval(entry.timer); jobs.get(id)?.abort(); jobs.delete(id); entries.delete(id);
       if (Object.hasOwn(results, id)) { delete results[id]; removed = true; }
     }

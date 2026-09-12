@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { demoMetrics } from '../src/geo.js';
 import { DATA_FIELDS, getMappedData } from '../src/dataSources.js';
-import { chartDomain, donutRows, finiteNumber, formatWidgetNumber, getWidgetData, normalizeWidgetData, progressValues, sortTableRows, statusTone, visibleRowCount } from '../src/widgetData.js';
+import { chartDomain, donutRows, finiteNumber, formatWidgetNumber, formatAxisNumber, getWidgetData, normalizeWidgetData, progressValues, sortTableRows, statusTone, visibleRowCount } from '../src/widgetData.js';
 
 test('fixed widget snapshots preserve totals, numeric order, partition semantics and empty states', () => {
   const index = { '100000': { name: '中国' }, '110000': { name: '北京市', parent: '100000' }, '120000': { name: '天津市', parent: '100000' }, '130000': { name: '河北省', parent: '100000' }, '130100': { name: '石家庄市', parent: '130000' } };
@@ -68,13 +68,18 @@ test('external numeric data preserves missing values, numeric sorting, negative 
 });
 
 test('reused number formats match locale formatting at precision, sign and notation boundaries', () => {
-  const values = [0, -0, -12.5678, '1234.5678', '-0', 1e12 - 1, 1e12, -1e12 + 1, -1e12, Number.MIN_VALUE, Number.MAX_VALUE, null, undefined, '', false, 'invalid', Infinity];
+  const values = [0, -0, -12.5678, '1234.5678', '-0', 1e12 - 1, 1e12, -1e12 + 1, -1e12, Number.MAX_VALUE, null, undefined, '', false, 'invalid', Infinity];
   const precisions = [[undefined, 1], [0, 0], [1, 1], [2, 2], [3, 3], [-4, 0], [8, 3], [2.9, 2], ['2', 2], ['invalid', 1], [null, 1], [NaN, 1], [Infinity, 1], [false, 1], [{}, 1]];
   for (const value of values) for (const [precision, digits] of precisions) {
     const numeric = finiteNumber(value);
     const expected = numeric === null ? '—' : numeric.toLocaleString('zh-CN', { maximumFractionDigits: digits, notation: Math.abs(numeric) >= 1e12 ? 'scientific' : 'standard' });
     assert.equal(formatWidgetNumber(value, precision), expected);
   }
+});
+
+test('tiny nonzero values remain visible and axis labels preserve useful small-number precision', () => {
+  for (const [value, precision, expected] of [[0.002, 1, '2E-3'], [-0.002, 1, '-2E-3'], [0.0005, 2, '5E-4'], [0.002, 3, '0.002'], [Number.MIN_VALUE, 1, '5E-324'], [0, 1, '0'], [-0, 1, '-0']]) assert.equal(formatWidgetNumber(value, precision), expected);
+  assert.deepEqual([0, -0, 0.0005, 0.001, -0.003, 2e-6, 2e12].map(formatAxisNumber), ['0', '0', '0.0005', '0.001', '-0.003', '2E-6', '2E12']);
 });
 
 test('all twelve components render real supplied data and failed connections never fall back to snapshots', async () => {
@@ -120,6 +125,14 @@ test('all twelve components render real supplied data and failed connections nev
     assert.equal((zeroTable.match(/<td class="widget-cell-(?:x|y|value2)" title="0">0<\/td>/g) || []).length, 3, 'Coordinates and secondary metric retain a valid numeric zero');
     const decimalTable = render('table', { data: { rows: [{ name: '精度', value2: 1234.567 }] }, config: { ...config, type: 'table', precision: 2, columns: [{ key: 'value2', label: '辅助指标' }] } });
     assert.match(decimalTable, /title="1,234.57">1,234.57<\/td>/);
+    for (const [values, ticks] of [[[0.002, 0.008], ['0', '0.004', '0.008']], [[-0.003, 0.005], ['-0.003', '0.001', '0.005']], [[0.0005, 0.001], ['0', '0.0005', '0.001']], [[2e-6, 8e-6], ['0', '4E-6', '8E-6']], [[2e12, 8e12], ['0', '4E12', '8E12']]]) {
+      const html = render('line', { data: { rows: values.map((value, i) => ({ name: `点${i}`, value })) } });
+      const axisLabels = [...html.matchAll(/class="widget-chart-grid".*?<text[^>]*>([^<]+)<\/text>/g)].map(match => match[1]);
+      assert.deepEqual(axisLabels, ticks);
+      assert.doesNotMatch(html, /NaN|Infinity/);
+    }
+    assert.match(render('metric', { data: { value: 0.002, rows: [] } }), />2E-3<\/strong>/);
+
   } finally { await server.close(); }
 });
 
@@ -165,6 +178,9 @@ test('polling states retain normalized data references while status, replacement
   assert.strictEqual(loading.data, ready.data);
   assert.strictEqual(failed.data, ready.data);
   assert.strictEqual(failed.data.rows, ready.data.rows);
+  const anotherRegion = render({ data, dataState: { status: 'ready' }, code: '110000', index: { '110000': { name: '北京' } } });
+  assert.strictEqual(anotherRegion.data, ready.data, 'Fixed external data is independent of the displayed map region');
+  assert.equal(normalizations, 2);
   assert.equal(ready.data.rows[0].value, 12);
   assert.match(loading.text, /更新中/);
   assert.equal(loading.nodes.find(node => node.props.className === 'widget-body').props['aria-busy'], true);
@@ -181,4 +197,30 @@ test('polling states retain normalized data references while status, replacement
   const externalWithoutStatus = render({ data: undefined, dataState: {} });
   assert.equal(externalWithoutStatus.data, undefined, 'An external state object still blocks demo data before status is supplied');
   assert.equal(snapshots, 1);
+});
+
+test('table sorting is reused for unchanged rows and hidden sort columns restore input order', async () => {
+  const [{ readFile }, { transformWithEsbuild }] = await Promise.all([import('node:fs/promises'), import('vite')]);
+  const source = await readFile(new URL('../src/DashboardWidget.jsx', import.meta.url), 'utf8');
+  const { code } = await transformWithEsbuild(source.slice(source.indexOf('function DataTable('), source.indexOf('function Progress(')), 'DataTable.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false });
+  let direction = null, previous, cached, sorts = 0;
+  const runtime = { COLUMN_KEYS: new Set(DATA_FIELDS), number: formatWidgetNumber, statusTone, EmptyState: 'EmptyState',
+    useState: () => [direction, update => { direction = update(direction); }],
+    useMemo: (build, deps) => { if (!previous || deps.some((value, i) => !Object.is(value, previous[i]))) { cached = build(); previous = deps; } return cached; },
+    sortTableRows: (...args) => { sorts++; return sortTableRows(...args); }, h: (type, props, ...children) => ({ type, props: props || {}, children }),
+  };
+  const DataTable = new Function(...Object.keys(runtime), `${code}; return DataTable;`)(...Object.values(runtime));
+  const rows = [{ name: '十', value: 10 }, { name: '二', value: 2 }, { name: '百', value: 100 }];
+  const columns = [{ key: 'name', label: '项目' }, { key: 'value', label: '数值' }];
+  const render = (patch = {}) => {
+    const nodes = [], visit = node => { if (Array.isArray(node)) node.forEach(visit); else if (node && typeof node === 'object') { nodes.push(node); node.children?.forEach(visit); } };
+    visit(DataTable({ rows, columns, rowCount: 3, title: '排序表格', ...patch }));
+    return { names: nodes.filter(node => node.type === 'td' && node.props.className === 'widget-cell-name').map(node => node.props.title), sort: nodes.find(node => node.type === 'button')?.props.onClick };
+  };
+  const initial = render(); assert.deepEqual(initial.names, ['十', '二', '百']); initial.sort();
+  assert.deepEqual(render().names, ['百', '十', '二']); assert.equal(sorts, 2);
+  assert.deepEqual(render({ title: '标题变化', rowCount: 2 }).names, ['百', '十']); assert.equal(sorts, 2);
+  assert.deepEqual(render({ columns: [columns[0]] }).names, ['十', '二', '百']);
+  assert.deepEqual(render({ rows: [...rows, { name: '千', value: 1000 }] }).names, ['千', '百', '十']);
+  assert.deepEqual(rows.map(row => row.name), ['十', '二', '百']);
 });

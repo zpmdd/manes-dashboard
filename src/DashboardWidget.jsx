@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useEffect, useId, useMemo, useState } from 'react';
-import { chartDomain, donutRows, formatWidgetNumber as number, getWidgetData, normalizeWidgetData, PROFESSIONAL_TYPES, progressValues, sortTableRows, statusTone, visibleRowCount } from './widgetData.js';
+import { chartDomain, donutRows, formatWidgetNumber as number, formatAxisNumber, getWidgetData, normalizeWidgetData, PROFESSIONAL_TYPES, progressValues, sortTableRows, statusTone, visibleRowCount } from './widgetData.js';
 import { DATA_FIELDS } from './dataSources.js';
 import './widgets.css';
 
@@ -50,7 +50,7 @@ function TrendChart({ rows, unit, title, type, precision }) {
     <figcaption><span>{unit}</span><span title={description}>{description}</span></figcaption>
     <svg viewBox="0 0 320 153" role="group" aria-label={`${title}，单位 ${unit}`}>
       <defs><linearGradient id={id} x1="0" x2="0" y1="0" y2="1"><stop stopColor="#f1e5bc" stopOpacity={isColumn ? .94 : .5}/><stop offset="1" stopColor="#b7a89a" stopOpacity={isColumn ? .32 : .03}/></linearGradient></defs>
-      {[0, .5, 1].map(tick => <g key={tick} className="widget-chart-grid"><line x1="30" x2="308" y1={126 - tick * 96} y2={126 - tick * 96}/><text x="24" y={129 - tick * 96} textAnchor="end">{number(min * (1 - tick) + max * tick, precision)}</text></g>)}
+      {[0, .5, 1].map(tick => <g key={tick} className="widget-chart-grid"><line x1="30" x2="308" y1={126 - tick * 96} y2={126 - tick * 96}/><text x="24" y={129 - tick * 96} textAnchor="end">{formatAxisNumber(min * (1 - tick) + max * tick)}</text></g>)}
       {min < 0 && <line className="widget-zero-line" x1="30" x2="308" y1={y(0)} y2={y(0)}/>}
       {type === 'area' && <path d={`${path} L${points.at(-1)[0]},${y(0)} L${points[0][0]},${y(0)} Z`} fill={`url(#${id})`}/>}
       {!isColumn && <path className="widget-trend-line" d={path} fill="none" stroke="#f0e8c6" strokeWidth="2" strokeLinejoin="round"/>}
@@ -93,8 +93,9 @@ function DonutChart({ rows, unit, rowCount, title, onNavigate, precision }) {
 
 function DataTable({ rows, columns, unit, rowCount, title, onNavigate, precision }) {
   const [direction, setDirection] = useState(null);
-  const sorted = sortTableRows(rows, direction).slice(0, rowCount);
   const visibleColumns = columns?.filter(column => COLUMN_KEYS.has(column.key)).slice(0, COLUMN_KEYS.size) || [];
+  const canSort = visibleColumns.some(column => column.key === 'value');
+  const sorted = useMemo(() => sortTableRows(rows, canSort ? direction : null), [rows, direction, canSort]).slice(0, rowCount);
   if (!visibleColumns.length) return <EmptyState message="请选择表格列"/>;
   return <div className="widget-table-wrap" tabIndex="0" role="region" aria-label={`${title}，可滚动表格`}><table className="widget-table"><caption className="widget-sr-only">{title}{unit && `，数值单位 ${unit}`}</caption><thead><tr>{visibleColumns.map(column => <th key={column.key} className={`widget-cell-${column.key}`} scope="col" aria-sort={column.key === 'value' ? direction || 'none' : undefined}>{column.key === 'value' ? <button onClick={() => setDirection(current => current === 'descending' ? 'ascending' : 'descending')}>{column.label}{unit && <small>/{unit}</small>}<span aria-hidden="true">{direction === 'ascending' ? '↑' : '↓'}</span><span className="widget-sr-only">按数值{direction === 'descending' ? '升序' : '降序'}排列</span></button> : column.label}</th>)}</tr></thead><tbody>{sorted.map((row, i) => <tr key={row.code || `${row.name}-${row.time}-${i}`}>{visibleColumns.map((column, columnIndex) => {
     const value = ['value', 'target', 'value2'].includes(column.key) ? number(row[column.key], precision) : row[column.key] === null || row[column.key] === undefined || row[column.key] === '' ? '—' : String(row[column.key]);
@@ -139,7 +140,7 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
     const result = normalizeWidgetData(hasExternalData ? externalData : getWidgetData(config.source, code, index));
     if (result.value === null && result.rows.length === 1) result.value = result.rows[0].value;
     return result;
-  }, [externalData, hasExternalData, config.source, config.type, code, index]);
+  }, [externalData, hasExternalData, config.type, hasExternalData ? null : config.source, hasExternalData ? null : code, hasExternalData ? null : index]);
   const headingId = useId(), unit = config.unit ?? data.unit, rowCount = visibleRowCount(config.rowCount), precision = config.precision ?? 1;
   const numericRows = useMemo(() => data.rows.filter(row => row.value !== null), [data]);
   if (config.visible === false) return null;
