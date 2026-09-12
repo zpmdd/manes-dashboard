@@ -40,6 +40,20 @@ test('v2 往返保存保留画布图层顺序，返回独立的配置数据', ()
   assert.deepEqual(normalizeConfig(JSON.parse(JSON.stringify(DEFAULT_CONFIG))), DEFAULT_CONFIG);
 });
 
+test('MANES replaces only the former default brand across saved canvases and template imports', () => {
+  assert.equal(DEFAULT_CONFIG.brand, 'MANES');
+  for (const make of [draft, legacyDraft]) for (const oldBrand of ['NEXUS', 'Nexus', ' nexus ']) {
+    const original = make(); original.brand = oldBrand; original.title = '保留业务标题';
+    const before = structuredClone(original), result = normalizeConfig(original);
+    assert.equal(result.brand, 'MANES'); assert.equal(result.title, original.title);
+    assert.deepEqual(original, before); assert.deepEqual(parseTemplateFile(JSON.stringify(original)), result);
+    const key = original.version === 1 ? LEGACY_KEY : STORAGE_KEY;
+    withStorage({ getItem: current => current === key ? JSON.stringify(original) : null, setItem: () => assert.fail('loading must not rewrite storage') }, () => assert.deepEqual(loadConfig(), result));
+  }
+  for (const custom of ['用户品牌', 'Nexus East', 'Manes工作室']) assert.equal(normalizeConfig({ ...draft(), brand: custom }).brand, custom);
+  for (const invalid of [null, '<MANES>', '', 123]) assert.throws(() => normalizeConfig({ ...draft(), brand: invalid }), /品牌名称/);
+});
+
 test('二十种组件可动态添加、删除与重排，达到 40 个时停止添加', () => {
   assert.equal(MODULE_TYPES.length, 20);
   const config = draft();

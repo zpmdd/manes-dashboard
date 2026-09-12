@@ -17,7 +17,7 @@
 .dashboard{height:100dvh;grid-template-rows:calc(98 * var(--u)) minmax(0,1fr)}
 .sidebar{display:flex;flex-direction:column;gap:calc(10 * var(--u));padding:calc(16 * var(--u)) calc(8 * var(--u)) calc(8 * var(--u));border-radius:calc(26 * var(--u));background:linear-gradient(130deg,#24222a70,#3c343923);backdrop-filter:blur(18px) saturate(.7);-webkit-backdrop-filter:blur(18px) saturate(.7);box-shadow:inset 1px 1px 1px #ffffff1a,7px 9px 30px #18132015}
 .brand{display:flex;align-items:center;gap:calc(12 * var(--u));padding:0 calc(12 * var(--u));min-height:calc(46 * var(--u));font:calc(12 * var(--u)) Michroma,sans-serif;min-width:0}
-.brand>svg{width:calc(30 * var(--u));height:calc(30 * var(--u));flex-shrink:0;color:#eee8d1;filter:drop-shadow(0 0 4px #f4f0d342)}
+.brand>img{width:calc(40 * var(--u));height:calc(40 * var(--u));object-fit:contain;flex-shrink:0;border-radius:calc(8 * var(--u));filter:drop-shadow(0 0 4px #f4f0d326)}
 .brand>span:not(.brand-status){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.brand-status{margin-left:auto;font:calc(6 * var(--u)) Manrope,sans-serif;letter-spacing:1px;color:#f4edd0a0}
 .sidebar-widgets{display:grid;grid-auto-rows:minmax(0,1fr);flex:1;min-height:0;gap:calc(9 * var(--u))}
 .sidebar-widgets>.dashboard-widget{background:linear-gradient(125deg,#3c363d55,#37323a28);border-color:#e8dfd02b;box-shadow:inset 1px 1px 1px #ffffff12}

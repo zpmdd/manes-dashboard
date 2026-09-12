@@ -45,7 +45,7 @@ export const MODULE_TYPES = [
 
 const LEGACY_CONFIG = {
   version: 1,
-  brand: 'NEXUS',
+  brand: 'MANES',
   title: '全域运行监测中心',
   mapTitle: '区域运行态势',
   navLabels: ['运行总览', '数据监测', '交通网络', '区域管理'],
@@ -74,6 +74,11 @@ function text(value, max, label, optional = false) {
   if ((!optional && !result) || result.length > max) throw new Error(`${label}${optional ? '最多' : '需填写 1–'}${max} 个字`);
   if (/[<>\u0000-\u001f\u007f]/.test(result) || /(?:javascript\s*:|data\s*:\s*text\/html)/i.test(result)) throw new Error(`${label}仅支持纯文字`);
   return result;
+}
+
+function brand(value) {
+  const result = text(value, 16, '品牌名称');
+  return /^nexus$/i.test(result) ? 'MANES' : result;
 }
 
 function normalizeLegacy(raw) {
@@ -106,7 +111,7 @@ function normalizeLegacy(raw) {
   });
   return {
     version: 1,
-    brand: text(raw.brand, 16, '品牌名称'),
+    brand: brand(raw.brand),
     title: text(raw.title, 36, '大屏标题'),
     mapTitle: text(raw.mapTitle, 24, '地图标题'),
     navLabels: raw.navLabels.map(label => text(label, 8, '导航名称')),
@@ -208,7 +213,7 @@ export function normalizeConfig(raw) {
       layout: layout(item.layout), locked: flag(item.locked, '锁定开关'), surface: item.surface,
       binding: { sourceId: item.binding.sourceId, fields: normalizedFields }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值'), precision, chartOptions };
   });
-  const config = { version: 2, brand: text(raw.brand, 16, '品牌名称'), title: text(raw.title, 36, '大屏标题'), mapTitle: text(raw.mapTitle, 24, '地图标题'),
+  const config = { version: 2, brand: brand(raw.brand), title: text(raw.title, 36, '大屏标题'), mapTitle: text(raw.mapTitle, 24, '地图标题'),
     navLabels: raw.navLabels.map(label => text(label, 8, '导航名称')), showClock: flag(raw.showClock, '时钟开关'),
     canvas: { snap: flag(canvas.snap, '网格开关'), grid: range(canvas.grid, .5, 5, '网格步长'), magnet: flag(canvas.magnet, '磁吸开关'), threshold: range(canvas.threshold, 2, 16, '磁吸距离') },
     map: { layout: layout(raw.map.layout), visible: flag(raw.map.visible, '地图开关'), locked: flag(raw.map.locked, '地图锁定') }, modules, dataSources };

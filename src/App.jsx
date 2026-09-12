@@ -1,5 +1,5 @@
 import { Component, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { SlidersHorizontal, ArrowLeft, ArrowRight, ArrowUpRight, ArrowsOut, Atom, CaretDown, CaretRight, CircleNotch, Compass, Info, Lightning, MapTrifold, Minus, Plus, Stack, WifiHigh } from '@phosphor-icons/react';
+import { SlidersHorizontal, ArrowLeft, ArrowRight, ArrowUpRight, ArrowsOut, CaretDown, CaretRight, CircleNotch, Compass, Info, Lightning, MapTrifold, Minus, Plus, Stack, WifiHigh } from '@phosphor-icons/react';
 import '@fontsource/michroma/latin-400.css';
 import '@fontsource/manrope/latin-400.css';
 import '@fontsource/manrope/latin-500.css';
@@ -177,7 +177,7 @@ export function App() {
     {editing && <aside className={`editor-library-pane ${sidePanel === 'library' ? 'is-open' : ''}`}><PanelErrorBoundary title="组件库"><Suspense fallback={<p role="status">正在加载组件库…</p>}><ComponentLibrary onAdd={type => { editor.add(type); setSidePanel('inspector'); }}/></Suspense></PanelErrorBoundary><section className="editor-layer-list" aria-label="图层列表"><h3>画布图层</h3>{[{ ...config.map, id: 'map', title: config.mapTitle }, ...config.modules].map(item => <button key={item.id} onClick={event => { editor.select(item.id, { toggle: event.shiftKey || event.metaKey || event.ctrlKey }); setSidePanel('inspector'); }} aria-pressed={editor.selectedIds.includes(item.id)}><span>{item.title || '未命名组件'}</span><small>{item.locked ? '锁定' : !item.visible ? '隐藏' : ''}</small></button>)}</section></aside>}
     <div className="dashboard-viewport"><main className="dashboard free-dashboard" ref={main}>
     <div className={`world-backdrop ${loading ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene data={loaded.data} roadData={loaded.roads} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined} sceneSize={sceneSize}/></Suspense></MapErrorBoundary>}</div>
-    <div className="brand canvas-brand"><Atom weight="fill"/><span>{config.brand}</span></div>
+    <div className="brand canvas-brand"><img src="/brand/manes-mark.png" width="48" height="48" alt="" decoding="async"/><span>{config.brand}</span></div>
     <header className="topbar">
       <div className="screen-title"><h1 title={config.title}>{config.title}</h1><span>{dataLabel}</span></div>
       <div className="header-tools">{config.showClock && <DashboardClock/>}<IconButton label="全屏显示" onClick={fullScreen}><ArrowsOut/></IconButton><button className="configure-button" onClick={editor.start} disabled={editor.editing}><SlidersHorizontal/><span>编辑大屏</span></button></div>

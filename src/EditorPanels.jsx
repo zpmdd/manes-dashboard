@@ -174,7 +174,7 @@ export function TemplatePanel({ config, onLoad, onClose }) {
   const download = () => run(() => {
     const content = serializeTemplate(config);
     const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'nexus-dashboard-template.json'; link.click();
+    const link = document.createElement('a'); link.href = url; link.download = 'manes-dashboard-template.json'; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000); setNotice('已导出当前画布配置');
   });
   const importFile = async event => {
