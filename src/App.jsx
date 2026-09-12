@@ -77,12 +77,13 @@ export function App() {
   const [index, setIndex] = useState(null);
   const [code, setCode] = useState(/^#\d{6}$/.test(location.hash) ? location.hash.slice(1) : NATIONAL);
   const [loaded, setLoaded] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(''), [retry, setRetry] = useState(0);
+  const activeCode = config.map.visible && loaded ? loaded.code : index?.[code] ? code : NATIONAL;
   const [dialog, setDialog] = useState(null), [layers, setLayers] = useState(DEFAULT_LAYERS), [quality, setQuality] = useState('high'), [mode, setMode] = useState('overview');
   const [hover, setHover] = useState(''), [command, setCommand] = useState({ type: 'reset', sequence: 0 }), [telemetry, setTelemetry] = useState({});
   const main = useRef(), stage = useRef(), measureRef = useRef(null), telemetryRef = useRef({});
   const previewMapLayout = useCallback(() => measureRef.current?.(), []);
   const usedSources = useMemo(() => config.dataSources.filter(source => config.modules.some(item => (item.visible || editing) && !['text', 'clock'].includes(item.type) && item.binding.sourceId === source.id)), [config.dataSources, config.modules, editing]);
-  const { results, refresh } = useDataSources(usedSources, loaded?.code || NATIONAL);
+  const { results, refresh } = useDataSources(usedSources, activeCode);
   const selection = editor.selected === 'map' ? config.map : config.modules.find(item => item.id === editor.selected);
   const customCount = config.modules.filter(item => item.visible && !['text', 'clock'].includes(item.type) && item.binding.sourceId !== 'demo').length;
   const demoCount = config.modules.filter(item => item.visible && !['text', 'clock'].includes(item.type) && item.binding.sourceId === 'demo').length;
@@ -104,7 +105,7 @@ export function App() {
     if (sample.error) setTelemetry(sample);
   }, []);
   const showInfo = () => { setTelemetry(telemetryRef.current); setDialog('info'); };
-  const scope = index?.[loaded?.code || code], path = index ? lineage(loaded?.code || code, index) : [];
+  const scope = index?.[activeCode], path = index ? lineage(activeCode, index) : [];
   const sendCommand = useCallback(type => setCommand(s => ({ type, sequence: s.sequence + 1 })), []);
   useEffect(() => { if (config.map.visible) void loadMapScene().catch(() => {}); }, [config.map.visible]);
   useEffect(() => {
@@ -113,6 +114,7 @@ export function App() {
     return () => abort.abort();
   }, [retry]);
   useEffect(() => {
+    if (!config.map.visible) { setLoaded(null); setLoading(false); setError(''); setHover(''); return; }
     if (!index) return;
     const abort = new AbortController(), entry = index[code];
     setLoading(true); setError('');
@@ -120,12 +122,13 @@ export function App() {
     const regionFile = entry.hasChildren || code === NATIONAL ? code : entry.parent;
     const roadFile = code === NATIONAL ? '/data/roads-overview.json' : code === '420381' ? '/data/roads-420381.json' : `/data/roads/${code}.json`;
     Promise.all([fetchJson(`/data/regions/${regionFile}.json`, abort.signal), fetchJson(roadFile, abort.signal)]).then(([data, roads]) => {
+      if (abort.signal.aborted) return;
       if (!entry.hasChildren && code !== NATIONAL) data = { ...data, features: data.features.filter(f => String(f.properties.adcode) === code) };
       if (!data.features.length) throw new Error('当前离线包缺少这个区域的边界');
       setLoaded({ code, data, roads }); setLoading(false); setHover(''); sendCommand('reset');
-    }).catch(e => { if (e.name !== 'AbortError') { setError(e.message); setLoading(false); } });
+    }).catch(e => { if (!abort.signal.aborted && e.name !== 'AbortError') { setError(e.message); setLoading(false); } });
     return () => abort.abort();
-  }, [index, code, retry, sendCommand]);
+  }, [index, code, retry, sendCommand, config.map.visible]);
   useEffect(() => { const change = () => setCode(/^#\d{6}$/.test(location.hash) ? location.hash.slice(1) : NATIONAL); window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change); }, []);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3500); return () => clearTimeout(t); } }, [toast]);
   useEffect(() => { document.title = `${config.brand} · ${config.title}`; }, [config.brand, config.title]);
@@ -184,13 +187,13 @@ export function App() {
       {error && <div className="load-error" role="alert"><strong>{error}</strong><div><button onClick={() => setRetry(n => n + 1)}>重试</button><button onClick={() => navigate(NATIONAL)}>返回全国</button></div></div>}
       <div className="map-bottom"><div className="map-legend">{layers.roads && <span><i className="legend-line"/>道路网络</span>}{layers.beacons && <span><i className="legend-dot"/>监测节点</span>}{layers.heat && <span>态势热力</span>}</div><button onClick={showInfo}>{loaded?.code === '420381' ? '© OpenStreetMap contributors' : 'DataV.GeoAtlas · Natural Earth'}<Info size={11}/></button></div>
     </section></CanvasItem>}
-    {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}><BoundWidget item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={loaded?.code || NATIONAL} index={index} onNavigate={navigateWidget}/></CanvasItem>)}
+    {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}><BoundWidget item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={activeCode} index={index} onNavigate={navigateWidget}/></CanvasItem>)}
     {editing && <div className="canvas-guides" aria-hidden="true">{editor.guides.map(guide => <i key={guide.axis} className={`canvas-guide guide-${guide.axis}`} style={guide.axis === 'x' ? { left: `${guide.position}%`, top: `${guide.from}%`, height: `${guide.to - guide.from}%` } : { top: `${guide.position}%`, left: `${guide.from}%`, width: `${guide.to - guide.from}%` }}/>)}</div>}
     </div>
-    {dialog === 'regions' && index && <RegionPicker index={index} code={loaded?.code || NATIONAL} onNavigate={navigate} onClose={() => setDialog(null)}/>}
+    {dialog === 'regions' && index && <RegionPicker index={index} code={activeCode} onNavigate={navigate} onClose={() => setDialog(null)}/>}
     {dialog === 'layers' && <LayerPanel layers={layers} setLayers={setLayers} quality={quality} setQuality={setQuality} detail={loaded?.code === '420381'} onClose={() => setDialog(null)}/>}
     {dialog === 'templates' && <Suspense fallback={<div className="toast" role="status">正在加载模板库…</div>}><TemplatePanel config={config} onLoad={next => editor.change(next)} onClose={() => setDialog(null)}/></Suspense>}
-    {dialog === 'sources' && <Suspense fallback={<div className="toast" role="status">正在加载数据源管理…</div>}><DataSourcePanel sources={config.dataSources} code={loaded?.code || NATIONAL} onChange={applySources} onCreateComponent={createFromSource} onClose={() => setDialog(null)}/></Suspense>}
+    {dialog === 'sources' && <Suspense fallback={<div className="toast" role="status">正在加载数据源管理…</div>}><DataSourcePanel sources={config.dataSources} code={activeCode} onChange={applySources} onCreateComponent={createFromSource} onClose={() => setDialog(null)}/></Suspense>}
     {dialog === 'config' && <Suspense fallback={<div className="toast" role="status">正在加载全局设置…</div>}><ConfigPanel config={config} onApply={applyConfig} onClose={() => setDialog(null)}/></Suspense>}
     {dialog === 'info' && <Dialog title="数据与性能" subtitle="DATA & RENDERING" onClose={() => setDialog(null)} wide><div className="info-columns"><section><h3>数据来源</h3><p>行政区边界复用 Daoyan 本地 GeoJSON，原始来源为 DataV.GeoAtlas。全国省界来自同源公开数据。</p><p>全国道路为 Natural Earth 1:10m 概化干线，不能据此判断完整高速、国道覆盖。丹江口样区使用已有 OSM 道路数据，保留 G70、G59、G209 等编号。</p><p>业务组件按配置使用示例、静态 JSON/CSV 或 HTTP 接口数据；自定义数据失败时显示错误或延迟状态。地图光柱、连线和热力仍为演示内容。边界源未声明坐标系，尚未完成与 WGS84 道路的精确坐标验收。</p><div className="source-links"><a href="https://datav.aliyun.com/portal/school/atlas/area_selector" target="_blank" rel="noreferrer">DataV.GeoAtlas<ArrowUpRight/></a><a href="https://www.naturalearthdata.com/downloads/10m-cultural-vectors/roads/" target="_blank" rel="noreferrer">Natural Earth<ArrowUpRight/></a><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors · ODbL<ArrowUpRight/></a></div></section><section><h3>渲染状态</h3><dl className="render-stats"><div><dt>渲染方式</dt><dd>按需绘制</dd></div><div><dt>当前质量</dt><dd>{quality === 'high' ? '质感优先' : '流畅优先'}</dd></div><div><dt>像素比</dt><dd>{telemetry.dpr || '—'}</dd></div><div><dt>每帧绘制调用</dt><dd>{telemetry.calls ?? '—'}</dd></div><div><dt>每帧提交三角面</dt><dd>{telemetry.triangles?.toLocaleString() ?? '—'}</dd></div><div><dt>已分配几何体</dt><dd>{telemetry.geometries ?? '—'}</dd></div><div><dt>绘制帧计数</dt><dd data-testid="render-frame">{telemetry.frames ?? '—'}</dd></div><div><dt>相机 / 缩放</dt><dd data-testid="camera-state">{telemetry.camera || '—'} / {telemetry.zoom || '—'}</dd></div></dl><p className="fineprint">读数为打开面板或刷新时的快照，包含反射等渲染通道；帧计数不变表示地图停止绘制。此处不代替目标设备帧率验收。</p><button className="text-button" onClick={() => setTelemetry(telemetryRef.current)}>刷新渲染读数<ArrowRight/></button><button className="text-button" onClick={() => setDialog('layers')}>调整渲染质量<ArrowRight/></button></section></div></Dialog>}
     {(toast || telemetry.error) && <div className="toast" role="status">{toast || telemetry.error}</div>}

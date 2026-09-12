@@ -5,6 +5,8 @@ import { act, Component, createElement, lazy, Profiler, Suspense } from 'react';
 import { createRoot, extend, getRootState } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createServer, transformWithEsbuild } from 'vite';
+import { createDataSourceController, validateSourceUrl } from '../src/dataSources.js';
+import { lineage } from '../src/geo.js';
 
 // Exercise the real R3F components without a browser or a GPU render loop.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -104,6 +106,93 @@ try {
 
   // Run the actual lazy loader, visibility guard and outer error boundary in R3F's React renderer.
   const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  // Exercise App's actual region selection/effect with deferred map reads and the real source controller.
+  const activeCodeSource = appSource.split('\n').find(line => line.includes('const activeCode = '));
+  const scopeSource = appSource.split('\n').find(line => line.includes('const scope = '));
+  const dataSourceCall = appSource.split('\n').find(line => line.includes('= useDataSources('));
+  assert(activeCodeSource && scopeSource && dataSourceCall, 'App must expose one shared business region');
+  for (const component of ['BoundWidget', 'RegionPicker', 'DataSourcePanel']) {
+    assert.match(appSource, new RegExp(`<${component}\\b[^>]*\\bcode=\\{activeCode\\}`), `${component} must receive the shared region`);
+  }
+  const readBusiness = new Function('context', 'lineage', 'useDataSources', `const { config, loaded, index, code, usedSources } = context, NATIONAL = '100000'; ${activeCodeSource}\n${scopeSource}\n${dataSourceCall}\nreturn { activeCode, scope, path };`);
+  const geoStart = appSource.lastIndexOf('  useEffect(() => {', appSource.indexOf('    const regionFile = '));
+  const geoEnd = appSource.indexOf('\n  useEffect(() => { const change = ', geoStart);
+  assert(geoStart >= 0 && geoEnd > geoStart, 'The real GeoJSON effect must be available for the regression');
+  const runGeo = new Function('context', 'useEffect', 'fetchJson', 'setLoaded', 'setLoading', 'setError', 'setHover', 'sendCommand', `const { config, index, code, retry } = context, NATIONAL = '100000'; ${appSource.slice(geoStart, geoEnd)}`);
+  const sourceCalls = [], geoReads = [], mapCommands = [];
+  const businessSources = ['fixed', 'region'].map(id => ({ id: `ds_${id}`, name: id, type: 'http', url: id === 'region' ? '/api/region?adcode={adcode}' : '/api/fixed', content: '', rowsPath: '', refreshSeconds: 0 }));
+  const regionIndex = { '100000': { name: '中国', hasChildren: true }, '420000': { name: '湖北省', parent: '100000', hasChildren: true }, '430000': { name: '湖南省', parent: '100000', hasChildren: true } };
+  const geoState = { config: { map: { visible: false } }, index: null, code: '100000', loaded: null, loading: true, error: 'old error', hover: 'old hover', retry: 0, usedSources: businessSources };
+  const sourceController = createDataSourceController({ onChange() {}, loader: async (source, code) => {
+    sourceCalls.push(validateSourceUrl(source.url, code, 'https://example.test/'));
+    return [{ name: code, value: 1 }];
+  } });
+  const business = () => readBusiness(geoState, lineage, (sources, code) => { sourceController.reconcile(sources, code); return {}; });
+  const fetchGeo = (path, signal) => new Promise((resolve, reject) => geoReads.push({ path, signal, resolve, reject }));
+  const sendMapCommand = type => mapCommands.push(type);
+  let geoCleanup, geoDependencies;
+  const changeGeo = patch => {
+    Object.assign(geoState, patch); business();
+    runGeo(geoState, (effect, dependencies) => {
+      if (geoDependencies && dependencies.every((value, i) => Object.is(value, geoDependencies[i]))) return;
+      geoCleanup?.(); geoDependencies = dependencies; geoCleanup = effect();
+    }, fetchGeo, value => { geoState.loaded = value; business(); }, value => { geoState.loading = value; }, value => { geoState.error = value; }, value => { geoState.hover = value; }, sendMapCommand);
+    return business();
+  };
+  const settleGeo = async reads => {
+    for (const request of reads) request.resolve({ type: 'FeatureCollection', features: request.path.includes('/regions/') ? [{ properties: { adcode: request.path.match(/(\d+)\.json$/)[1] } }] : [] });
+    await new Promise(resolve => setImmediate(resolve));
+  };
+  const regionCalls = () => sourceCalls.filter(url => url.includes('/api/region?')).map(url => new URL(url).searchParams.get('adcode'));
+  try {
+    changeGeo({}); changeGeo({ index: regionIndex });
+    assert.equal(geoReads.length, 0, 'A hidden national dashboard must fetch neither GeoJSON nor roads');
+    assert.equal(geoState.loading, false); assert.equal(geoState.error, ''); assert.equal(geoState.hover, '');
+    const initialRegion = changeGeo({ code: '420000' });
+    assert.equal(initialRegion.scope.name, '湖北省'); assert.equal(initialRegion.path.at(-1).code, '420000');
+    assert.equal(regionCalls().at(-1), '420000', 'Hidden regional sources must use the validated target without waiting for a map');
+    assert.equal(geoReads.length, 0);
+    changeGeo({ config: { map: { visible: true } } });
+    assert.deepEqual(geoReads.map(read => read.path), ['/data/regions/420000.json', '/data/roads/420000.json']);
+    await settleGeo(geoReads.slice(-2));
+    assert.equal(geoState.loaded.code, '420000');
+
+    changeGeo({ config: { map: { visible: false } } });
+    assert.equal(geoState.loaded, null, 'Hiding must discard the old map so showing cannot restore an obsolete region');
+    changeGeo({ code: '430000' });
+    assert.equal(geoReads.length, 2); assert.equal(regionCalls().at(-1), '430000');
+    const beforeShow = [...regionCalls()];
+    changeGeo({ config: { map: { visible: true } } });
+    assert.equal(business().activeCode, '430000'); assert.equal(geoState.loaded, null);
+    assert.deepEqual(regionCalls(), beforeShow, 'Showing must not request the previously displayed region again');
+    await settleGeo([geoReads.at(-2)]); geoReads.at(-1).reject(new Error('Road file unavailable'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(geoState.loaded, null); assert.equal(geoState.loading, false); assert.equal(geoState.error, 'Road file unavailable');
+    assert.equal(business().activeCode, '430000', 'A failed map must not invalidate the independent business region');
+    assert.deepEqual(regionCalls(), beforeShow);
+    changeGeo({ retry: 1 });
+    await settleGeo(geoReads.slice(-2));
+    assert.equal(geoState.loaded.code, '430000'); assert.deepEqual(regionCalls(), beforeShow);
+
+    changeGeo({ code: '420000' });
+    assert.equal(business().activeCode, '430000', 'A visible map keeps business data in its displayed region while the next region loads');
+    assert.deepEqual(regionCalls(), beforeShow);
+    await settleGeo(geoReads.slice(-2));
+    assert.equal(geoState.loaded.code, '420000'); assert.equal(regionCalls().at(-1), '420000');
+
+    changeGeo({ code: '430000' });
+    const lateReads = geoReads.slice(-2), commandsBeforeHide = mapCommands.length, readsBeforeHide = geoReads.length;
+    changeGeo({ config: { map: { visible: false } } });
+    assert(lateReads.every(read => read.signal.aborted), 'Hiding must run the effect cleanup for both outstanding map reads');
+    assert.equal(geoReads.length, readsBeforeHide); assert.equal(business().activeCode, '430000');
+    await settleGeo(lateReads); // Deliberately resolve despite abort to exercise App's stale-result guard.
+    assert.equal(geoState.loaded, null); assert.equal(geoState.loading, false); assert.equal(geoState.error, '');
+    assert.equal(mapCommands.length, commandsBeforeHide, 'Late map results must not restore the map or reset its camera');
+    assert.deepEqual(regionCalls(), ['100000', '420000', '430000', '420000', '430000']);
+    assert.equal(sourceCalls.filter(url => url.endsWith('/api/fixed')).length, 1, 'Fixed sources must survive every visibility and region change');
+    assert.equal(changeGeo({ code: '999999' }).activeCode, '100000', 'An unknown target must not become a business region');
+  } finally { geoCleanup?.(); sourceController.dispose(); }
+  console.log('PASS: hidden maps skip Geo/roads; business regions remain correct across hide/show; visible transitions stay synchronized and canceled results cannot restore a map.');
   const measureSource = appSource.slice(appSource.indexOf('const measure = () => {'), appSource.indexOf('    measureRef.current = measure;'));
   let measuredSize = { width: 0, height: 0 };
   const backdrop = { getBoundingClientRect: () => ({ width: 2560, height: 1205 }) };
