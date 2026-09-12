@@ -300,6 +300,71 @@ try {
   assert(reportedErrors.includes(chunkFailure) && reportedErrors.includes(renderFailure));
   assert(reportedErrors.every(error => [failure, chunkFailure, renderFailure].includes(error)), 'Only intentional caught errors may be reported');
   console.log('PASS: real React chart import/render failures preserve map and metric siblings; explicit reload and ordinary/type-key recovery work.');
+
+  // Keep real editor state and toolbar callbacks while each optional panel import rejects.
+  const [editorSource, editorConfig, layout] = await Promise.all([
+    readFile(new URL('../src/DashboardEditor.jsx', import.meta.url), 'utf8'), import('../src/dashboardConfig.js'), import('../src/layout.js'),
+  ]);
+  const editorRuntime = { ...layout, ...editorConfig, h: widgetH, useState: React.useState, useReducer: React.useReducer, useCallback: React.useCallback, useEffect: React.useEffect,
+    loadConfig: () => structuredClone(editorConfig.DEFAULT_CONFIG), saveConfig: editorConfig.normalizeConfig,
+    window: { addEventListener() {}, removeEventListener() {}, confirm: () => true }, document: { querySelector: () => null },
+    ...Object.fromEntries(['ArrowCounterClockwise', 'ArrowClockwise', 'Check', 'Copy', 'Database', 'Eye', 'FloppyDisk', 'GridFour', 'SlidersHorizontal', 'SquaresFour', 'X'].map(name => [name, () => null])),
+  };
+  const { code: editorCode } = await transformWithEsbuild(editorSource.slice(editorSource.indexOf('export function useDashboardEditor('), editorSource.indexOf('export function CanvasItem(')).replaceAll('export function', 'function'), 'EditorState.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false });
+  const { useDashboardEditor, EditorToolbar } = new Function(...Object.keys(editorRuntime), `${editorCode}; return { useDashboardEditor, EditorToolbar };`)(...Object.values(editorRuntime));
+  const panelBoundarySource = appSource.slice(appSource.indexOf('class PanelErrorBoundary '), appSource.indexOf('const BoundWidget = '));
+  const { code: panelBoundaryCode } = await transformWithEsbuild(panelBoundarySource, 'PanelErrorBoundary.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false });
+  // Dialog's native focus/close behavior is browser-tested; this host forwards its real onClose.
+  const PanelDialog = ({ title, onClose, children }) => createElement('group', { name: 'failed-panel-dialog', userData: { title } }, createElement('group', { name: 'close-panel-dialog', onClick: onClose }), children);
+  const PanelBoundary = new Function('Component', 'h', 'Dialog', 'location', `${panelBoundaryCode}; return PanelErrorBoundary;`)(Component, widgetH, PanelDialog, { reload: () => reloads++ });
+  const panelNames = ['ComponentLibrary', 'ComponentInspector', 'TemplatePanel', 'DataSourcePanel', 'ConfigPanel'];
+  const panelLoaderSource = appSource.slice(appSource.indexOf('const ComponentLibrary = '), appSource.indexOf('const DEFAULT_LAYERS = ')).replace(/import\('[^']+'\)/g, 'load()');
+  const makePanels = new Function('lazy', 'load', `${panelLoaderSource}; return { ${panelNames.join(', ')} };`);
+  const panelBranches = appSource.match(/<PanelErrorBoundary\b[\s\S]*?<\/PanelErrorBoundary>/g);
+  assert.equal(panelBranches?.length, 5, 'Every optional editor panel must have its own local boundary');
+  const panelErrors = [];
+  for (const name of panelNames) {
+    const panelFailure = new Error(`${name} chunk unavailable`); panelErrors.push(panelFailure);
+    let panelLoads = 0, editorState, openPanel;
+    const panels = makePanels(lazy, () => { panelLoads++; return Promise.reject(panelFailure); });
+    const branch = panelBranches.find(branch => branch.includes(`<${name} `));
+    assert(branch, `${name} must be inside the boundary`);
+    const { code: panelBranchCode } = await transformWithEsbuild(`const panel = ${branch};`, 'PanelBranch.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false });
+    const renderPanel = new Function('h', 'PanelErrorBoundary', 'Suspense', ...panelNames, 'editor', 'setDialog', `const config = editor.config, selection = config.modules[0], results = {}, activeCode = '100000'; const setSidePanel = () => {}, applySources = () => {}, createFromSource = () => {}, applyConfig = () => {}; ${panelBranchCode}; return panel;`);
+    function PanelProbe() {
+      editorState = useDashboardEditor(() => {});
+      const [opened, setOpened] = React.useState(false); openPanel = () => setOpened(true);
+      return createElement(React.Fragment, null,
+        createElement('group', { name: 'panel-map', key: 'map' }, createElement(WorldProbe)),
+        createElement(RejectedWidget, { key: 'metric', config: { id: 'metric', type: 'metric', title: '保留指标' }, data: metricData }),
+        editorState.editing && createElement(EditorToolbar, { editor: editorState, onDialog: () => {} }),
+        editorState.editing && opened && renderPanel(widgetH, PanelBoundary, Suspense, ...Object.values(panels), editorState, value => setOpened(Boolean(value))),
+      );
+    }
+    await act(async () => root.render(createElement(PanelProbe)));
+    await act(async () => editorState.start());
+    await act(async () => editorState.change({ ...editorState.config, title: `未保存-${name}` }));
+    const draft = editorState.config, mapBefore = scene.getObjectByName('panel-map'), meshBefore = mapBefore.children[0], toolbarBefore = scene.getObjectByName('editor-toolbar');
+    await act(async () => openPanel());
+    assert(editorState.dirty); assert.strictEqual(editorState.config, draft, 'Panel failure cannot replace or save the draft');
+    assert.strictEqual(scene.getObjectByName('panel-map'), mapBefore); assert.strictEqual(mapBefore.children[0], meshBefore);
+    assert.strictEqual(scene.getObjectByName('editor-toolbar'), toolbarBefore, 'Save/cancel toolbar must remain mounted');
+    assert.equal(scene.getObjectByName('editor-layer-list')?.userData.role, 'alert');
+    assert.equal(panelLoads, 1); assert.equal(reloads, 1, 'Panel failure must not reload the page automatically');
+    if (['TemplatePanel', 'DataSourcePanel', 'ConfigPanel'].includes(name)) {
+      assert(scene.getObjectByName('failed-panel-dialog'));
+      await act(async () => scene.getObjectByName('close-panel-dialog').__r3f.handlers.onClick());
+      assert.equal(scene.getObjectByName('failed-panel-dialog'), undefined);
+      assert.strictEqual(editorState.config, draft); assert(editorState.dirty, 'Closing the failure dialog must retain unsaved work');
+    } else assert.equal(scene.getObjectByName('failed-panel-dialog'), undefined, 'Side-panel failures stay inline');
+    await act(async () => toolbarBefore.getObjectByName('editor-primary').__r3f.handlers.onClick());
+    assert.equal(editorState.editing, false); assert.equal(editorState.dirty, false);
+    assert.equal(editorState.config.title, draft.title, 'The actual toolbar can still save the original draft');
+    assert.equal(panelLoads, 1);
+  }
+  assert(panelErrors.every(error => reportedErrors.includes(error)));
+  assert(reportedErrors.every(error => [failure, chunkFailure, renderFailure, ...panelErrors].includes(error)));
+  console.log('PASS: five optional panel failures preserve real editor drafts, map and toolbar; failed dialogs close and the toolbar still saves.');
 } finally {
   await act(async () => root.unmount());
   await vite.close();
