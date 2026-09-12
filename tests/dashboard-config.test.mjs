@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CONFIG_FILE_LIMIT, DEFAULT_CONFIG, MODULE_TYPES, SOURCES, STORAGE_KEY, createModule, loadConfig, normalizeConfig, saveConfig } from '../src/dashboardConfig.js';
+import { parseTemplateFile, readTemplates, saveTemplate, serializeTemplate } from '../src/templateLibrary.js';
 
 const draft = () => structuredClone(DEFAULT_CONFIG);
 const LEGACY_KEY = 'nexus.dashboard.config.v1';
@@ -101,6 +102,26 @@ test('自定义数据绑定可保存字段映射、汇总方式及目标值', ()
   assert.throws(() => normalizeConfig(config), /表格列/);
   config.modules[0].columns = structuredClone(SOURCES.devices.columns);
   assert.equal(normalizeConfig(config).modules[0].binding.sourceId, 'demo');
+});
+
+test('小数位数兼容旧配置并在画布保存、模板和 JSON 往返中保留 0', () => {
+  for (const type of MODULE_TYPES) assert.equal(createModule(type.id).precision, 1);
+  assert.deepEqual(normalizeConfig(legacyDraft()), DEFAULT_CONFIG);
+  const old = draft(); old.modules.forEach(item => delete item.precision);
+  assert.deepEqual(parseTemplateFile(JSON.stringify(old)), DEFAULT_CONFIG);
+  const config = draft(); config.modules.forEach((item, index) => { item.precision = index % 4; });
+  const values = new Map(), storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  withStorage(storage, () => {
+    assert.deepEqual(saveConfig(config), config);
+    assert.deepEqual(loadConfig(), config);
+    assert.deepEqual(parseTemplateFile(serializeTemplate(config)), config);
+    saveTemplate('精度配置', config, storage);
+    assert.deepEqual(readTemplates(storage)[0].config, config);
+  });
+  for (const precision of [-1, 4, 1.5, '2', null, undefined, NaN, Infinity, true]) {
+    const invalid = draft(); invalid.modules[0].precision = precision;
+    assert.throws(() => normalizeConfig(invalid), /小数位数/);
+  }
 });
 
 test('损坏、危险文字、未知字段与不兼容组件拒绝导入', () => {

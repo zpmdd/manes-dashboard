@@ -125,7 +125,7 @@ function upgrade(config) {
   return { ...config, version: 2, canvas: { snap: true, grid: 1, magnet: true, threshold: 6 },
     map: { layout: { x: 20, y: 0, w: 80, h: 74 }, visible: true, locked: false }, dataSources: [],
     modules: config.modules.map((item, i) => ({ ...item, layout: { ...DEFAULT_LAYOUTS[i] }, locked: false,
-      surface: i === 2 ? 'solid' : 'glass', binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: '', target: 100, chartOptions: { ...DEFAULT_CHART_OPTIONS } })),
+      surface: i === 2 ? 'solid' : 'glass', binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: '', target: 100, precision: 1, chartOptions: { ...DEFAULT_CHART_OPTIONS } })),
   };
 }
 export const DEFAULT_CONFIG = upgrade(LEGACY_CONFIG);
@@ -139,7 +139,7 @@ export function createModule(typeId, existing = []) {
   return { id: `w_${crypto.randomUUID()}`, title: type.label, subtitle: '', type: type.id, source,
     unit: SOURCES[source].unit, visible: true, locked: false, rowCount: typeId === 'scatter' ? 30 : ['multiLine', 'stacked', 'heatmap', 'treemap'].includes(typeId) ? 8 : 5, columns: SOURCES[source].columns.map(column => ({ ...column })),
     layout: { x: 24 + offset, y: 12 + offset, w: 28, h: 32 }, surface: 'glass',
-    binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: typeId === 'text' ? '请输入公告内容' : '', target: 100, chartOptions: { ...DEFAULT_CHART_OPTIONS, ...(typeId === 'combo' ? { primaryName: '设备数', secondaryName: '在线率', secondaryUnit: '%' } : typeId === 'scatter' ? { xName: '负载 (%)', yName: '时延 (ms)' } : {}) } };
+    binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: typeId === 'text' ? '请输入公告内容' : '', target: 100, precision: 1, chartOptions: { ...DEFAULT_CHART_OPTIONS, ...(typeId === 'combo' ? { primaryName: '设备数', secondaryName: '在线率', secondaryUnit: '%' } : typeId === 'scatter' ? { xName: '负载 (%)', yName: '时延 (ms)' } : {}) } };
 }
 
 function flag(value, label) { if (typeof value !== 'boolean') throw new Error(`${label}格式不正确`); return value; }
@@ -178,8 +178,10 @@ export function normalizeConfig(raw) {
   if (!Array.isArray(raw.modules) || raw.modules.length > 40) throw new Error('最多配置 40 个组件');
   const seen = new Set();
   const modules = raw.modules.map(item => {
-    object(item, [...moduleKeys, 'layout', 'locked', 'surface', 'binding', 'aggregate', 'text', 'target', ...(Object.hasOwn(item, 'chartOptions') ? ['chartOptions'] : [])], '组件');
+    object(item, [...moduleKeys, 'layout', 'locked', 'surface', 'binding', 'aggregate', 'text', 'target', ...['chartOptions', 'precision'].filter(key => Object.hasOwn(item, key))], '组件');
     const chartOptions = normalizeChartOptions(item.chartOptions);
+    const precision = Object.hasOwn(item, 'precision') ? item.precision : 1;
+    if (!Number.isInteger(precision) || precision < 0 || precision > 3) throw new Error('小数位数需为 0–3 的整数');
     if (typeof item.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(item.id) || item.id === 'map' || seen.has(item.id)) throw new Error('组件标识不正确或重复');
     seen.add(item.id);
     const type = MODULE_TYPES.find(entry => entry.id === item.type);
@@ -204,7 +206,7 @@ export function normalizeConfig(raw) {
     return { id: item.id, title: text(item.title, 20, '组件标题'), subtitle: text(item.subtitle, 40, '副标题', true),
       type: item.type, source: item.source, visible: flag(item.visible, '显示开关'), unit: text(item.unit, 8, '单位', true), rowCount: item.rowCount, columns,
       layout: layout(item.layout), locked: flag(item.locked, '锁定开关'), surface: item.surface,
-      binding: { sourceId: item.binding.sourceId, fields: normalizedFields }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值'), chartOptions };
+      binding: { sourceId: item.binding.sourceId, fields: normalizedFields }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值'), precision, chartOptions };
   });
   const config = { version: 2, brand: text(raw.brand, 16, '品牌名称'), title: text(raw.title, 36, '大屏标题'), mapTitle: text(raw.mapTitle, 24, '地图标题'),
     navLabels: raw.navLabels.map(label => text(label, 8, '导航名称')), showClock: flag(raw.showClock, '时钟开关'),

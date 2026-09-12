@@ -22,7 +22,7 @@ function Metric({ data, unit, precision }) {
 function Gauge({ data, unit, title, target, precision }) {
   const id = useId(), progress = progressValues(data.value, target);
   return <div className="widget-gauge">
-    <svg viewBox="0 0 220 186" role="img" aria-label={`${title} ${number(data.value, precision)}${unit}，量程 ${number(progress.target)}${unit}`}>
+    <svg viewBox="0 0 220 186" role="img" aria-label={`${title} ${number(data.value, precision)}${unit}，量程 ${number(progress.target, precision)}${unit}`}>
       <defs><linearGradient id={id} x1="0" x2="1" y1="0" y2="1"><stop stopColor="#fff2cd"/><stop offset="1" stopColor="#bfbca6" stopOpacity=".35"/></linearGradient></defs>
       {Array.from({ length: 37 }, (_, i) => {
         const angle = (135 + i * 7.5) * Math.PI / 180;
@@ -32,7 +32,7 @@ function Gauge({ data, unit, title, target, precision }) {
       <circle className="widget-gauge-arc" cx="110" cy="99" r="72" fill="none" stroke={`url(#${id})`} strokeWidth="17" pathLength="100" strokeDasharray={`${progress.fill * .75} 100`} transform="rotate(135 110 99)"/>
       <text x="110" y="104" textAnchor="middle" className="widget-gauge-number" style={{ fontSize: number(data.value, precision).length > 7 ? 19 : undefined }}>{number(data.value, precision)}<tspan className="widget-gauge-unit">{unit}</tspan></text>
       <text x="110" y="124" textAnchor="middle" className="widget-gauge-label">{data.scope?.slice(0, 16)}</text>
-      <text x="41" y="176" className="widget-gauge-label">0</text><text x="179" y="176" textAnchor="end" className="widget-gauge-label">{number(progress.target)}</text>
+      <text x="41" y="176" className="widget-gauge-label">0</text><text x="179" y="176" textAnchor="end" className="widget-gauge-label">{number(progress.target, precision)}</text>
     </svg>
   </div>;
 }
@@ -85,10 +85,10 @@ function DonutChart({ rows, unit, rowCount, title, onNavigate, precision }) {
     <circle cx="85" cy="85" r="62" fill="none" stroke="#eee7d816" strokeWidth="18"/>
     {segments.map((row, i) => {
       const share = row.value / total * 100, start = offset; offset += share;
-      return <circle key={`${row.name}-${i}`} cx="85" cy="85" r="62" fill="none" stroke={PALETTE[i % PALETTE.length]} strokeWidth="18" pathLength="100" strokeDasharray={`${Math.max(.05, share - .65)} ${100 - Math.max(.05, share - .65)}`} strokeDashoffset={-start} transform="rotate(-90 85 85)"><title>{`${row.name}：${number(row.value, precision)} ${unit}（${number(share)}%）`}</title></circle>;
+      return <circle key={`${row.name}-${i}`} cx="85" cy="85" r="62" fill="none" stroke={PALETTE[i % PALETTE.length]} strokeWidth="18" pathLength="100" strokeDasharray={`${Math.max(.05, share - .65)} ${100 - Math.max(.05, share - .65)}`} strokeDashoffset={-start} transform="rotate(-90 85 85)"><title>{`${row.name}：${number(row.value, precision)} ${unit}（${number(share, precision)}%）`}</title></circle>;
     })}
     <text x="85" y="86" textAnchor="middle" className="widget-donut-total" style={{ fontSize: number(total, precision).length > 7 ? 14 : undefined }}>{number(total, precision)}</text><text x="85" y="105" textAnchor="middle" className="widget-gauge-label">合计{unit && ` / ${unit}`}</text>
-  </svg><ul className="widget-donut-legend">{segments.map((row, i) => <li key={`${row.name}-${i}`}><i style={{ background: PALETTE[i % PALETTE.length] }} aria-hidden="true"/>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} title={row.name}>{row.name}</button> : <span title={row.name}>{row.name}</span>}<strong title={`${number(row.value, precision)} ${unit}`}>{number(row.value / total * 100)}%</strong></li>)}</ul></div>;
+  </svg><ul className="widget-donut-legend">{segments.map((row, i) => <li key={`${row.name}-${i}`}><i style={{ background: PALETTE[i % PALETTE.length] }} aria-hidden="true"/>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} title={row.name}>{row.name}</button> : <span title={row.name}>{row.name}</span>}<strong title={`${number(row.value, precision)} ${unit}`}>{number(row.value / total * 100, precision)}%</strong></li>)}</ul></div>;
 }
 
 function DataTable({ rows, columns, unit, rowCount, title, onNavigate, precision }) {

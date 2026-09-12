@@ -87,6 +87,16 @@ test('all twelve components render real supplied data and failed connections nev
   const server = await createServer({ configFile: false, appType: 'custom', server: { middlewareMode: true, watch: null, hmr: false, ws: false }, esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true, include: [] } });
   try {
     const { DashboardWidget } = await server.ssrLoadModule('/src/DashboardWidget.jsx');
+    const { ComponentInspector } = await server.ssrLoadModule('/src/EditorPanels.jsx');
+    const { MODULE_TYPES, DEFAULT_CONFIG, createModule } = await server.ssrLoadModule('/src/dashboardConfig.js');
+    const basicTypes = ['metric', 'gauge', 'line', 'area', 'bar', 'column', 'donut', 'table', 'progress', 'status'];
+    for (const precision of [0, 2]) for (const { id: type } of [...MODULE_TYPES, { id: 'map' }]) {
+      const item = { ...(type === 'map' ? DEFAULT_CONFIG.map : createModule(type)), precision };
+      const html = renderToStaticMarkup(createElement(ComponentInspector, { item, isMap: type === 'map' }));
+      const select = html.match(/<span>最多小数位<\/span><select>(.*?)<\/select>/)?.[1];
+      if (basicTypes.includes(type)) assert.ok(select?.includes(`<option value="${precision}" selected="">`), `${type} selects precision ${precision}`);
+      else assert.doesNotMatch(html, /最多小数位/, `${type} has no basic numeric precision control`);
+    }
     const config = { id: 'external-test', title: '测试组件', source: 'devices', type: 'metric', rowCount: 8, unit: '台', target: 100, text: '<script>alert(1)</script>\n第二行', columns: [{ key: 'name', label: '项目' }, { key: 'value', label: '数值' }, { key: 'status', label: '状态' }] };
     const data = { rows: [{ name: '实际项目甲', value: 12, status: '正常', time: '09:00' }, { name: '实际项目乙', value: 30, status: '待处理', time: '10:00' }], value: 42, scope: '实际范围' };
     const render = (type, props = {}) => renderToStaticMarkup(createElement(DashboardWidget, { config: { ...config, type }, code: '100000', index: { '100000': { name: '中国' } }, data, dataState: { status: 'ready' }, ...props }));
@@ -125,6 +135,16 @@ test('all twelve components render real supplied data and failed connections nev
     assert.equal((zeroTable.match(/<td class="widget-cell-(?:x|y|value2)" title="0">0<\/td>/g) || []).length, 3, 'Coordinates and secondary metric retain a valid numeric zero');
     const decimalTable = render('table', { data: { rows: [{ name: '精度', value2: 1234.567 }] }, config: { ...config, type: 'table', precision: 2, columns: [{ key: 'value2', label: '辅助指标' }] } });
     assert.match(decimalTable, /title="1,234.57">1,234.57<\/td>/);
+    for (const [precision, value, target, shares] of [[0, '12', '100', ['33', '67']], [2, '12.35', '100.46', ['33.33', '66.67']]]) {
+      const gauge = render('gauge', { data: { value: 12.345, rows: [] }, config: { ...config, type: 'gauge', precision, target: 100.456 } });
+      assert.ok(gauge.includes(`aria-label="测试组件 ${value}台，量程 ${target}台"`));
+      assert.ok(gauge.includes(`class="widget-gauge-label">${target}</text>`));
+      const donut = render('donut', { data: { rows: [{ name: '甲', value: 1 }, { name: '乙', value: 2 }] }, config: { ...config, type: 'donut', precision } });
+      for (const share of shares) {
+        assert.ok(donut.includes(`（${share}%）</title>`));
+        assert.ok(donut.includes(`>${share}%</strong>`));
+      }
+    }
     for (const [values, ticks] of [[[0.002, 0.008], ['0', '0.004', '0.008']], [[-0.003, 0.005], ['-0.003', '0.001', '0.005']], [[0.0005, 0.001], ['0', '0.0005', '0.001']], [[2e-6, 8e-6], ['0', '4E-6', '8E-6']], [[2e12, 8e12], ['0', '4E12', '8E12']]]) {
       const html = render('line', { data: { rows: values.map((value, i) => ({ name: `点${i}`, value })) } });
       const axisLabels = [...html.matchAll(/class="widget-chart-grid".*?<text[^>]*>([^<]+)<\/text>/g)].map(match => match[1]);
