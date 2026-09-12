@@ -1,10 +1,9 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Component, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { SlidersHorizontal, ArrowLeft, ArrowRight, ArrowUpRight, ArrowsOut, Atom, CaretDown, CaretRight, CircleNotch, Compass, Info, Lightning, MapTrifold, Minus, Plus, Stack, WifiHigh } from '@phosphor-icons/react';
 import '@fontsource/michroma/latin-400.css';
 import '@fontsource/manrope/latin-400.css';
 import '@fontsource/manrope/latin-500.css';
 import '@fontsource/manrope/latin-600.css';
-import { MapScene } from './MapScene';
 import { Dialog, IconButton, LayerPanel, RegionPicker } from './MapPanels';
 import { DashboardWidget } from './DashboardWidget';
 import { createModule, DEFAULT_CHART_OPTIONS, normalizeConfig } from './dashboardConfig';
@@ -12,6 +11,9 @@ import { CanvasItem, EditorToolbar, useDashboardEditor } from './DashboardEditor
 import { useDataSources } from './useDataSources';
 import { getMappedData } from './dataSources';
 import { lineage, NATIONAL, polygons, shortName } from './geo';
+
+const loadMapScene = () => import('./MapScene').then(module => ({ default: module.MapScene }));
+const MapScene = lazy(loadMapScene);
 
 const ComponentLibrary = lazy(() => import('./EditorPanels').then(module => ({ default: module.ComponentLibrary })));
 const ComponentInspector = lazy(() => import('./EditorPanels').then(module => ({ default: module.ComponentInspector })));
@@ -42,6 +44,15 @@ function DashboardClock() {
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick); };
   }, []);
   return <time className="dashboard-clock" dateTime={now.toISOString()}><strong>{now.toLocaleTimeString('zh-CN', { hour12: false })}</strong><span>{now.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })}</span></time>;
+}
+
+class MapErrorBoundary extends Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) return <div className="map-error" role="alert"><strong>三维地图暂时无法显示</strong><p>请检查网络连接及浏览器硬件加速，或重新加载页面。</p><button onClick={() => location.reload()}>重新加载</button><small>{this.state.error.message}</small></div>;
+    return this.props.children;
+  }
 }
 
 const BoundWidget = memo(function BoundWidget({ item, result, refresh, code, index, onNavigate }) {
@@ -93,6 +104,7 @@ export function App() {
   const showInfo = () => { setTelemetry(telemetryRef.current); setDialog('info'); };
   const scope = index?.[loaded?.code || code], path = index ? lineage(loaded?.code || code, index) : [];
   const sendCommand = useCallback(type => setCommand(s => ({ type, sequence: s.sequence + 1 })), []);
+  useEffect(() => { if (config.map.visible) void loadMapScene().catch(() => {}); }, [config.map.visible]);
   useEffect(() => {
     const abort = new AbortController();
     fetchJson('/data/index.json', abort.signal).then(setIndex).catch(e => { if (e.name !== 'AbortError') { setError(e.message); setLoading(false); } });
@@ -149,7 +161,7 @@ export function App() {
     {editing && <div className="editor-mobile-tabs"><button onClick={() => setSidePanel('library')} aria-pressed={sidePanel === 'library'}>组件库</button><button onClick={() => setSidePanel('inspector')} aria-pressed={sidePanel === 'inspector'}>组件属性</button></div>}
     {editing && <aside className={`editor-library-pane ${sidePanel === 'library' ? 'is-open' : ''}`}><Suspense fallback={<p role="status">正在加载组件库…</p>}><ComponentLibrary onAdd={type => { editor.add(type); setSidePanel('inspector'); }}/></Suspense><section className="editor-layer-list" aria-label="图层列表"><h3>画布图层</h3>{[{ ...config.map, id: 'map', title: config.mapTitle }, ...config.modules].map(item => <button key={item.id} onClick={event => { editor.select(item.id, { toggle: event.shiftKey || event.metaKey || event.ctrlKey }); setSidePanel('inspector'); }} aria-pressed={editor.selectedIds.includes(item.id)}><span>{item.title || '未命名组件'}</span><small>{item.locked ? '锁定' : !item.visible ? '隐藏' : ''}</small></button>)}</section></aside>}
     <div className="dashboard-viewport"><main className="dashboard free-dashboard" ref={main}>
-    <div className={`world-backdrop ${loading ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}>{loaded && config.map.visible && <MapScene data={loaded.data} roadData={loaded.roads} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined}/>}</div>
+    <div className={`world-backdrop ${loading ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene data={loaded.data} roadData={loaded.roads} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined}/></Suspense></MapErrorBoundary>}</div>
     <div className="brand canvas-brand"><Atom weight="fill"/><span>{config.brand}</span></div>
     <header className="topbar">
       <div className="screen-title"><h1 title={config.title}>{config.title}</h1><span>{dataLabel}</span></div>

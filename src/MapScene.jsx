@@ -1,4 +1,4 @@
-import { Component, memo, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { addAfterEffect, Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, Environment, Html, Lightformer, Line, MeshReflectorMaterial, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
@@ -264,17 +264,8 @@ function World({ data, roadData, code, layers, selected, onSelect, onHover, comm
   </>;
 }
 
-class MapErrorBoundary extends Component {
-  state = { error: null };
-  static getDerivedStateFromError(error) { return { error }; }
-  render() {
-    if (this.state.error) return <div className="map-error" role="alert"><strong>三维地图暂时无法显示</strong><p>请检查浏览器硬件加速，或重新加载页面。</p><button onClick={() => location.reload()}>重新加载</button><small>{this.state.error.message}</small></div>;
-    return this.props.children;
-  }
-}
-
 export const MapScene = memo(function MapScene(props) {
-  return <MapErrorBoundary><Canvas shadows={{ type: THREE.PCFShadowMap }} frameloop="demand" dpr={props.quality === 'high' ? [1, 1.5] : 1} camera={{ position: CAMERA, fov: 34, near: .1, far: 200 }} gl={{ antialias: true, powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.shadowMap.autoUpdate = false; gl.shadowMap.needsUpdate = true; }} fallback={<span>三维行政区地图，可通过区域选择与视角按钮操作。</span>}>
+  return <Canvas shadows={{ type: THREE.PCFShadowMap }} frameloop="demand" dpr={props.quality === 'high' ? [1, 1.5] : 1} camera={{ position: CAMERA, fov: 34, near: .1, far: 200 }} gl={{ antialias: true, powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.shadowMap.autoUpdate = false; gl.shadowMap.needsUpdate = true; }} fallback={<span>三维行政区地图，可通过区域选择与视角按钮操作。</span>}>
     <Suspense fallback={null}><World {...props} /></Suspense>
-  </Canvas></MapErrorBoundary>;
+  </Canvas>;
 });

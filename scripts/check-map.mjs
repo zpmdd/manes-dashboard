@@ -1,15 +1,19 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { act, createElement, Profiler } from 'react';
+import { readFile } from 'node:fs/promises';
+import { act, Component, createElement, lazy, Profiler, Suspense } from 'react';
 import { createRoot, extend } from '@react-three/fiber';
 import * as THREE from 'three';
-import { createServer } from 'vite';
+import { createServer, transformWithEsbuild } from 'vite';
 
 // Exercise the real R3F components without a browser or a GPU render loop.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 extend(THREE);
 const vite = await createServer({ root: fileURLToPath(new URL('../', import.meta.url)), configFile: false, server: { middlewareMode: true }, esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true }, logLevel: 'error' });
+const reportedErrors = [], previousReporter = globalThis.reportError;
+globalThis.reportError = error => reportedErrors.push(error);
 const root = createRoot({});
+if (previousReporter === undefined) delete globalThis.reportError; else globalThis.reportError = previousReporter;
 try {
   const { RegionMesh, fitMapViewport } = await vite.ssrLoadModule('/src/MapScene.jsx');
   const bounds = new THREE.Box3(new THREE.Vector3(-5, 0, -8), new THREE.Vector3(11, .38, 2));
@@ -74,6 +78,54 @@ try {
   await act(async () => { first.__r3f.handlers.onPointerOver(event()); first.__r3f.handlers.onPointerOut(); });
   assert.equal(first.material[0].color.getHexString(), 'e0d3a8', 'Selected regions stay highlighted after pointer exit');
   console.log('PASS: hover isolation, material reuse, region selection, drag guard and selected highlighting.');
+
+  // Run the actual lazy loader, visibility guard and outer error boundary in R3F's React renderer.
+  const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const loaderSource = appSource.slice(appSource.indexOf('const loadMapScene = '), appSource.indexOf('const ComponentLibrary = ')).replace("import('./MapScene')", 'load()');
+  const makeLazy = new Function('lazy', 'load', `${loaderSource}; return { MapScene, loadMapScene };`);
+  const preloadSource = appSource.split('\n').find(line => line.includes('void loadMapScene()'));
+  assert(preloadSource, 'Visible maps must preload independently of GeoJSON readiness');
+  const preload = new Function('useEffect', 'config', 'loadMapScene', preloadSource);
+  const boundarySource = appSource.slice(appSource.indexOf('class MapErrorBoundary '), appSource.indexOf('const BoundWidget = '));
+  const mapBranch = appSource.match(/\{(loaded && config\.map\.visible && [^\n]+?)\}<\/div>/)?.[1];
+  assert(mapBranch, 'The canvas must remain conditional on loaded data and map visibility');
+  const [{ code: boundaryCode }, { code: branchCode }] = await Promise.all([
+    transformWithEsbuild(boundarySource, 'MapErrorBoundary.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false }),
+    transformWithEsbuild(`const branch = ${mapBranch};`, 'MapBranch.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false }),
+  ]);
+  // HTML tags become inert groups only in this check; React still owns Suspense and error handling.
+  const h = (type, props, ...children) => typeof type === 'string'
+    ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
+    : createElement(type, props, ...children);
+  const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, setHover, command, quality, captureTelemetry, viewport } = context; ${branchCode}; return branch;`);
+  const context = { loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
+  let loads = 0, received;
+  const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
+  preload(effect => effect(), context.config, loadedMap.loadMapScene);
+  await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
+  assert.equal(loads, 0, 'Hidden maps must neither preload nor render the engine');
+  const loadedData = context.loaded; context.loaded = null; context.config.map.visible = true;
+  preload(effect => effect(), context.config, loadedMap.loadMapScene);
+  assert.equal(loads, 1, 'Visible maps must start the engine before GeoJSON completes');
+  await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
+  assert.equal(scene.children.length, 0, 'The scene still waits for GeoJSON before mounting');
+  context.loaded = loadedData;
+  await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
+  assert(scene.getObjectByName('loaded-map'));
+  assert.strictEqual(received.data, context.loaded.data); assert.strictEqual(received.roadData, context.loaded.roads);
+  assert.strictEqual(received.viewport, context.viewport); assert.strictEqual(received.layers, context.layers);
+  assert.strictEqual(received.command, context.command); assert.equal(received.quality, 'high');
+  await act(async () => root.render(null));
+  const failure = new Error('Map chunk unavailable'), failedMap = makeLazy(lazy, () => Promise.reject(failure));
+  preload(effect => effect(), context.config, failedMap.loadMapScene);
+  await new Promise(resolve => setImmediate(resolve)); // An unhandled preload rejection would fail this Node process.
+  await act(async () => root.render(renderMap(h, Boundary, Suspense, failedMap.MapScene, context)));
+  assert(scene.getObjectByName('map-error'), 'Chunk failures must reach the original outer error UI');
+  assert.equal(scene.getObjectByName('map-error').userData.role, 'alert');
+  assert.equal(scene.getObjectByName('small').userData.text, failure.message);
+  assert(reportedErrors.length && reportedErrors.every(error => error === failure), 'React must report only the expected caught import failure');
+  console.log('PASS: hidden maps skip engine loading; visible preloads preserve props; chunk failures reach the original error boundary.');
 } finally {
   await act(async () => root.unmount());
   await vite.close();
