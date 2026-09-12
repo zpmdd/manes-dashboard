@@ -178,7 +178,7 @@ test('polling states retain normalized data references while status, replacement
     normalizeWidgetData: raw => { normalizations++; return normalizeWidgetData(raw); },
     getWidgetData: (...args) => { snapshots++; return getWidgetData(...args); },
     h: (type, props, ...children) => ({ type, props: props || {}, children }),
-    ...Object.fromEntries(['EmptyState', 'Suspense', 'ProfessionalChart', 'Metric', 'Gauge', 'TrendChart', 'BarChart', 'DonutChart', 'DataTable', 'Progress', 'StatusGrid', 'Clock'].map(name => [name, name])),
+    ...Object.fromEntries(['EmptyState', 'ChartErrorBoundary', 'Suspense', 'ProfessionalChart', 'Metric', 'Gauge', 'TrendChart', 'BarChart', 'DonutChart', 'DataTable', 'Progress', 'StatusGrid', 'Clock'].map(name => [name, name])),
   };
   const Component = new Function(...Object.keys(runtime), `${code}; return DashboardWidget;`)(...Object.values(runtime));
   const props = { config: { id: 'polling', type: 'multiLine', title: '轮询趋势', source: 'devices', rowCount: 5 }, code: '100000', index: { '100000': { name: '中国' } }, onRefresh: () => { refreshes++; } };

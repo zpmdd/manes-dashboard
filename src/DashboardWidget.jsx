@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useId, useMemo, useState } from 'react';
+import { Component, lazy, memo, Suspense, useEffect, useId, useMemo, useState } from 'react';
 import { chartDomain, donutRows, formatWidgetNumber as number, formatAxisNumber, getWidgetData, normalizeWidgetData, PROFESSIONAL_TYPES, progressValues, sortTableRows, statusTone, visibleRowCount } from './widgetData.js';
 import { DATA_FIELDS } from './dataSources.js';
 import './widgets.css';
@@ -6,6 +6,15 @@ import './widgets.css';
 const PALETTE = ['#f1e8c5', '#cbc8b0', '#afaeb0', '#938a97', '#726d7c', '#d2bda1', '#bfa7a8', '#b3bec1', '#9aab9c', '#848978'];
 const COLUMN_KEYS = new Set(DATA_FIELDS);
 const ProfessionalChart = lazy(() => import('./ProfessionalChart.jsx'));
+
+class ChartErrorBoundary extends Component {
+  state = { error: false };
+  static getDerivedStateFromError() { return { error: true }; }
+  render() {
+    if (this.state.error) return <div className="widget-empty" role="alert"><span>图表暂时无法显示</span><p className="widget-error-reason">请检查网络连接后重新加载页面。</p><button onClick={() => location.reload()}>重新加载页面</button></div>;
+    return this.props.children;
+  }
+}
 
 function EmptyState({ message = '暂无数据', detail, onRefresh }) {
   return <div className="widget-empty" role="status"><span>{message}</span>{detail && <p className="widget-error-reason">{detail}</p>}{onRefresh && <button onClick={onRefresh}>重新加载</button>}</div>;
@@ -154,7 +163,7 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
   if (config.type === 'text') body = config.text ? <div className="widget-text" tabIndex="0">{config.text}</div> : <EmptyState message="暂无公告"/>;
   else if (config.type === 'clock') body = <Clock/>;
   else if (!hasData) body = <EmptyState message={hasError ? '数据暂不可用' : loading ? '正在加载' : data.emptyMessage || '暂无数据'} detail={hasError ? errorMessage : undefined} onRefresh={hasError ? onRefresh : undefined}/>;
-  else if (professional) body = <Suspense fallback={<EmptyState message="正在加载图表"/>}><ProfessionalChart config={config} data={data} onNavigate={onNavigate}/></Suspense>;
+  else if (professional) body = <ChartErrorBoundary key={config.type}><Suspense fallback={<EmptyState message="正在加载图表"/>}><ProfessionalChart config={config} data={data} onNavigate={onNavigate}/></Suspense></ChartErrorBoundary>;
   else if (config.type === 'metric') body = <Metric data={data} unit={unit} precision={precision}/>;
   else if (config.type === 'gauge') body = <Gauge data={data} unit={unit} title={config.title} target={config.target} precision={precision}/>;
   else if (['line', 'area', 'column'].includes(config.type)) body = <TrendChart rows={config.type === 'column' ? numericRows.slice(0, rowCount) : numericRows.slice(-rowCount)} unit={unit} title={config.title} type={config.type} precision={precision}/>;

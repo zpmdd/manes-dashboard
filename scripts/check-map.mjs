@@ -158,6 +158,59 @@ try {
   assert.equal(scene.getObjectByName('small').userData.text, failure.message);
   assert(reportedErrors.length && reportedErrors.every(error => error === failure), 'React must report only the expected caught import failure');
   console.log('PASS: hidden maps skip engine loading; visible preloads preserve props; chunk failures reach the original error boundary.');
+
+  // Reuse this real React root to exercise the complete widget and its lazy chart boundary.
+  const [widgetSource, React, widgetHelpers, { DATA_FIELDS }] = await Promise.all([
+    readFile(new URL('../src/DashboardWidget.jsx', import.meta.url), 'utf8'), import('react'), import('../src/widgetData.js'), import('../src/dataSources.js'),
+  ]);
+  const { code: widgetCode } = await transformWithEsbuild(widgetSource.slice(widgetSource.indexOf('const PALETTE = ')).replace("import('./ProfessionalChart.jsx')", 'load()').replace('export const DashboardWidget', 'const DashboardWidget'), 'DashboardWidget.jsx', { loader: 'jsx', jsxFactory: 'h', jsxFragment: 'Fragment', sourcemap: false });
+  const widgetH = (type, props, ...children) => h(type, typeof type === 'string' ? { key: props?.key, className: props?.className, role: props?.role, onClick: props?.onClick } : props, ...children);
+  const widgetRuntime = { ...widgetHelpers, DATA_FIELDS, number: widgetHelpers.formatWidgetNumber, Component, lazy, Suspense, h: widgetH, Fragment: React.Fragment, memo: React.memo, useEffect: React.useEffect, useId: React.useId, useMemo: React.useMemo, useState: React.useState };
+  let reloads = 0;
+  const makeWidget = load => new Function(...Object.keys(widgetRuntime), 'load', 'location', `${widgetCode}; return DashboardWidget;`)(...Object.values(widgetRuntime), load, { reload: () => reloads++ });
+  const chartData = { rows: [{ name: '真实点', value: 12 }], value: 12 }, metricData = { value: 42, rows: [] };
+  const widgetTree = (Widget, type) => createElement(React.Fragment, null,
+    createElement('group', { name: 'sibling-map', key: 'map' }, createElement(WorldProbe)),
+    createElement(Widget, { key: 'metric', config: { id: 'metric', type: 'metric', title: '保留指标' }, data: metricData }),
+    createElement(Widget, { key: 'chart', config: { id: 'chart', type, title: '专业图表' }, data: chartData }),
+  );
+  let rejectChunk, chartLoads = 0;
+  const chunkFailure = new Error('Professional chart chunk unavailable');
+  const RejectedWidget = makeWidget(() => { chartLoads++; return new Promise((_, reject) => { rejectChunk = reject; }); });
+  await act(async () => root.render(widgetTree(RejectedWidget, 'multiLine')));
+  const siblingMap = scene.getObjectByName('sibling-map'), siblingMesh = siblingMap.children[0];
+  const siblingMetric = scene.getObjectByName('dashboard-widget widget-type-metric widget-surface-glass');
+  await act(async () => rejectChunk(chunkFailure));
+  const chartError = scene.getObjectByName('widget-empty');
+  assert.equal(chartError?.userData.role, 'alert');
+  assert.strictEqual(scene.getObjectByName('sibling-map'), siblingMap);
+  assert.strictEqual(siblingMap.children[0], siblingMesh, 'A rejected chart chunk must not unmount its real map sibling');
+  assert.strictEqual(scene.getObjectByName('dashboard-widget widget-type-metric widget-surface-glass'), siblingMetric);
+  chartError.getObjectByName('button').__r3f.handlers.onClick();
+  assert.equal(reloads, 1, 'Recovery explicitly reloads the page rather than retrying a cached rejection');
+  assert.equal(chartLoads, 1);
+  await act(async () => root.render(widgetTree(RejectedWidget, 'text')));
+  assert.equal(scene.getObjectByName('widget-empty')?.userData.role, 'status', 'Changing to an ordinary widget leaves the chart boundary');
+  assert(scene.getObjectByName('dashboard-widget widget-type-text widget-surface-glass'));
+  assert.equal(chartLoads, 1, 'Changing widget types must not start an automatic import retry');
+
+  const renderFailure = new Error('Professional chart render failure');
+  let healthy = false;
+  const RenderWidget = makeWidget(async () => ({ default: ({ config }) => {
+    if (!healthy) throw renderFailure;
+    return createElement('group', { name: `loaded-chart-${config.type}` });
+  } }));
+  await act(async () => root.render(widgetTree(RenderWidget, 'radar')));
+  assert.equal(scene.getObjectByName('widget-empty')?.userData.role, 'alert');
+  healthy = true;
+  await act(async () => root.render(widgetTree(RenderWidget, 'radar')));
+  assert.equal(scene.getObjectByName('widget-empty')?.userData.role, 'alert', 'An unchanged failed type stays contained until explicit recovery');
+  await act(async () => root.render(widgetTree(RenderWidget, 'heatmap')));
+  assert(scene.getObjectByName('loaded-chart-heatmap'), 'Changing the type key clears the old rendering error');
+  assert.equal(scene.getObjectByName('widget-empty'), undefined);
+  assert(reportedErrors.includes(chunkFailure) && reportedErrors.includes(renderFailure));
+  assert(reportedErrors.every(error => [failure, chunkFailure, renderFailure].includes(error)), 'Only intentional caught errors may be reported');
+  console.log('PASS: real React chart import/render failures preserve map and metric siblings; explicit reload and ordinary/type-key recovery work.');
 } finally {
   await act(async () => root.unmount());
   await vite.close();
