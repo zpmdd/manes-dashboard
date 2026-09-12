@@ -11,3 +11,7 @@ Before making substantial visual changes, use the Product Design plugin's `get-c
 When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
 
 Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts/prepare-sites-build.mjs`, and `tests/sites-worker.test.mjs` intact so the same local prototype can be handed to Sites. Before a Sites handoff, run `npm run build` and `npm run test:sites`; the build must leave `dist/client/index.html`, `dist/server/index.js`, and `dist/.openai/hosting.json`.
+
+## 2026-09-12 精细化方向
+
+基线完成后，保留烟灰玻璃、暖白/香槟三维质感和离线地图能力；去掉营销标题、空泛介绍与主屏上的问题说明，采用常用监测大屏的指标、趋势、排行和事件表。各业务区使用可复用模块，支持文字、显示类型、数据源及表格列配置，并在当前浏览器持久化。性能优化优先隔离更新与复用，不以默认降画质、删反射、减几何精度换取性能。

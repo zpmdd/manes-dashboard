@@ -8,7 +8,8 @@
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
     "test:sites": "node --test tests/sites-worker.test.mjs",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "test": "node --test tests/dashboard-config.test.mjs tests/widget-data.test.mjs && node scripts/check-map.mjs"
   },
   "dependencies": {
     "@fontsource/manrope": "^5.3.0",

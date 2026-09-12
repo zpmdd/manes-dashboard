@@ -98,6 +98,16 @@ function Beacon({ position, height, name, label }) {
   </group>;
 }
 
+export const RegionMesh = memo(function RegionMesh({ region, selected, onSelect, onHover }) {
+  const [hover, setHover] = useState(false);
+  const { feature, geometry, color } = region;
+  const active = selected || hover;
+  return <mesh geometry={geometry} castShadow receiveShadow onPointerOver={e => { e.stopPropagation(); setHover(true); onHover(feature.properties.name); }} onPointerOut={() => { setHover(false); onHover(''); }} onClick={e => { if (e.delta > 5 || !feature.properties.name) return; e.stopPropagation(); onSelect(feature); }}>
+    <meshStandardMaterial attach="material-0" color={active ? '#e0d3a8' : color} roughness={.48} metalness={.28} fog={false} />
+    <meshStandardMaterial attach="material-1" color={active ? '#ac9771' : '#6b6667'} roughness={.65} metalness={.22} fog={false} />
+  </mesh>;
+});
+
 const heatFragment = `varying vec2 vUv; void main(){float d=length(vUv-0.5)*2.0; float a=pow(max(0.0,1.0-d),2.0)*0.4; gl_FragColor=vec4(1.0,0.70,0.32,a);}`;
 const heatVertex = `varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`;
 
@@ -110,7 +120,7 @@ function CameraControls({ command, onTelemetry, bounds }) {
     const usableWidth = narrow ? .92 : .79;
     let distance = Math.max(23, 16 / (usableWidth * .92 * 2 * Math.tan(17 * Math.PI / 180) * (size.width / size.height)));
     camera.zoom = 1;
-    camera.setViewOffset(size.width, size.height, narrow ? 0 : -size.width * .105, size.height * (narrow ? .10 : -.047), size.width, size.height);
+    camera.setViewOffset(size.width, size.height, narrow ? 0 : -size.width * .105, size.height * (narrow ? .10 : 0), size.width, size.height);
     const corners = [];
     for (const x of [bounds.min.x,bounds.max.x]) for (const y of [bounds.min.y,bounds.max.y]) for (const z of [bounds.min.z,bounds.max.z]) corners.push(new THREE.Vector3(x,y,z));
     // Fit the complete region in perspective, including its nearest corners.
@@ -118,7 +128,7 @@ function CameraControls({ command, onTelemetry, bounds }) {
       camera.position.copy(new THREE.Vector3(...CAMERA).normalize().multiplyScalar(distance));
       camera.lookAt(0,0,0); camera.updateMatrixWorld();
       const projected = corners.map(p => p.clone().project(camera));
-      if (projected.every(p => p.x >= (narrow ? -.9 : -.57) && p.x <= .93 && p.y >= -.58 && p.y <= .64)) break;
+      if (projected.every(p => p.x >= (narrow ? -.9 : -.57) && p.x <= .93 && p.y >= (narrow ? -.58 : -.486) && p.y <= (narrow ? .64 : .734))) break;
       distance *= 1.045;
     }
   };
@@ -168,7 +178,6 @@ function World({ data, roadData, code, layers, selected, onSelect, onHover, comm
   const national = code === NATIONAL;
   const model = useMemo(() => modelFor(data, national), [data, national]);
   const { gl, invalidate, size, setDpr } = useThree();
-  const [hover, setHover] = useState(null);
   const hubs = useMemo(() => national ? HUBS.map(h => {
     const [x, y] = model.project(h.point); return { ...h, position: [x, TOP + .035, -y] };
   }) : model.regions.filter(r => typeof r.feature.properties.adcode === 'number').slice(0, 8).map((r, i) => ({ name: shortName(r.feature.properties.name), position: r.anchor, height: .55 + (i % 3) * .27 })), [model, national]);
@@ -204,13 +213,7 @@ function World({ data, roadData, code, layers, selected, onSelect, onHover, comm
       {quality === 'high' ? <MeshReflectorMaterial resolution={512} blur={[140, 80]} mixBlur={1} mixStrength={1.9} mirror={.16} color="#57565f" metalness={.2} roughness={.85} depthScale={.8} minDepthThreshold={.4} maxDepthThreshold={1.4} /> : <meshStandardMaterial color="#57565f" roughness={.88} metalness={.1} />}
     </mesh>
     <ContactShadows key={code} position={[0, -.02, 0]} scale={35} opacity={.4} blur={2.5} far={4} resolution={512} frames={1} color="#27222a" />
-    {model.regions.map(({ feature, geometry, color }) => {
-      const id = String(feature.properties.adcode), active = id === selected || id === hover;
-      return <mesh key={id} geometry={geometry} castShadow receiveShadow onPointerOver={e => { e.stopPropagation(); setHover(id); onHover(feature.properties.name); }} onPointerOut={() => { setHover(null); onHover(''); }} onClick={e => { if (e.delta > 5 || !feature.properties.name) return; e.stopPropagation(); onSelect(feature); }}>
-        <meshStandardMaterial attach="material-0" color={active ? '#e0d3a8' : color} roughness={.48} metalness={.28} fog={false} />
-        <meshStandardMaterial attach="material-1" color={active ? '#ac9771' : '#6b6667'} roughness={.65} metalness={.22} fog={false} />
-      </mesh>;
-    })}
+    {model.regions.map(region => <RegionMesh key={`${code}-${region.feature.properties.adcode}`} region={region} selected={String(region.feature.properties.adcode) === selected} onSelect={onSelect} onHover={onHover} />)}
     <lineSegments geometry={model.edgeGeometry}><lineBasicMaterial color="#ede7d3" transparent opacity={.56} /></lineSegments>
     {layers.roads && <Roads data={roadData} project={model.project} layers={layers} detail={code === '420381'} />}
     {layers.arcs && arcs.map((p, i) => <Line key={i} points={p} color="#f5e3b9" transparent opacity={.55} lineWidth={1} depthWrite={false} />)}
