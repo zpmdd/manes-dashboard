@@ -593,6 +593,47 @@ async function dataSourcePanelHarness(sources) {
   };
 }
 
+test('data-file imports preserve newer edits, selections and reads while current imports still validate and infer fields', async () => {
+  const makePanel = () => dataSourcePanelHarness([source({ id: 'ds_first', content: '[{"name":"原数据","value":1}]' }), source({ id: 'ds_second', content: '[{"name":"第二源","value":2}]' })]);
+  const file = () => { const pending = Promise.withResolvers(); return { name: 'data.json', size: 100, text: () => pending.promise, ...pending }; };
+  const contents = name => JSON.stringify([{ name, value: 0 }]);
+  const upload = (panel, selected) => panel.find(node => node.type === 'input' && node.props.type === 'file').onChange({ target: { files: [selected], value: 'selected' } });
+  const current = panel => panel.find(node => node.type === 'textarea').value;
+  const preview = panel => panel.nodes().find(node => node.props?.className === 'ds-preview');
+  const errors = panel => panel.nodes().filter(node => node.props?.role === 'alert').flatMap(node => node.children);
+  for (const newestFirst of [false, true]) {
+    const panel = await makePanel(), old = file(), latest = file();
+    const oldRead = upload(panel, old), latestRead = upload(panel, latest);
+    if (newestFirst) { latest.resolve(contents('新文件')); await latestRead; old.resolve(contents('旧文件')); await oldRead; }
+    else { old.resolve(contents('旧文件')); await oldRead; assert.equal(current(panel), '[{"name":"原数据","value":1}]'); latest.resolve(contents('新文件')); await latestRead; }
+    assert.equal(current(panel), contents('新文件')); assert.ok(preview(panel)); assert.deepEqual(errors(panel), []);
+  }
+  for (const action of ['edit', 'read', 'choose']) {
+    const panel = await makePanel(), old = file(), reading = upload(panel, old);
+    if (action === 'edit') panel.find(node => node.type === 'textarea').onChange({ target: { value: contents('手工修改') } });
+    if (action === 'read') await panel.read();
+    if (action === 'choose') { panel.choose('ds_second'); panel.choose('ds_first'); }
+    const before = current(panel), hadPreview = Boolean(preview(panel));
+    old.resolve(contents('迟到文件')); await reading;
+    assert.equal(current(panel), before, `${action} supersedes a pending file on the same source`);
+    assert.equal(Boolean(preview(panel)), hadPreview); assert.deepEqual(errors(panel), []);
+  }
+  for (const action of ['choose', 'dispose', 'new-file']) {
+    const panel = await makePanel(), old = file(), reading = upload(panel, old);
+    if (action === 'choose') panel.choose('ds_second');
+    if (action === 'dispose') panel.dispose();
+    if (action === 'new-file') { const latest = file(), next = upload(panel, latest); latest.resolve(contents('保留当前预览')); await next; }
+    old.reject(new Error('过期文件读取失败')); await reading;
+    assert.deepEqual(errors(panel), [], `${action} suppresses an obsolete file error`);
+  }
+  const panel = await makePanel(), csv = file(); csv.name = 'data.csv';
+  const reading = upload(panel, csv); csv.resolve('name,value\n文件接入,0'); await reading;
+  assert.equal(current(panel), 'name,value\n文件接入,0'); assert.ok(preview(panel));
+  assert.equal(panel.field('主数值').value, 'value');
+  const broken = file(), invalid = upload(panel, broken); broken.resolve('{broken'); await invalid;
+  assert.match(errors(panel).join(''), /有效 JSON/); assert.equal(current(panel), 'name,value\n文件接入,0');
+});
+
 test('real data-source panel selectors create the chosen combo and reset overrides only when source data changes', async () => {
   const financial = [{ region: '华东', revenue: 0, cost: 5 }, { region: '华北', revenue: 12, cost: 0 }];
   const standard = [{ region: '华南', value: 0, value2: 3 }];

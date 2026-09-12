@@ -160,16 +160,16 @@ function TemplateThumbnail({ config }) {
 
 export function TemplatePanel({ config, onLoad, onClose }) {
   const [templates, setTemplates] = useState([]), [name, setName] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState('');
-  const dialog = useRef(null), fileInput = useRef(null), opener = useRef(document.activeElement);
+  const dialog = useRef(null), fileInput = useRef(null), opener = useRef(document.activeElement), importVersion = useRef(0);
   const [builtins] = useState(getBuiltinTemplates);
   useEffect(() => {
     const element = dialog.current, previous = opener.current;
     if (!element.open) element.showModal();
     try { setTemplates(readTemplates()); } catch (issue) { setError(issue.message); }
-    return () => { element.close(); if (previous?.isConnected) previous.focus(); };
+    return () => { importVersion.current++; element.close(); if (previous?.isConnected) previous.focus(); };
   }, []);
   const run = action => { setError(''); setNotice(''); try { action(); } catch (issue) { setError(issue.message); } };
-  const load = next => run(() => { if (onLoad(normalizeConfig(next)) === false) throw new Error('模板未载入，请检查画布配置'); onClose(); });
+  const load = next => { importVersion.current++; run(() => { if (onLoad(normalizeConfig(next)) === false) throw new Error('模板未载入，请检查画布配置'); onClose(); }); };
   const save = event => { event.preventDefault(); run(() => { setTemplates(saveTemplate(name, config)); setName(''); setNotice('当前画布已存为模板'); }); };
   const download = () => run(() => {
     const content = serializeTemplate(config);
@@ -180,13 +180,14 @@ export function TemplatePanel({ config, onLoad, onClose }) {
   const importFile = async event => {
     const file = event.target.files?.[0]; event.target.value = '';
     if (!file) return;
+    const version = ++importVersion.current;
     setError(''); setNotice('');
     try {
       if (!file.name.toLowerCase().endsWith('.json')) throw new Error('请选择 JSON 配置文件');
       if (file.size > CONFIG_FILE_LIMIT) throw new Error(`配置文件不能超过 ${Math.round(CONFIG_FILE_LIMIT / 1024)} KB`);
-      const next = parseTemplateFile(await file.text());
-      if (dialog.current?.open) load(next);
-    } catch (issue) { setError(issue.message); }
+      const content = await file.text();
+      if (dialog.current?.open && importVersion.current === version) load(parseTemplateFile(content));
+    } catch (issue) { if (dialog.current?.open && importVersion.current === version) setError(issue.message); }
   };
   return <dialog ref={dialog} className="ep-template-dialog" aria-labelledby="ep-template-title" onCancel={event => { event.preventDefault(); onClose(); }}>
     <header className="ep-template-heading"><div><span className="ep-kicker">TEMPLATE LIBRARY</span><h2 id="ep-template-title">模板库</h2></div><button type="button" className="ep-icon-button" aria-label="关闭模板库" onClick={onClose}><X size={20}/></button></header>

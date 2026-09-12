@@ -65,18 +65,21 @@ export function DataSourcePanel({ sources = [], onChange, onClose, code = '10000
     const file = event.target.files?.[0]; event.target.value = '';
     if (!file) return;
     const target = selected;
+    resetFeedback(false);
+    const controller = new AbortController(); request.current = controller;
     try {
       const type = file.name.toLowerCase().endsWith('.csv') ? 'csv' : file.name.toLowerCase().endsWith('.json') ? 'json' : null;
       if (!type) throw new Error('请选择 .json 或 .csv 数据文件');
       if (file.size > DATA_SIZE_LIMIT) throw new Error('数据文件不能超过 1 MB');
       const content = await file.text();
-      if (!dialog.current?.open || selectedRef.current !== target) return;
+      if (!dialog.current?.open || selectedRef.current !== target || request.current !== controller || controller.signal.aborted) return;
       const analysis = analyzeDataContent(content, type);
-      resetFeedback();
+      resetFields();
       setDraft(current => current.map(item => item.id === target ? { ...item, type, content, url: '', rowsPath: analysis.rowsPath || '', refreshSeconds: 0 } : item));
       setPreview({ ...analysis, content, contentType: type });
       setNotice(analysis.rows ? `已载入 ${file.name}，识别 ${analysis.rows.length} 行、${analysis.fields.length} 个字段。` : '发现多组数据，请选择要使用的数据列表。');
-    } catch (issue) { setError(issue.message); }
+    } catch (issue) { if (dialog.current?.open && request.current === controller && !controller.signal.aborted) setError(issue.message); }
+    finally { if (request.current === controller) request.current = null; }
   };
   const testSource = async (auto = false) => {
     resetFeedback(false);
