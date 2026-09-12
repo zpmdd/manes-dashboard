@@ -22,6 +22,7 @@ export function DataSourcePanel({ sources = [], onChange, onClose, code = '10000
   const dialog = useRef(), upload = useRef(), request = useRef(), opener = useRef(document.activeElement);
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const source = draft.find(item => item.id === selected);
+  const sourceRegion = source?.type === 'http' && source.url.includes('{adcode}') ? code : null;
   const fieldsByPath = useMemo(() => new Map((preview?.fields || []).map(field => [field.path, field])), [preview?.fields]);
   const filteredFields = useMemo(() => {
     const fields = preview?.fields || [], query = fields.length > FIELD_PAGE_SIZE ? fieldQuery.trim().toLowerCase() : '';
@@ -46,6 +47,7 @@ export function DataSourcePanel({ sources = [], onChange, onClose, code = '10000
   }, []);
   const resetFields = () => { setFieldOverrides({}); setFieldQuery(''); setFieldPage(0); };
   const resetFeedback = (clearFields = true) => { request.current?.abort(); request.current = null; setTesting(false); setPreview(null); if (clearFields) resetFields(); setError(''); setNotice(''); };
+  useEffect(() => { resetFeedback(false); }, [sourceRegion]);
   const update = patch => { resetFeedback(['content', 'url', 'type', 'rowsPath'].some(key => Object.hasOwn(patch, key))); setDraft(current => current.map(item => item.id === selected ? { ...item, ...patch } : item)); };
   const choose = id => { if (id === selected) return; resetFeedback(); setSelected(id); };
   const add = () => {

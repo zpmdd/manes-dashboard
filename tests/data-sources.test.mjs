@@ -546,32 +546,47 @@ async function dataSourcePanelHarness(sources) {
   ]);
   const panelSource = await readFile(new URL('../src/DataSourcePanel.jsx', import.meta.url), 'utf8');
   const { code } = await transformWithEsbuild(panelSource.slice(panelSource.indexOf('const EXAMPLE')).replace('export function', 'function'), 'DataSourcePanel.jsx', { loader: 'jsx', jsxFactory: 'h', jsxFragment: 'Fragment', sourcemap: false });
-  const state = [], created = []; let cursor = 0;
+  const state = [], created = []; let cursor = 0, regionCode = '100000', dirty = false, effects = [];
+  const modal = { open: false, showModal() { this.open = true; }, close() { this.open = false; } };
   const useState = initial => {
     const index = cursor++;
     if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial;
-    return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value; }];
+    return [state[index], value => { const next = typeof value === 'function' ? value(state[index]) : value; if (!Object.is(next, state[index])) { state[index] = next; dirty = true; } }];
   };
   const useMemo = (factory, deps) => {
     const index = cursor++, previous = state[index];
     if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) state[index] = { value: factory(), deps };
     return state[index].value;
   };
+  const useEffect = (effect, deps) => {
+    const index = cursor++, previous = state[index];
+    if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) effects.push(() => {
+      previous?.cleanup?.(); state[index] = { deps, cleanup: effect() };
+    });
+  };
   // Run the component's actual JSX callbacks with persistent hook cells, as in editor-events.test.mjs.
-  const runtime = { ...dataSources, ...inference, ...config, useState, useMemo, useEffect() {}, useRef: initial => useState(() => ({ current: initial }))[0], document: { activeElement: null }, h: (type, props, ...children) => ({ type, props: props || {}, children }), Fragment: 'fragment', ...Object.fromEntries(['ArrowsClockwise', 'Check', 'Database', 'Plus', 'Trash', 'UploadSimple', 'X'].map(name => [name, name])) };
+  const runtime = { ...dataSources, ...inference, ...config, useState, useMemo, useEffect, useRef: initial => useState(() => ({ current: initial }))[0], document: { activeElement: null }, h: (type, props, ...children) => ({ type, props: props || {}, children }), Fragment: 'fragment', ...Object.fromEntries(['ArrowsClockwise', 'Check', 'Database', 'Plus', 'Trash', 'UploadSimple', 'X'].map(name => [name, name])) };
   const Component = new Function(...Object.keys(runtime), `${code}; return DataSourcePanel;`)(...Object.values(runtime));
   const nodes = () => {
-    cursor = 0; const result = [];
+    let result, renders = 0;
     const visit = value => {
       if (Array.isArray(value)) value.forEach(visit);
       else if (value && typeof value === 'object') { result.push(value); value.children?.forEach(visit); }
     };
-    visit(Component({ sources, onChange() {}, onClose() {}, onCreateComponent: payload => { created.push(payload); return false; } }));
+    do {
+      assert.ok(renders++ < 10, 'panel effects settle without a render loop');
+      cursor = 0; dirty = false; effects = []; result = [];
+      visit(Component({ sources, code: regionCode, onChange() {}, onClose() {}, onCreateComponent: payload => { created.push(payload); return false; } }));
+      for (const node of result) if (node.props.ref && !node.props.ref.current) node.props.ref.current = node.type === 'dialog' ? modal : { click() {} };
+      effects.forEach(effect => effect());
+    } while (dirty);
     return result;
   };
   const find = predicate => { const node = nodes().find(predicate); assert.ok(node, 'expected panel control is present'); return node.props; };
   return {
-    created, nodes, find,
+    created, nodes, find, modal,
+    setCode: code => { regionCode = code; return nodes(); },
+    dispose: () => state.forEach(cell => cell?.cleanup?.()),
     field: label => find(node => node.type === 'select' && node.props['aria-label'] === label),
     read: () => find(node => node.type === 'button' && node.props.className === 'ds-test' && node.props.onClick).onClick(),
     choose: id => find(node => node.type === 'button' && node.props.key === id).onClick(),
@@ -618,6 +633,55 @@ test('real data-source panel selectors create the chosen combo and reset overrid
   await nested.read(); assert.deepEqual(pair(nested), ['', '']);
   change(nested.find(node => node.type === 'input' && node.props.maxLength === 160), 'next');
   await nested.read(); assert.deepEqual(pair(nested), ['value', 'value2'], 'editing the row path also clears explicit empty fields');
+});
+
+test('real data-source panel invalidates regional HTTP previews on code changes while preserving drafts and fixed sources', async t => {
+  const pending = [], panels = [];
+  t.mock.method(globalThis, 'fetch', (url, { signal }) => new Promise(resolve => pending.push({ url, signal, resolve })));
+  const open = async item => { const panel = await dataSourcePanelHarness([item]); panels.push(panel); panel.nodes(); assert.equal(panel.modal.open, true, 'the real mount effect opens the modal stub'); return panel; };
+  const preview = panel => panel.nodes().find(node => node.props.className === 'ds-preview');
+  const change = (control, value) => control.onChange({ target: { value } });
+  const payload = name => new Response(JSON.stringify([{ region: name, revenue: 0, cost: 5 }]));
+  try {
+    const regional = await open(source({ type: 'http', url: '/metrics?adcode={adcode}' }));
+    change(regional.find(node => node.type === 'input' && node.props.maxLength === 40), '保留草稿名称');
+    const first = regional.read(); pending[0].resolve(payload('全国')); await first;
+    change(regional.field('主数值'), 'revenue'); change(regional.field('第二数值'), 'cost');
+    assert.ok(preview(regional));
+    regional.setCode('110000');
+    assert.equal(preview(regional), undefined); assert.equal(pending.length, 1, 'changing the effective region clears the preview without an automatic GET');
+    assert.equal(regional.find(node => node.type === 'input' && node.props.maxLength === 40).value, '保留草稿名称');
+    assert.equal(regional.find(node => node.type === 'input' && node.props.maxLength === 2048).value, '/metrics?adcode={adcode}');
+    const second = regional.read(); pending[1].resolve(payload('北京')); await second;
+    assert.equal(new URL(pending[1].url).searchParams.get('adcode'), '110000');
+    assert.deepEqual([regional.field('主数值').value, regional.field('第二数值').value], ['revenue', 'cost']);
+    regional.setCode('100000'); const old = regional.read();
+    regional.setCode('120000'); assert.equal(pending[2].signal.aborted, true);
+    pending[2].resolve(payload('迟到的全国')); await old;
+    assert.equal(preview(regional), undefined, 'an aborted old-region response cannot restore a stale preview');
+    assert.equal(pending.length, 3);
+    const current = regional.read(); pending[3].resolve(payload('天津')); await current;
+    assert.deepEqual(pending.map(request => new URL(request.url).searchParams.get('adcode')), ['100000', '110000', '100000', '120000']);
+    assert.ok(regional.nodes().some(node => node.type === 'td' && node.children.includes('天津')));
+    assert.ok(!regional.nodes().some(node => node.type === 'td' && node.children.includes('迟到的全国')));
+    assert.deepEqual([regional.field('主数值').value, regional.field('第二数值').value], ['revenue', 'cost']);
+
+    const fixed = await open(source({ type: 'http', url: '/fixed' })), fixedRead = fixed.read();
+    fixed.setCode('110000'); assert.equal(pending[4].signal.aborted, false);
+    pending[4].resolve(new Response('{"value":100,"details":[{"value":1}]}')); await fixedRead;
+    const fixedPreview = preview(fixed); assert.ok(fixedPreview);
+    assert.ok(fixed.nodes().some(node => node.props.className === 'ds-mapped-summary' && node.children.includes(' · 汇总 100')), 'saved root-path semantics are retained');
+    fixed.setCode('120000'); assert.deepEqual(preview(fixed), fixedPreview); assert.equal(pending.length, 5);
+
+    for (const item of [source({ content: '{"value":100,"details":[{"value":1}]}' }), source({ type: 'csv', content: 'name,value\n区域,0' })]) {
+      const local = await open(item), reading = local.read();
+      local.setCode('110000'); await reading;
+      const localPreview = preview(local); assert.ok(localPreview, 'static inspection in flight survives a code prop change');
+      assert.equal(local.field('主数值').value, 'value');
+      local.setCode('120000'); assert.deepEqual(preview(local), localPreview);
+    }
+    assert.equal(pending.length, 5, 'fixed and static sources do not start replacement requests for code changes');
+  } finally { panels.forEach(panel => { panel.dispose(); assert.equal(panel.modal.open, false, 'real effect cleanup closes the modal'); }); }
 });
 
 test('real data-source panel bounds 5000 fields while paging, searching and preserving selected mappings', async () => {
