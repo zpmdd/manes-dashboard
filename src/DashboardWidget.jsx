@@ -152,7 +152,7 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
   else if (!hasData) body = <EmptyState message={hasError ? '数据暂不可用' : loading ? '正在加载' : data.emptyMessage || '暂无数据'} detail={hasError ? errorMessage : undefined} onRefresh={hasError ? onRefresh : undefined}/>;
   else if (config.type === 'metric') body = <Metric data={data} unit={unit} precision={precision}/>;
   else if (config.type === 'gauge') body = <Gauge data={data} unit={unit} title={config.title} target={config.target} precision={precision}/>;
-  else if (['line', 'area', 'column'].includes(config.type)) body = <TrendChart rows={numericRows.slice(-rowCount)} unit={unit} title={config.title} type={config.type} precision={precision}/>;
+  else if (['line', 'area', 'column'].includes(config.type)) body = <TrendChart rows={config.type === 'column' ? numericRows.slice(0, rowCount) : numericRows.slice(-rowCount)} unit={unit} title={config.title} type={config.type} precision={precision}/>;
   else if (config.type === 'bar') body = <BarChart rows={numericRows} unit={unit} rowCount={rowCount} onNavigate={onNavigate} precision={precision}/>;
   else if (config.type === 'donut') body = <DonutChart rows={numericRows} unit={unit} rowCount={rowCount} title={config.title} onNavigate={onNavigate} precision={precision}/>;
   else if (config.type === 'table') body = <DataTable rows={data.rows} columns={config.columns} unit={unit} rowCount={rowCount} title={config.title} onNavigate={onNavigate} precision={precision}/>;

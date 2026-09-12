@@ -93,6 +93,11 @@ test('all twelve components render real supplied data and failed connections nev
     assert.doesNotMatch(render('area', { data: { rows: [{ name: '负', value: -Number.MAX_VALUE }, { name: '正', value: Number.MAX_VALUE }] } }), /NaN|Infinity/);
     const hundred = Array.from({ length: 100 }, (_, i) => ({ name: `项目${i}`, value: i }));
     assert.equal((render('table', { data: { rows: hundred }, config: { ...config, type: 'table', rowCount: 3 } }).match(/<tr>/g) || []).length, 4);
+    const ranked = [{ name: '第一名', value: 100 }, { name: '第二名', value: 80 }, { name: '第三名', value: 60 }, { name: '第四名', value: 40 }];
+    const chartLabels = (type, rows = ranked) => [...render(type, { data: { rows }, config: { ...config, type, rowCount: 2 } }).matchAll(/aria-label="([^"]+) · [^"]+ 台"/g)].map(match => match[1]);
+    assert.deepEqual(chartLabels('column'), ['第一名', '第二名'], 'Ranked columns show the first N supplied rows');
+    assert.deepEqual(chartLabels('column', [...ranked].reverse()), ['第四名', '第三名'], 'Column charts preserve supplied ordering without sorting');
+    for (const type of ['line', 'area']) assert.deepEqual(chartLabels(type), ['第三名', '第四名'], 'Time series retain the latest N supplied points');
     const columns = [...config.columns, { key: 'time', label: '时间' }, { key: 'target', label: '目标' }, { key: 'series', label: '系列' }, { key: 'code', label: '区域编码' }];
     const mapped = getMappedData({ rows: [{ name: '华东', value: '12', time: '09:00', status: '在线', target: 20, series: '设备', code: '031000' }] }, { fields: Object.fromEntries(DATA_FIELDS.map(key => [key, key])) }, { ...config, type: 'table', columns });
     const fullTable = render('table', { data: mapped, config: { ...config, type: 'table', columns } });

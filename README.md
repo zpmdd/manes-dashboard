@@ -89,4 +89,4 @@ React 19、Three.js r186、React Three Fiber 9、Drei 10、Vite 6。指标和图
 - `scripts/check.mjs`：全量层级与环坐标检查、内环/多岛、道路编号检查。
 - `scripts/prepare-geo.py`：由用户原始数据重新准备离线包；该维护脚本依赖 Shapely 及脚本声明的本地源目录，不是页面运行依赖。
 
-基线视觉核对见 [设计验收](design-qa.md)；前一轮配置验收见 [精细化验收](docs/refinement-qa.md)；编辑器已验证项目与待验收项见 [编辑器验收记录](docs/editor-qa.md)。
+基线视觉核对见 [设计验收](design-qa.md)；前一轮配置验收见 [精细化验收](docs/refinement-qa.md)；编辑器验证结果与交付边界见 [编辑器验收记录](docs/editor-qa.md)。

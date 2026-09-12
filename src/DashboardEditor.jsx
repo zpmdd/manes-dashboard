@@ -10,7 +10,11 @@ export function useDashboardEditor(notify) {
   const [editing, setEditing] = useState(false), [preview, setPreview] = useState(false), [selected, select] = useState(null);
   const config = editing ? history.present : saved;
   const change = useCallback(next => dispatch({ type: 'change', config: next }), []);
-  const patch = useCallback((id, values) => change(current => id === 'map' ? { ...current, map: { ...current.map, ...values } } : { ...current, modules: current.modules.map(item => item.id === id ? { ...item, ...values } : item) }), [change]);
+  const patch = useCallback((id, values) => change(current => {
+    const item = id === 'map' ? current.map : current.modules.find(entry => entry.id === id);
+    if (!item || Object.entries(values).every(([key, value]) => item[key] === value || JSON.stringify(item[key]) === JSON.stringify(value))) return current;
+    return id === 'map' ? { ...current, map: { ...item, ...values } } : { ...current, modules: current.modules.map(entry => entry.id === id ? { ...entry, ...values } : entry) };
+  }), [change]);
   const start = () => { dispatch({ type: 'reset', config: saved }); setEditing(true); setPreview(false); select(null); };
   const finish = () => {
     try { const next = saveConfig(history.present); setSaved(next); dispatch({ type: 'reset', config: next }); setEditing(false); setPreview(false); notify('画布已保存'); }

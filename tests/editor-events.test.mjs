@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { transformWithEsbuild } from 'vite';
-import { changeLayout, layoutStyle } from '../src/layout.js';
+import { DEFAULT_CONFIG, createModule } from '../src/dashboardConfig.js';
+import { changeLayout, editHistory, layoutStyle } from '../src/layout.js';
 
 // Compile the real component to small VNodes so its pointer handlers run without a browser dependency.
 const source = await readFile(new URL('../src/DashboardEditor.jsx', import.meta.url), 'utf8');
@@ -85,4 +86,35 @@ test('锁定组件不启动拖动，卸载清理尚未执行的动画帧', () =>
   assert.equal(locked.frames.size, 0);
   const item = canvas(); item.begin(); item.move(100, 50); item.dispose();
   assert.equal(item.frames.size, 0);
+});
+
+test('地图和业务组件的边界无变化操作不误标未保存，也不挤掉真实历史', () => {
+  const saved = structuredClone(DEFAULT_CONFIG);
+  let history = { past: [], present: saved, future: [] }, stateIndex = 0;
+  const hookSource = source.slice(source.indexOf('export function useDashboardEditor('), source.indexOf('export function EditorToolbar(')).replace('export function', 'function');
+  const hook = new Function('useState', 'useReducer', 'useCallback', 'useEffect', 'loadConfig', 'saveConfig', 'createModule', 'changeLayout', 'editHistory', `${hookSource}; return useDashboardEditor;`)(
+    () => [[saved, true, false, null][stateIndex++], () => {}],
+    () => [history, action => { history = editHistory(history, action); }],
+    callback => callback, () => {}, () => saved, config => config, createModule, changeLayout, editHistory,
+  );
+  const render = () => { stateIndex = 0; return hook(() => {}); };
+  let editor = render();
+  const repeatBoundary = () => {
+    for (let i = 0; i < 80; i++) {
+      editor.patch('devices', { layout: changeLayout(editor.config.modules[0].layout, -1, 0) });
+      editor.patch('map', { layout: changeLayout(editor.config.map.layout, 1, 0), visible: true });
+    }
+  };
+  repeatBoundary(); editor = render();
+  assert.equal(editor.dirty, false);
+  assert.equal(editor.canUndo, false);
+  editor.patch('devices', { title: '真正修改' }); editor = render();
+  assert.equal(editor.dirty, true);
+  repeatBoundary(); editor = render();
+  assert.equal(history.past.length, 1);
+  editor.undo(); editor = render();
+  assert.strictEqual(editor.config, saved);
+  assert.equal(editor.dirty, false);
+  editor.redo(); editor = render();
+  assert.equal(editor.config.modules[0].title, '真正修改');
 });
