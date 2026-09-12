@@ -114,12 +114,13 @@ export function buildProfessionalChart(config, data, size = {}) {
   } else if (config.type === 'scatter') {
     rows.forEach((row, i) => { numeric(row, 'x', i); numeric(row, 'y', i); if (row.value !== null && row.value !== undefined && row.value !== '') numeric(row, 'value', i, true); });
     shownRows = rows.slice(0, count); pointCount = shownRows.length;
+    const hasSizeValue = shownRows.some(row => finiteNumber(row.value) !== null);
     const maxSize = Math.max(...shownRows.map(row => finiteNumber(row.value) ?? 0)) || 1;
     option.xAxis = { ...axis(settings.xName || 'X'), scale: true }; option.yAxis = { ...axis(settings.yName || 'Y'), scale: true };
     option.series = unique(shownRows.map(row => label(row.series) || '观测值')).map(name => ({
-      id: `scatter-${name}`, name, type: 'scatter', dimensions: [{ name: 'x', displayName: settings.xName || 'X', type: 'float' }, { name: 'y', displayName: settings.yName || 'Y', type: 'float' }], encode: { x: 0, y: 1, tooltip: [0, 1] }, emphasis: { focus: 'series' }, label: { ...itemLabel, position: 'top', formatter: '{b}' },
+      id: `scatter-${name}`, name, type: 'scatter', dimensions: [{ name: 'x', displayName: settings.xName || 'X', type: 'float' }, { name: 'y', displayName: settings.yName || 'Y', type: 'float' }, ...(hasSizeValue ? [{ name: 'value', displayName: unit ? `数值 / ${unit}` : '数值', type: 'float' }] : [])], encode: { x: 0, y: 1, tooltip: hasSizeValue ? [0, 1, 2] : [0, 1] }, emphasis: { focus: 'series' }, label: { ...itemLabel, position: 'top', formatter: '{b}' },
       itemStyle: { opacity: .78, borderColor: '#fff4d478', borderWidth: 1 },
-      data: shownRows.flatMap((row, i) => (label(row.series) || '观测值') === name ? [{ name: rowName(row, i), value: [numeric(row, 'x', i), numeric(row, 'y', i)], code: row.code, symbolSize: finiteNumber(row.value) === null ? 10 : Math.max(5, Math.sqrt(row.value / maxSize) * 28) }] : []),
+      data: shownRows.flatMap((row, i) => (label(row.series) || '观测值') === name ? [{ name: rowName(row, i), value: [numeric(row, 'x', i), numeric(row, 'y', i), ...(hasSizeValue ? [finiteNumber(row.value)] : [])], code: row.code, symbolSize: finiteNumber(row.value) === null ? 10 : Math.max(5, Math.sqrt(row.value / maxSize) * 28) }] : []),
     }));
   } else if (config.type === 'heatmap') {
     const xs = unique(rows.map((row, i) => requiredLabel(row, 'x', i))).slice(0, count), ys = unique(rows.map((row, i) => requiredLabel(row, 'y', i))).slice(0, count), cells = new Set();
@@ -158,7 +159,7 @@ export function buildProfessionalChart(config, data, size = {}) {
   }
   if (settings.zoom === true && ['multiLine', 'stacked', 'combo', 'scatter', 'heatmap'].includes(config.type)) option.dataZoom = [{ id: 'inside', type: 'inside', filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, preventDefaultMouseMove: false }];
   const sample = shownRows.slice(0, 5).map((row, i) => {
-    if (config.type === 'scatter') return `${rowName(row, i)}，${settings.xName || 'X'} ${formatWidgetNumber(row.x)}，${settings.yName || 'Y'} ${formatWidgetNumber(row.y)}`;
+    if (config.type === 'scatter') return `${rowName(row, i)}，${settings.xName || 'X'} ${formatWidgetNumber(row.x)}，${settings.yName || 'Y'} ${formatWidgetNumber(row.y)}${finiteNumber(row.value) === null ? '' : `，数值 ${formatWidgetNumber(row.value)}${unit ? ` ${unit}` : ''}`}`;
     if (config.type === 'heatmap') return `${label(row.x)} / ${label(row.y)} ${formatWidgetNumber(row.value)}`;
     if (config.type === 'combo') return `${rowCategory(row, i, true)}，${settings.primaryName || '主指标'} ${formatWidgetNumber(row.value)}，${settings.secondaryName || '辅助指标'} ${formatWidgetNumber(row.value2)}`;
     return `${label(row.series) ? `${label(row.series)} · ` : ''}${rowName(row, i)} ${formatWidgetNumber(row.value)}`;

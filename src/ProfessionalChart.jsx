@@ -17,8 +17,12 @@ export function renderProfessionalSVG(config, data, size = { width: 480, height:
   finally { chart.dispose(); }
 }
 
-export function updateProfessionalChart(instance, option, size, notMerge = false) {
+export function updateProfessionalChart(instance, option, size, notMerge = false, interaction) {
   if (!instance || instance.isDisposed() || !option || !(size.width > 0 && size.height > 0)) return;
+  if (interaction) option = { ...option, legend: { ...option.legend, selected: interaction.selected }, dataZoom: option.dataZoom.map(zoom => {
+    const previous = interaction.zoom?.find(item => item.id === zoom.id);
+    return previous ? { ...zoom, start: previous.start, end: previous.end } : zoom;
+  }) };
   instance.setOption(option, { notMerge, replaceMerge: ['series', 'dataZoom'], lazyUpdate: true });
   // ECharts resize consumes a pending lazy update in the same render cycle.
   if (instance.getWidth() !== size.width || instance.getHeight() !== size.height) {
@@ -27,7 +31,7 @@ export function updateProfessionalChart(instance, option, size, notMerge = false
 }
 
 export default function ProfessionalChart({ config, data, onNavigate }) {
-  const host = useRef(null), chart = useRef(null), lastType = useRef(null), latestNavigate = useRef(onNavigate);
+  const host = useRef(null), chart = useRef(null), lastType = useRef(null), interaction = useRef(null), latestNavigate = useRef(onNavigate);
   const [size, setSize] = useState({ width: 0, height: 0 }), [runtimeError, setRuntimeError] = useState(''), [attempt, setAttempt] = useState(0);
   const [reducedMotion, setReducedMotion] = useState(() => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   latestNavigate.current = onNavigate;
@@ -66,12 +70,21 @@ export default function ProfessionalChart({ config, data, onNavigate }) {
       instance.on('click', event => { const code = event.data?.code; if (code) latestNavigate.current?.(String(code)); });
       chart.current = instance; lastType.current = null; setRuntimeError('');
     } catch (error) { setRuntimeError(error.message || '图表初始化失败'); }
-    return () => { if (chart.current === instance) chart.current = null; instance?.dispose(); };
+    return () => {
+      if (instance && !instance.isDisposed()) {
+        const previous = instance.getOption();
+        interaction.current = { type: lastType.current, renderer, selected: previous?.legend?.[0]?.selected, zoom: previous?.dataZoom?.map(({ id, start, end }) => ({ id, start, end })) };
+      }
+      if (chart.current === instance) chart.current = null;
+      instance?.dispose();
+    };
   }, [renderer, hasOption, hasSize, attempt]);
   useLayoutEffect(() => {
     if (!chart.current || !result.option) return;
     try {
-      updateProfessionalChart(chart.current, result.option, size, lastType.current !== config.type);
+      const previous = lastType.current === null && interaction.current?.type === config.type && interaction.current.renderer !== renderer ? interaction.current : null;
+      updateProfessionalChart(chart.current, result.option, size, lastType.current !== config.type, previous);
+      interaction.current = null;
       lastType.current = config.type; setRuntimeError('');
     } catch (error) { setRuntimeError(error.message || '图表绘制失败'); }
   }, [result.option, renderer, hasSize, attempt, config.type, size.width, size.height]);

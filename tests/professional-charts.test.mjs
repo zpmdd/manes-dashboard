@@ -130,7 +130,7 @@ test('dual axes, radar bounds and optional scatter sizes retain distinct field s
   assert.throws(() => build('radar', radarRows, { rowCount: 2 }), /至少需要 3/);
   assert.equal(build('radar', radarRows.filter(row => row.series === '本期').map(({ target, series, ...row }) => row), { target: undefined }).option.radar.indicator[0].max, 100);
   const scatter = build('scatter', fixtures.scatter).option;
-  assert.deepEqual(scatter.series[0].data[0].value, [0, 25]);
+  assert.deepEqual(scatter.series[0].data[0].value, [0, 25, null]);
   assert.equal(scatter.series[0].data[0].symbolSize, 10);
   assert.equal(scatter.series[1].data[0].symbolSize, 28);
   assert.throws(() => build('scatter', [{ x: '', y: 0 }]), /x/);
@@ -167,7 +167,7 @@ test('real scatter sizes and heatmap colors retain fractional ranges, zero point
       assert.deepEqual(option.series[0].data.map(point => point.symbolSize), [10, 5, 14, 28]);
       const widths = [0, 1, 2, 3].map(i => data.getItemGraphicEl(i).getBoundingRect().width);
       assert.ok(widths[3] > widths[2] && widths[2] > widths[0] && widths[0] > widths[1] && widths[1] > 0, 'Actual symbols distinguish fractional magnitudes while keeping zero readable');
-      assert.deepEqual(option.series[0].data.map(point => point.value), [[0, 0], [1, 1], [2, 0], [3, 1]]);
+      assert.deepEqual(option.series[0].data.map(point => point.value), [[0, 0, null], [1, 1, 0], [2, 0, scale / 4], [3, 1, scale]]);
     }
     assert.deepEqual(render('scatter', [0, 0]).option.series[0].data.map(point => point.symbolSize), [5, 5]);
     let positiveColors;
@@ -187,6 +187,28 @@ test('real scatter sizes and heatmap colors retain fractional ranges, zero point
       assert.deepEqual(option.series[0].data.map(point => point.value[2]), values);
       assert.equal(new Set(values.map((_, i) => data.getItemGraphicEl(i).style.fill)).size, new Set(values).size);
     }
+  } finally { chart.dispose(); }
+});
+
+test('scatter tooltips expose the optional size value with its unit without fabricating missing values', () => {
+  const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width: 480, height: 280 });
+  try {
+    const rows = [{ name: '缺少大小', x: 0, y: 12 }, { name: '有效零值', x: 1, y: 18, value: 0 }, { name: '小数大小', x: 2, y: 25, value: 0.002 }];
+    const result = build('scatter', rows, { unit: '台', chartOptions: { xName: '负载', yName: '时延' } });
+    chart.setOption(result.option, { notMerge: true });
+    const series = chart.getModel().getSeriesByIndex(0);
+    for (const [i, row] of rows.entries()) {
+      const fields = series.formatTooltip(i).blocks.filter(block => block.markerType === 'subItem').map(({ name, value }) => [name, value]);
+      assert.deepEqual(fields, [['负载', row.x], ['时延', row.y], ['数值 / 台', row.value ?? null]]);
+    }
+    assert.match(result.description, /有效零值，负载 1，时延 18，数值 0 台/);
+    assert.match(result.description, /小数大小，负载 2，时延 25，数值 2E-3 台/);
+    const plain = build('scatter', rows.slice(0, 1), { unit: '' });
+    chart.setOption(plain.option, { notMerge: true });
+    assert.deepEqual(chart.getModel().getSeriesByIndex(0).formatTooltip(0).blocks.filter(block => block.markerType === 'subItem').map(({ name, value }) => [name, value]), [['X', 0], ['Y', 12]]);
+    assert.deepEqual(plain.option.series[0].data[0].value, [0, 12]);
+    assert.doesNotMatch(plain.description, /数值/);
+    assert.doesNotMatch(chart.renderToSVGString(), /NaN|Infinity|undefined/);
   } finally { chart.dispose(); }
 });
 
@@ -282,6 +304,44 @@ test('resize consumes one lazy update while initialization and data-only changes
     assert.equal(rebuiltUpdates, 1);
     assert.equal(rebuilt.getOption().series[1].data[1], null);
   } finally { rebuilt.dispose(); }
+});
+
+test('replacement instances restore only the selected legend and enabled zoom in one lazy update', () => {
+  const size = { width: 480, height: 280 }, settings = config('multiLine', { chartOptions: { zoom: true } });
+  const buildOption = (current = settings) => buildProfessionalChart(current, { rows: trendRows }, { ...size, reducedMotion: true }).option;
+  let chart = echarts.init(null, null, { renderer: 'svg', ssr: true, ...size });
+  const frame = () => chart.getZr().animation.trigger('frame', 16);
+  try {
+    updateProfessionalChart(chart, buildOption(), size, true); frame();
+    chart.dispatchAction({ type: 'legendUnSelect', name: '西区' });
+    chart.dispatchAction({ type: 'dataZoom', dataZoomId: 'inside', start: 20, end: 70 });
+    const current = chart.getOption();
+    const interaction = { selected: current.legend[0].selected, zoom: current.dataZoom.map(({ id, start, end }) => ({ id, start, end })) };
+    chart.dispose();
+    chart = echarts.init(null, null, { renderer: 'svg', ssr: true, ...size });
+    let updates = 0;
+    chart.on('updated', () => { updates += 1; });
+    const option = buildOption();
+    updateProfessionalChart(chart, option, size, true, interaction);
+    assert.equal(updates, 0, 'Restoration remains part of the deferred first render');
+    frame(); assert.equal(updates, 1);
+    assert.equal(chart.getOption().legend[0].selected['西区'], false);
+    assert.deepEqual(chart.getOption().dataZoom.map(({ start, end }) => [start, end]), [[20, 70]]);
+    assert.equal(option.legend.selected, undefined); assert.equal(option.dataZoom[0].start, undefined, 'The built option is not mutated');
+    updateProfessionalChart(chart, buildOption(), { width: 481, height: 280 });
+    assert.equal(updates, 2); frame(); assert.equal(updates, 2);
+    assert.equal(chart.getOption().legend[0].selected['西区'], false);
+    assert.deepEqual(chart.getOption().dataZoom.map(({ start, end }) => [start, end]), [[20, 70]]);
+    const noZoom = config('multiLine', { chartOptions: { zoom: false } });
+    updateProfessionalChart(chart, buildOption(noZoom), size, true, interaction); frame();
+    assert.deepEqual(chart.getOption().dataZoom, [], 'A restored snapshot cannot enable disabled zoom');
+    assert.equal(chart.getOption().legend[0].selected['西区'], false);
+    const otherType = config('stacked', { chartOptions: { zoom: true } });
+    updateProfessionalChart(chart, buildOption(otherType), size, true); frame();
+    assert.deepEqual(chart.getOption().legend[0].selected, {}, 'Type changes use notMerge without a previous interaction');
+    assert.deepEqual(chart.getOption().dataZoom.map(({ start, end }) => [start, end]), [[0, 100]]);
+    assert.ok(chart.getOption().series.every(series => series.type === 'bar'));
+  } finally { chart.dispose(); }
 });
 
 test('renderer choice accounts for expanded sparse slots without changing data counts or gaps', () => {
