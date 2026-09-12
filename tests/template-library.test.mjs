@@ -60,9 +60,9 @@ test('接近大小上限的有效配置仍能完整导出并重新导入', () =>
   assert.deepEqual(parseTemplateFile(content), normalizeConfig(config));
 });
 
-test('三套内置模板均可使用且不会共享可变数据', () => {
+test('四套内置模板均可使用且不会共享可变数据', () => {
   const templates = getBuiltinTemplates();
-  assert.equal(templates.length, 3);
+  assert.equal(templates.length, 4);
   for (const template of templates) assert.deepEqual(normalizeConfig(template.config), template.config);
   assert.notDeepEqual(templates[0].config.map.layout, templates[1].config.map.layout);
   assert.notDeepEqual(templates[1].config.modules[0].layout, templates[2].config.modules[0].layout);

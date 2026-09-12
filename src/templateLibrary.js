@@ -1,4 +1,4 @@
-import { CONFIG_FILE_LIMIT, DEFAULT_CONFIG, MODULE_TYPES, SOURCES, normalizeConfig } from './dashboardConfig.js';
+import { CONFIG_FILE_LIMIT, DEFAULT_CONFIG, MODULE_TYPES, SOURCES, createModule, normalizeConfig } from './dashboardConfig.js';
 
 export const TEMPLATE_STORAGE_KEY = 'nexus.dashboard.templates.v1';
 export const TEMPLATE_LIMIT = 10;
@@ -73,9 +73,15 @@ export function getBuiltinTemplates() {
     const source = type.sources.includes(ranking.source) ? ranking.source : type.sources[0];
     Object.assign(ranking, { type: 'column', source, unit: SOURCES[source].unit, columns: structuredClone(SOURCES[source].columns) });
   }
+  const professional = structuredClone(baseline);
+  professional.title = '业务洞察中心';
+  professional.map.layout = { x: 33, y: 0, w: 34, h: 60 };
+  const professionalLayouts = [{ x: 0, y: 0, w: 32, h: 29 }, { x: 0, y: 31, w: 32, h: 29 }, { x: 68, y: 0, w: 32, h: 29 }, { x: 68, y: 31, w: 32, h: 29 }, { x: 0, y: 62, w: 49.5, h: 38 }, { x: 50.5, y: 62, w: 49.5, h: 38 }];
+  professional.modules = ['multiLine', 'stacked', 'combo', 'radar', 'heatmap', 'treemap'].map((type, i) => ({ ...createModule(type), id: `insight-${type}`, title: { multiLine: '分区域流量趋势', stacked: '分时流量构成', combo: '设备接入与在线率', radar: '运行能力对比', heatmap: '区域活跃时段', treemap: '设备类型构成' }[type], layout: professionalLayouts[i] }));
   return [
     { id: 'builtin-monitor', name: '运行总览', description: '侧栏指标 · 中心地图 · 底部业务', config: baseline },
     { id: 'builtin-sides', name: '双侧监测', description: '双侧指标 · 地图居中 · 通栏事件', config: normalizeConfig(sides) },
     { id: 'builtin-analysis', name: '数据分析', description: '区域地图 · 趋势对比 · 分布明细', config: normalizeConfig(analysis) },
+    { id: 'builtin-professional', name: '业务洞察', description: '多系列趋势 · 双轴指标 · 时段热力', config: normalizeConfig(professional) },
   ];
 }

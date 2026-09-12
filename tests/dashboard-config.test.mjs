@@ -39,11 +39,11 @@ test('v2 往返保存保留画布图层顺序，返回独立的配置数据', ()
   assert.deepEqual(normalizeConfig(JSON.parse(JSON.stringify(DEFAULT_CONFIG))), DEFAULT_CONFIG);
 });
 
-test('十二种组件可动态添加、删除与重排，达到 40 个时停止添加', () => {
-  assert.equal(MODULE_TYPES.length, 12);
+test('二十种组件可动态添加、删除与重排，达到 40 个时停止添加', () => {
+  assert.equal(MODULE_TYPES.length, 20);
   const config = draft();
   config.modules = MODULE_TYPES.map(type => createModule(type.id));
-  assert.equal(new Set(config.modules.map(item => item.id)).size, 12);
+  assert.equal(new Set(config.modules.map(item => item.id)).size, 20);
   assert.deepEqual(normalizeConfig(config).modules, config.modules);
   for (const type of MODULE_TYPES) for (const id of type.sources) {
     const module = createModule(type.id);
@@ -198,4 +198,15 @@ test('保存失败不报告成功，坏配置与不可用存储保留原数据',
     assert.deepEqual(loadConfig(), DEFAULT_CONFIG);
     assert.throws(() => saveConfig(draft()), /配置未保存/);
   });
+});
+
+ test('旧 v2 配置补齐磁吸和专业图表选项，未知或非法扩展仍拒绝', () => {
+  const old = draft(); delete old.canvas.magnet; delete old.canvas.threshold;
+  old.modules.forEach(item => delete item.chartOptions);
+  const migrated = normalizeConfig(old);
+  assert.equal(migrated.canvas.magnet, true); assert.equal(migrated.canvas.threshold, 6);
+  assert.equal(migrated.modules[0].chartOptions.legend, true);
+  for (const mutate of [c => c.canvas.threshold = 99, c => c.canvas.magnet = 'true', c => c.canvas.extra = 1, c => c.modules[0].chartOptions = null, c => c.modules[0].chartOptions = { palette: 'unknown' }, c => c.modules[0].chartOptions = { formatter: 'eval' }, c => c.modules[0].chartOptions = { labels: 1 }]) {
+    const c = draft(); mutate(c); assert.throws(() => normalizeConfig(c));
+  }
 });

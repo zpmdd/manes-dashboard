@@ -1,7 +1,8 @@
 import { demoMetrics, shortName } from './geo.js';
 
+export const PROFESSIONAL_TYPES = ['multiLine', 'stacked', 'combo', 'radar', 'scatter', 'heatmap', 'funnel', 'treemap'];
 export const SNAPSHOT_TIME = '09-12 09:00';
-const UNITS = { devices: '台', online: '%', flow: 'GB', trend: 'GB', regions: '台', events: '条' };
+const UNITS = { devices: '台', online: '%', flow: 'GB', trend: 'GB', regions: '台', events: '条', seriesTrend: 'GB', comparison: '台', dimensions: '分', scatter: '台', heat: '次', funnel: '条', tree: '台' };
 const TREND_FACTORS = [.52, .61, .57, .73, .69, .84, .92, 1];
 const EVENT_NAMES = ['采集链路延迟', '设备心跳超时', '数据上报恢复', '节点连接恢复', '网络延迟偏高', '设备连接恢复', '采集周期异常', '节点心跳恢复'];
 
@@ -24,6 +25,16 @@ export function getWidgetData(source, code, index) {
   const metrics = demoMetrics(code), scope = shortName(index[code].name === '中国' ? '全国' : index[code].name);
   const seed = Number(code), onlineCount = Math.round(metrics.devices * Number(metrics.online) / 100);
   const row = { name: scope, value: Number(metrics[source]), status: '已统计', time: SNAPSHOT_TIME };
+  const groups = ['东区', '南区', '西区'];
+  let professionalRows;
+  if (source === 'seriesTrend') professionalRows = TREND_FACTORS.flatMap((factor, i) => groups.map((series, j) => ({ name: `${String(i + 2).padStart(2, '0')}:00`, time: `${String(i + 2).padStart(2, '0')}:00`, series, value: Number((metrics.flow * factor * (.22 + j * .11) * (1 + (i + j) % 3 * .04)).toFixed(1)) })));
+  if (source === 'comparison') professionalRows = ['东区', '南区', '西区', '北区', '中心'].map((name, i) => ({ name, value: Math.round(metrics.devices * (.08 + i * .02)), value2: 94 + (seed + i * 7) % 59 / 10 }));
+  if (source === 'dimensions') professionalRows = ['接入覆盖', '在线稳定', '传输效率', '响应速度', '处理及时'].flatMap((name, i) => ['本期', '上期'].map((series, j) => ({ name, series, value: 65 + (seed + i * 13 + j * 7) % 34, target: 100 })));
+  if (source === 'scatter') professionalRows = Array.from({ length: 30 }, (_, i) => ({ name: `节点 ${String(i + 1).padStart(2, '0')}`, series: groups[i % 3], x: 18 + (seed + i * 17) % 78, y: 14 + (seed + i * 11) % 62, value: 30 + (seed + i * 31) % 140 }));
+  if (source === 'heat') professionalRows = groups.flatMap((y, j) => Array.from({ length: 8 }, (_, i) => ({ x: `${String(i + 2).padStart(2, '0')}:00`, y, value: 20 + (seed + i * 17 + j * 29) % 80 })));
+  if (source === 'funnel') professionalRows = ['采集事件', '有效事件', '已分派', '已处理', '已归档'].map((name, i) => ({ name, value: Math.round(1200 * [1, .85, .72, .6, .49][i]) }));
+  if (source === 'tree') professionalRows = ['采集器', '网关', '传感器', '控制器', '终端', '监测点', '交换机', '接入点'].map((name, i) => ({ name, series: groups[i % 3], value: Math.round(metrics.devices * (.03 + (i + seed) % 7 * .015)) }));
+  if (professionalRows) return { ...empty, rows: professionalRows, value: professionalRows.reduce((sum, entry) => sum + entry.value, 0), scope };
   if (source === 'regions') {
     return { ...empty, rows: regionRows(code, index, metrics.devices), value: metrics.devices, scope, emptyMessage: '当前区域暂无下级区域' };
   }

@@ -1,18 +1,30 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowsClockwise, Check, Database, Plus, Trash, UploadSimple, X } from '@phosphor-icons/react';
-import { DATA_SIZE_LIMIT, DATA_SOURCE_LIMIT, loadDataSource, normalizeDataSource, parseSourceContent } from './dataSources.js';
+import { DATA_SIZE_LIMIT, DATA_SOURCE_LIMIT, getMappedData, normalizeDataSource, parseSourceContent, readDataPath } from './dataSources.js';
+import { analyzeDataContent, inspectDataSource, suggestDataWidgets } from './dataInference.js';
+import { MODULE_TYPES } from './dashboardConfig.js';
 import './data-sources.css';
 
 const EXAMPLE = '[\n  { "name": "华东中心", "value": 862, "target": 1000, "status": "在线", "time": "09:00", "code": "310000" },\n  { "name": "华北中心", "value": 715, "target": 1000, "status": "在线", "time": "10:00", "code": "110000" }\n]';
 const TYPES = { json: 'JSON 数据', csv: 'CSV 表格', http: 'HTTP 接口' };
+const FIELD_TYPES = { number: '数值', 'numeric-string': '数值文字', time: '时间', string: '文字', boolean: '布尔', mixed: '混合', empty: '空值', unsupported: '需调整名称' };
 
-export function DataSourcePanel({ sources = [], onChange, onClose, code = '100000' }) {
+export function DataSourcePanel({ sources = [], onChange, onClose, code = '100000', onCreateComponent }) {
   const [draft, setDraft] = useState(() => structuredClone(sources));
   const [selected, setSelected] = useState(sources[0]?.id || '');
   const [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [preview, setPreview] = useState(null), [testing, setTesting] = useState(false), [saving, setSaving] = useState(false);
+  const [widgetType, setWidgetType] = useState('table');
   const dialog = useRef(), upload = useRef(), request = useRef(), opener = useRef(document.activeElement);
+  const selectedRef = useRef(selected); selectedRef.current = selected;
   const source = draft.find(item => item.id === selected);
+  const recommendations = useMemo(() => preview ? suggestDataWidgets(preview) : [], [preview]);
+  const recommendation = recommendations.find(item => item.type === widgetType) || recommendations[0];
+  const mappedPreview = useMemo(() => {
+    if (!recommendation) return null;
+    try { return getMappedData(preview, { fields: recommendation.fields }, recommendation); }
+    catch (issue) { return { error: issue.message || '字段映射无法读取，请重新识别数据' }; }
+  }, [preview, recommendation]);
   useEffect(() => {
     const element = dialog.current, previous = opener.current;
     element.showModal();
@@ -31,7 +43,7 @@ export function DataSourcePanel({ sources = [], onChange, onClose, code = '10000
     const next = draft.filter(item => item.id !== selected);
     resetFeedback(); setDraft(next); setSelected(next[0]?.id || ''); setNotice('已从草稿移除；仍被组件使用的数据源无法保存删除。');
   };
-  const changeType = type => update({ type, content: type === 'csv' ? 'name,value,target,status,time,code\n华东中心,862,1000,在线,09:00,310000\n华北中心,715,1000,在线,10:00,110000' : type === 'json' ? EXAMPLE : '', url: type === 'http' ? '/data/examples/monitoring.json?adcode={adcode}' : '', rowsPath: type === 'http' ? 'rows' : '', refreshSeconds: 0 });
+  const changeType = type => update({ type, content: type === 'csv' ? 'name,value,target,status,time,code\n华东中心,862,1000,在线,09:00,310000\n华北中心,715,1000,在线,10:00,110000' : type === 'json' ? EXAMPLE : '', url: type === 'http' ? '/data/examples/monitoring.json?adcode={adcode}' : '', rowsPath: '', refreshSeconds: 0 });
   const importData = async event => {
     const file = event.target.files?.[0]; event.target.value = '';
     if (!file) return;
@@ -41,37 +53,63 @@ export function DataSourcePanel({ sources = [], onChange, onClose, code = '10000
       if (!type) throw new Error('请选择 .json 或 .csv 数据文件');
       if (file.size > DATA_SIZE_LIMIT) throw new Error('数据文件不能超过 1 MB');
       const content = await file.text();
-      if (!dialog.current?.open) return;
+      if (!dialog.current?.open || selectedRef.current !== target) return;
+      const analysis = analyzeDataContent(content, type);
       resetFeedback();
-      setDraft(current => current.map(item => item.id === target ? { ...item, type, content, url: '', rowsPath: '', refreshSeconds: 0 } : item));
-      setNotice(`已载入 ${file.name}；可设置列表路径并测试数据。`);
+      setDraft(current => current.map(item => item.id === target ? { ...item, type, content, url: '', rowsPath: analysis.rowsPath || '', refreshSeconds: 0 } : item));
+      setPreview({ ...analysis, content, contentType: type });
+      setNotice(analysis.rows ? `已载入 ${file.name}，识别 ${analysis.rows.length} 行、${analysis.fields.length} 个字段。` : '发现多组数据，请选择要使用的数据列表。');
     } catch (issue) { setError(issue.message); }
   };
-  const testSource = async () => {
+  const testSource = async (auto = false) => {
     resetFeedback();
     const controller = new AbortController(); request.current = controller; setTesting(true);
     try {
-      const rows = await loadDataSource(normalizeDataSource(source), code, { signal: controller.signal });
+      const inferPath = auto || (source.rowsPath === '' && !sources.some(item => item.id === source.id));
+      const analysis = await inspectDataSource(normalizeDataSource(source), code, { signal: controller.signal, ...(inferPath ? { preferredPath: undefined } : {}) });
       if (request.current !== controller || controller.signal.aborted) return;
-      setPreview(rows); setNotice(`读取成功，共 ${rows.length} 行。预览前 5 行。`);
+      setPreview(analysis);
+      if (analysis.rowsPath !== null) setDraft(current => current.map(item => item.id === selected ? { ...item, rowsPath: analysis.rowsPath } : item));
+      setNotice(analysis.rows ? `读取成功，共 ${analysis.rows.length} 行 · ${analysis.fields.length} 个字段 · ${analysis.elapsedMs} ms。` : '发现多组数据，请选择要使用的数据列表。');
     } catch (issue) { if (request.current === controller && !controller.signal.aborted) setError(issue.message); }
     finally { if (request.current === controller) { request.current = null; setTesting(false); } }
+  };
+  const selectRows = path => {
+    try {
+      const analysis = analyzeDataContent(preview.content, preview.contentType, path);
+      setPreview({ ...preview, ...analysis });
+      setDraft(current => current.map(item => item.id === selected ? { ...item, rowsPath: path } : item));
+      setError(''); setNotice(`已选择 ${path || '根数组'}，共 ${analysis.rows.length} 行。`);
+    } catch (issue) { setError(issue.message); }
+  };
+  const normalizedDraft = () => {
+    if (preview?.rows === null) throw new Error('请先选择要使用的数据列表');
+    return draft.map(item => {
+      const normalized = normalizeDataSource(item);
+      if (normalized.type !== 'http') parseSourceContent(normalized.content, normalized.type, normalized.rowsPath);
+      return normalized;
+    });
   };
   const save = async event => {
     event.preventDefault(); setError(''); setSaving(true);
     try {
-      const next = draft.map(item => {
-        const normalized = normalizeDataSource(item);
-        if (normalized.type !== 'http') parseSourceContent(normalized.content, normalized.type, normalized.rowsPath);
-        return normalized;
-      });
+      const next = normalizedDraft();
       const result = await onChange(next);
       if (result !== false) onClose();
       else setError('数据源未保存，请检查后重试');
     } catch (issue) { setError(issue.message || '数据源未保存'); }
     finally { setSaving(false); }
   };
-  const previewKeys = preview?.length ? Object.keys(preview[0]).slice(0, 6) : [];
+  const createComponent = async () => {
+    if (!recommendation || !onCreateComponent || mappedPreview?.error) return;
+    setSaving(true); setError('');
+    try {
+      const result = await onCreateComponent({ sources: normalizedDraft(), sourceId: selected, ...recommendation });
+      if (result !== false) onClose(); else setError('组件未添加，请检查后重试');
+    } catch (issue) { setError(issue.message || '组件未添加'); }
+    finally { setSaving(false); }
+  };
+  const previewKeys = preview?.fields.filter(field => field.selectable).slice(0, 6).map(field => field.path) || [];
   const cellText = value => value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value);
 
   return <dialog ref={dialog} className="ds-dialog" aria-labelledby="ds-title" onCancel={event => { event.preventDefault(); if (!saving) onClose(); }}>
@@ -93,8 +131,15 @@ export function DataSourcePanel({ sources = [], onChange, onClose, code = '10000
               {source.type === 'json' && <label className="ds-field ds-wide"><span>数据列表路径</span><input value={source.rowsPath} maxLength={160} placeholder="例如 data.rows；根数组留空" spellCheck={false} onChange={event => update({ rowsPath: event.target.value })}/></label>}
               <p className="ds-help">每个源最多 1 MB、5,000 行、40 列。数值字段需为有效数字；空值不会当作 0。</p>
             </>}
-            <div className="ds-test-row"><button type="button" className="ds-test" onClick={testSource} disabled={testing}><ArrowsClockwise size={15} className={testing ? 'ds-spinning' : ''}/>{testing ? '正在读取…' : source.type === 'http' ? '测试连接' : '测试数据'}</button><a href="/data/examples/monitoring.json" download="monitoring.json">下载示例 JSON</a></div>
-            {preview !== null && <div className="ds-preview"><div className="ds-preview-title">数据预览 <span>{preview.length} 行 · 最多展示 6 列</span></div>{preview.length ? <div className="ds-table-scroll"><table><thead><tr>{previewKeys.map(key => <th key={key}>{key}</th>)}</tr></thead><tbody>{preview.slice(0, 5).map((row, i) => <tr key={i}>{previewKeys.map(key => <td key={key} title={cellText(row[key])}>{cellText(row[key])}</td>)}</tr>)}</tbody></table></div> : <p>数据源返回空列表。</p>}</div>}
+            <div className="ds-test-row"><button type="button" className="ds-test" onClick={() => testSource()} disabled={testing}><ArrowsClockwise size={15} className={testing ? 'ds-spinning' : ''}/>{testing ? '正在读取…' : source.type === 'http' ? '测试并识别字段' : '识别数据'}</button>{source.type !== 'csv' && <button type="button" className="ds-infer-again" onClick={() => testSource(true)} disabled={testing}>重新识别路径</button>}<a href="/data/examples/monitoring.json" download="monitoring.json">下载监测示例</a><a href="/data/examples/professional.json" download="professional.json">下载专业图表示例</a></div>
+            {preview !== null && <>
+              {preview.candidates.length > 1 && <label className="ds-field ds-wide"><span>选择数据列表</span><select value={preview.rowsPath ?? '__unselected__'} onChange={event => selectRows(event.target.value)}><option value="__unselected__" disabled>发现多组数据，请选择</option>{preview.candidates.map(candidate => <option key={candidate.path} value={candidate.path}>{candidate.path || '根数组'} · {candidate.rowCount} 行</option>)}</select></label>}
+              {preview.rows && <><div className="ds-preview"><div className="ds-preview-title">数据预览 <span>共 {preview.rows.length} 行 · 预览 {Math.min(5, preview.rows.length)} 行 / {previewKeys.length} 列</span></div>{preview.rows.length ? <div className="ds-table-scroll"><table><thead><tr>{previewKeys.map(key => <th key={key}>{key}</th>)}</tr></thead><tbody>{preview.rows.slice(0, 5).map((row, i) => <tr key={i}>{previewKeys.map(key => <td key={key} title={cellText(readDataPath(row, key))}>{cellText(readDataPath(row, key))}</td>)}</tr>)}</tbody></table></div> : <p>数据源返回空列表。</p>}</div>
+                <div className="ds-field-profiles" aria-label="识别到的数据字段">{preview.fields.map(field => <div key={field.path}><strong title={field.path}>{field.path}</strong><span>{FIELD_TYPES[field.type]}</span><small title={field.examples.join(' / ')}>{field.sample || '—'}</small>{field.missingCount > 0 && <em>{field.missingCount} 个空值</em>}</div>)}</div>
+                {onCreateComponent && recommendations.length > 0 && <section className="ds-create-widget"><h3>从这些数据创建组件</h3><div className="ds-widget-choices">{recommendations.map(item => <button type="button" key={item.type} aria-pressed={recommendation?.type === item.type} onClick={() => setWidgetType(item.type)}><strong>{MODULE_TYPES.find(type => type.id === item.type)?.label || item.type}</strong><small>{item.reason}</small></button>)}</div>{recommendation && <><p className="ds-help">建议映射：{Object.entries(recommendation.fields).filter(([, path]) => path).map(([key, path]) => `${key} ← ${path}`).join('；')}。添加后可在组件属性调整。</p>{mappedPreview.error ? <p role="alert">{mappedPreview.error}</p> : <><div className="ds-mapped-summary">映射结果：{mappedPreview.rows.length} 行{mappedPreview.value !== null && ` · 汇总 ${mappedPreview.value.toLocaleString('zh-CN')}`}</div><details className="ds-preview ds-mapped-preview"><summary>查看适配后数据</summary><div className="ds-table-scroll"><table><thead><tr>{recommendation.columns.map(column => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{mappedPreview.rows.slice(0, 5).map((row, i) => <tr key={i}>{recommendation.columns.map(column => <td key={column.key}>{cellText(row[column.key])}</td>)}</tr>)}</tbody></table></div></details></>}<button type="button" className="ds-test" disabled={saving || Boolean(mappedPreview.error)} onClick={createComponent}><Plus size={15}/>添加{MODULE_TYPES.find(type => type.id === recommendation.type)?.label || recommendation.type}</button></>}</section>}
+                {onCreateComponent && preview.rows.length > 0 && !recommendations.length && <p className="ds-help">尚无明确适配组件。可先保存数据源，再在组件属性中选择字段映射；数值为空或多个字段存在歧义时不会自动猜测。</p>}
+              </>}
+            </>}
           </> : <div className="ds-empty"><Database size={34} weight="light"/><h3>连接你的业务数据</h3><p>同一个数据源可复用于指标、图表和表格。</p><button type="button" className="ds-test" onClick={add}><Plus size={15}/>添加数据源</button></div>}
         </section>
       </div>

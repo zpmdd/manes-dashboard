@@ -11,6 +11,13 @@ export const SOURCES = {
   trend: { label: '流量时序', unit: 'GB', columns: [{ key: 'time', label: '时点' }, { key: 'value', label: '数据流量' }] },
   regions: { label: '区域设备分布', unit: '台', columns: [{ key: 'name', label: '区域' }, { key: 'value', label: '接入设备' }, { key: 'status', label: '状态' }] },
   events: { label: '运行事件', unit: '条', columns: [{ key: 'time', label: '发生时间' }, { key: 'name', label: '事件内容' }, { key: 'status', label: '处理状态' }] },
+  seriesTrend: { label: '多区域流量', unit: 'GB', columns: [{ key: 'time', label: '时间' }, { key: 'series', label: '区域' }, { key: 'value', label: '流量' }] },
+  comparison: { label: '接入量与在线率', unit: '台', columns: [{ key: 'name', label: '区域' }, { key: 'value', label: '设备数' }, { key: 'value2', label: '在线率' }] },
+  dimensions: { label: '运行能力评估', unit: '分', columns: [{ key: 'name', label: '维度' }, { key: 'series', label: '对象' }, { key: 'value', label: '评分' }, { key: 'target', label: '上限' }] },
+  scatter: { label: '负载与时延', unit: '台', columns: [{ key: 'name', label: '节点' }, { key: 'x', label: '负载' }, { key: 'y', label: '时延' }, { key: 'value', label: '设备数' }] },
+  heat: { label: '时段活跃度', unit: '次', columns: [{ key: 'x', label: '时段' }, { key: 'y', label: '区域' }, { key: 'value', label: '活跃度' }] },
+  funnel: { label: '事件处理流程', unit: '条', columns: [{ key: 'name', label: '阶段' }, { key: 'value', label: '事件数' }] },
+  tree: { label: '设备类型分布', unit: '台', columns: [{ key: 'name', label: '类型' }, { key: 'series', label: '分组' }, { key: 'value', label: '设备数' }] },
 };
 
 export const MODULE_TYPES = [
@@ -26,6 +33,14 @@ export const MODULE_TYPES = [
   { id: 'status', label: '状态矩阵', sources: ['events', 'devices'] },
   { id: 'text', label: '文本公告', sources: ['devices'] },
   { id: 'clock', label: '数字时钟', sources: ['devices'] },
+  { id: 'multiLine', label: '多系列折线', sources: ['seriesTrend'] },
+  { id: 'stacked', label: '堆叠柱状图', sources: ['seriesTrend'] },
+  { id: 'combo', label: '双轴组合图', sources: ['comparison'] },
+  { id: 'radar', label: '雷达图', sources: ['dimensions'] },
+  { id: 'scatter', label: '散点气泡图', sources: ['scatter'] },
+  { id: 'heatmap', label: '矩阵热力图', sources: ['heat'] },
+  { id: 'funnel', label: '漏斗图', sources: ['funnel'] },
+  { id: 'treemap', label: '矩形树图', sources: ['tree'] },
 ];
 
 const LEGACY_CONFIG = {
@@ -104,12 +119,13 @@ const DEFAULT_LAYOUTS = [
   { x: 0, y: 0, w: 19, h: 32 }, { x: 0, y: 34, w: 19, h: 32 },
   { x: 0, y: 68, w: 19, h: 32 }, { x: 20, y: 75, w: 39.5, h: 25 }, { x: 60.5, y: 75, w: 39.5, h: 25 },
 ];
+export const DEFAULT_CHART_OPTIONS = { legend: true, labels: false, zoom: false, smooth: true, palette: 'champagne', secondaryUnit: '', primaryName: '主指标', secondaryName: '辅助指标', xName: '', yName: '' };
 const defaultFields = () => Object.fromEntries(DATA_FIELDS.map(key => [key, key]));
 function upgrade(config) {
-  return { ...config, version: 2, canvas: { snap: true, grid: 1 },
+  return { ...config, version: 2, canvas: { snap: true, grid: 1, magnet: true, threshold: 6 },
     map: { layout: { x: 20, y: 0, w: 80, h: 74 }, visible: true, locked: false }, dataSources: [],
     modules: config.modules.map((item, i) => ({ ...item, layout: { ...DEFAULT_LAYOUTS[i] }, locked: false,
-      surface: i === 2 ? 'solid' : 'glass', binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: '', target: 100 })),
+      surface: i === 2 ? 'solid' : 'glass', binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: '', target: 100, chartOptions: { ...DEFAULT_CHART_OPTIONS } })),
   };
 }
 export const DEFAULT_CONFIG = upgrade(LEGACY_CONFIG);
@@ -121,9 +137,9 @@ export function createModule(typeId, existing = []) {
   const source = type.sources[0];
   const offset = existing.length % 7 * 3;
   return { id: `w_${crypto.randomUUID()}`, title: type.label, subtitle: '', type: type.id, source,
-    unit: SOURCES[source].unit, visible: true, locked: false, rowCount: 5, columns: SOURCES[source].columns.map(column => ({ ...column })),
+    unit: SOURCES[source].unit, visible: true, locked: false, rowCount: typeId === 'scatter' ? 30 : ['multiLine', 'stacked', 'heatmap', 'treemap'].includes(typeId) ? 8 : 5, columns: SOURCES[source].columns.map(column => ({ ...column })),
     layout: { x: 24 + offset, y: 12 + offset, w: 28, h: 32 }, surface: 'glass',
-    binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: typeId === 'text' ? '请输入公告内容' : '', target: 100 };
+    binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: typeId === 'text' ? '请输入公告内容' : '', target: 100, chartOptions: { ...DEFAULT_CHART_OPTIONS, ...(typeId === 'combo' ? { primaryName: '设备数', secondaryName: '在线率', secondaryUnit: '%' } : typeId === 'scatter' ? { xName: '负载 (%)', yName: '时延 (ms)' } : {}) } };
 }
 
 function flag(value, label) { if (typeof value !== 'boolean') throw new Error(`${label}格式不正确`); return value; }
@@ -134,12 +150,21 @@ function layout(value) {
   if (result.x + result.w > 100.001 || result.y + result.h > 100.001) throw new Error('组件位置不能超出画布');
   return result;
 }
+function normalizeChartOptions(input) {
+  const keys = Object.keys(DEFAULT_CHART_OPTIONS);
+  if (input !== undefined) object(input, keys.filter(key => Object.hasOwn(input ?? {}, key)), '图表选项');
+  const value = { ...DEFAULT_CHART_OPTIONS, ...input };
+  if (!['champagne', 'ocean', 'forest'].includes(value.palette)) throw new Error('不支持的图表配色');
+  return { legend: flag(value.legend, '图例开关'), labels: flag(value.labels, '标签开关'), zoom: flag(value.zoom, '缩放开关'), smooth: flag(value.smooth, '平滑开关'), palette: value.palette,
+    secondaryUnit: text(value.secondaryUnit, 8, '副轴单位', true), primaryName: text(value.primaryName, 20, '主系列名称'), secondaryName: text(value.secondaryName, 20, '副系列名称'), xName: text(value.xName, 20, 'X 轴名称', true), yName: text(value.yName, 20, 'Y 轴名称', true) };
+}
 export function normalizeConfig(raw) {
   if (raw?.version === 1) return upgrade(normalizeLegacy(raw));
   object(raw, [...configKeys, 'canvas', 'map', 'dataSources'], '配置');
   if (raw.version !== 2) throw new Error('不支持此配置版本');
   if (!Array.isArray(raw.navLabels) || raw.navLabels.length !== 4) throw new Error('需配置四个导航名称');
-  object(raw.canvas, ['snap', 'grid'], '画布');
+  const canvas = { magnet: true, threshold: 6, ...raw.canvas };
+  object(raw.canvas, ['snap', 'grid', ...['magnet', 'threshold'].filter(key => Object.hasOwn(raw.canvas ?? {}, key))], '画布');
   object(raw.map, ['layout', 'visible', 'locked'], '地图');
   if (!Array.isArray(raw.dataSources) || raw.dataSources.length > 40) throw new Error('最多配置 40 个数据源');
   const sourceIds = new Set();
@@ -153,7 +178,8 @@ export function normalizeConfig(raw) {
   if (!Array.isArray(raw.modules) || raw.modules.length > 40) throw new Error('最多配置 40 个组件');
   const seen = new Set();
   const modules = raw.modules.map(item => {
-    object(item, [...moduleKeys, 'layout', 'locked', 'surface', 'binding', 'aggregate', 'text', 'target'], '组件');
+    object(item, [...moduleKeys, 'layout', 'locked', 'surface', 'binding', 'aggregate', 'text', 'target', ...(Object.hasOwn(item, 'chartOptions') ? ['chartOptions'] : [])], '组件');
+    const chartOptions = normalizeChartOptions(item.chartOptions);
     if (typeof item.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(item.id) || item.id === 'map' || seen.has(item.id)) throw new Error('组件标识不正确或重复');
     seen.add(item.id);
     const type = MODULE_TYPES.find(entry => entry.id === item.type);
@@ -178,11 +204,11 @@ export function normalizeConfig(raw) {
     return { id: item.id, title: text(item.title, 20, '组件标题'), subtitle: text(item.subtitle, 40, '副标题', true),
       type: item.type, source: item.source, visible: flag(item.visible, '显示开关'), unit: text(item.unit, 8, '单位', true), rowCount: item.rowCount, columns,
       layout: layout(item.layout), locked: flag(item.locked, '锁定开关'), surface: item.surface,
-      binding: { sourceId: item.binding.sourceId, fields: normalizedFields }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值') };
+      binding: { sourceId: item.binding.sourceId, fields: normalizedFields }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值'), chartOptions };
   });
   const config = { version: 2, brand: text(raw.brand, 16, '品牌名称'), title: text(raw.title, 36, '大屏标题'), mapTitle: text(raw.mapTitle, 24, '地图标题'),
     navLabels: raw.navLabels.map(label => text(label, 8, '导航名称')), showClock: flag(raw.showClock, '时钟开关'),
-    canvas: { snap: flag(raw.canvas.snap, '吸附开关'), grid: range(raw.canvas.grid, .5, 5, '网格步长') },
+    canvas: { snap: flag(canvas.snap, '网格开关'), grid: range(canvas.grid, .5, 5, '网格步长'), magnet: flag(canvas.magnet, '磁吸开关'), threshold: range(canvas.threshold, 2, 16, '磁吸距离') },
     map: { layout: layout(raw.map.layout), visible: flag(raw.map.visible, '地图开关'), locked: flag(raw.map.locked, '地图锁定') }, modules, dataSources };
   if (new TextEncoder().encode(JSON.stringify(config)).byteLength > CONFIG_FILE_LIMIT) throw new Error('配置内容不能超过 2 MB');
   return config;

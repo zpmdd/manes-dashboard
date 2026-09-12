@@ -2,7 +2,7 @@ export const DATA_SOURCE_LIMIT = 40;
 export const DATA_SIZE_LIMIT = 1024 * 1024;
 export const DATA_ROW_LIMIT = 5000;
 export const DATA_COLUMN_LIMIT = 40;
-export const DATA_FIELDS = ['name', 'value', 'time', 'status', 'target', 'series', 'code'];
+export const DATA_FIELDS = ['name', 'value', 'time', 'status', 'target', 'series', 'code', 'x', 'y', 'value2'];
 const FORBIDDEN = new Set(['__proto__', 'prototype', 'constructor']);
 const NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
 const SECRET_QUERY = /(?:authorization|token|apikey|secret|password|passwd|credential|cookie|signature)|^(?:auth|key|pwd|session|sessionid|sig|bearer|jwt)$/i;
@@ -74,7 +74,7 @@ export function normalizeDataSource(input) {
   return { id, name, type, content, url, rowsPath, refreshSeconds: refreshSeconds === 0 ? 0 : Math.max(15, refreshSeconds) };
 }
 
-function validateRows(rows) {
+export function validateRows(rows) {
   if (!Array.isArray(rows)) throw new Error('数据路径没有指向数据列表或对象');
   if (rows.length > DATA_ROW_LIMIT) throw new Error(`数据不能超过 ${DATA_ROW_LIMIT} 行`);
   const allKeys = new Set();
@@ -146,15 +146,31 @@ export function strictDataNumber(value) {
 export function getMappedData(sourceResult, binding, config = {}) {
   const fields = normalizeDataFields(binding?.fields);
   const textTable = config.type === 'table' && Array.isArray(config.columns) && !config.columns.some(column => column.key === 'value');
-  const numeric = !['text', 'clock', 'status'].includes(config.type) && !textTable;
+  const numeric = !['text', 'clock', 'status', 'scatter'].includes(config.type) && !textTable;
   const scalar = value => ['string', 'number', 'boolean'].includes(typeof value) ? String(value) : '';
+  const category = value => (typeof value === 'string' && value.trim() !== '') || (typeof value === 'number' && Number.isFinite(value));
+  const provided = value => value !== undefined && value !== null && value !== '';
   const rows = (sourceResult?.rows || []).map((row, i) => {
     const mapped = Object.fromEntries(DATA_FIELDS.map(key => [key, fields[key] ? readDataPath(row, fields[key]) : undefined]));
     const value = strictDataNumber(mapped.value);
     if (numeric && value === null) throw new Error(`第 ${i + 1} 行的数值字段“${fields.value || '未设置'}”缺失或不是有效数字`);
     const target = strictDataNumber(mapped.target);
     if (mapped.target !== undefined && mapped.target !== null && mapped.target !== '' && target === null) throw new Error(`第 ${i + 1} 行的目标字段不是有效数字`);
-    return { name: scalar(mapped.name) || `第 ${i + 1} 项`, value, time: scalar(mapped.time), status: scalar(mapped.status), target, series: scalar(mapped.series), code: scalar(mapped.code) };
+    const value2 = strictDataNumber(mapped.value2);
+    let x = category(mapped.x) ? mapped.x : null, y = category(mapped.y) ? mapped.y : null;
+    if (config.type === 'scatter') {
+      x = strictDataNumber(mapped.x); y = strictDataNumber(mapped.y);
+      if (x === null || y === null) throw new Error(`第 ${i + 1} 行的 X、Y 字段必须是有效数字`);
+      if (provided(mapped.value) && (value === null || value < 0)) throw new Error(`第 ${i + 1} 行的点大小必须是非负数字或留空`);
+    }
+    if (config.type === 'heatmap' && (x === null || y === null)) throw new Error(`第 ${i + 1} 行的 X、Y 类别不能为空`);
+    if (config.type === 'combo' && value2 === null) throw new Error(`第 ${i + 1} 行的第二数值字段必须是有效数字`);
+    if (['multiLine', 'stacked', 'combo'].includes(config.type) && !category(mapped.time) && !category(mapped.name)) throw new Error(`第 ${i + 1} 行需要名称或时间字段`);
+    if (['multiLine', 'stacked'].includes(config.type) && !category(mapped.series)) throw new Error(`第 ${i + 1} 行需要系列字段`);
+    if (['radar', 'funnel', 'treemap'].includes(config.type) && (!category(mapped.name) || value < 0)) throw new Error(`第 ${i + 1} 行需要名称和非负数值`);
+    if (config.type === 'radar' && target !== null && target <= 0) throw new Error(`第 ${i + 1} 行的雷达目标值必须大于 0`);
+    const name = scalar(mapped.name) || (['multiLine', 'stacked', 'combo'].includes(config.type) ? '' : `第 ${i + 1} 项`);
+    return { name, value, time: scalar(mapped.time), status: scalar(mapped.status), target, series: scalar(mapped.series), code: scalar(mapped.code), x, y, value2 };
   });
   const values = rows.map(row => row.value).filter(value => value !== null);
   const aggregate = config.aggregate || 'sum';
@@ -183,9 +199,9 @@ async function limitedResponseText(response) {
   } finally { reader.releaseLock(); }
 }
 
-export async function loadDataSource(rawSource, code, { signal, fetcher = globalThis.fetch, timeoutMs = 10000, baseUrl } = {}) {
+export async function loadSourcePayload(rawSource, code, { signal, fetcher = globalThis.fetch, timeoutMs = 10000, baseUrl } = {}) {
   const source = normalizeDataSource(rawSource);
-  if (source.type !== 'http') return parseSourceContent(source.content, source.type, source.rowsPath);
+  if (source.type !== 'http') return { content: source.content, type: source.type, source };
   const controller = new AbortController();
   const cancel = () => controller.abort();
   if (signal?.aborted) controller.abort();
@@ -197,7 +213,7 @@ export async function loadDataSource(rawSource, code, { signal, fetcher = global
     if (!response.ok) { await response.body?.cancel(); throw new Error(`接口请求失败（HTTP ${response.status}）`); }
     const content = await limitedResponseText(response);
     const isCsv = /(?:text\/csv|application\/csv)/i.test(response.headers?.get('content-type') || '') || new URL(validateSourceUrl(source.url, code, baseUrl)).pathname.toLowerCase().endsWith('.csv');
-    return parseSourceContent(content, isCsv ? 'csv' : 'json', source.rowsPath);
+    return { content, type: isCsv ? 'csv' : 'json', source };
   } catch (error) {
     if (timedOut) throw new Error('接口请求超时（10 秒），请检查服务状态');
     if (controller.signal.aborted) throw new DOMException('请求已取消', 'AbortError');
@@ -206,6 +222,11 @@ export async function loadDataSource(rawSource, code, { signal, fetcher = global
   } finally {
     clearTimeout(timer); signal?.removeEventListener('abort', cancel);
   }
+}
+
+export async function loadDataSource(source, code, options) {
+  const payload = await loadSourcePayload(source, code, options);
+  return parseSourceContent(payload.content, payload.type, payload.source.rowsPath);
 }
 
 // 一个源由一个控制器加载，多个组件直接共享结果，旧请求无法覆盖新区域。

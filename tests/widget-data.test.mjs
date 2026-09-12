@@ -69,7 +69,7 @@ test('external numeric data preserves missing values, numeric sorting, negative 
 
 test('all twelve components render real supplied data and failed connections never fall back to snapshots', async () => {
   const [{ createServer }, { createElement }, { renderToStaticMarkup }] = await Promise.all([import('vite'), import('react'), import('react-dom/server')]);
-  const server = await createServer({ configFile: false, appType: 'custom', server: { middlewareMode: true, watch: null }, esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true, include: [] } });
+  const server = await createServer({ configFile: false, appType: 'custom', server: { middlewareMode: true, watch: null, hmr: false, ws: false }, esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true, include: [] } });
   try {
     const { DashboardWidget } = await server.ssrLoadModule('/src/DashboardWidget.jsx');
     const config = { id: 'external-test', title: '测试组件', source: 'devices', type: 'metric', rowCount: 8, unit: '台', target: 100, text: '<script>alert(1)</script>\n第二行', columns: [{ key: 'name', label: '项目' }, { key: 'value', label: '数值' }, { key: 'status', label: '状态' }] };
@@ -105,5 +105,10 @@ test('all twelve components render real supplied data and failed connections nev
     assert.match(fullTable, /<td class="widget-cell-code" title="031000">031000<\/td>/, 'Region code keeps its leading zero and remains visible as the seventh column');
     const codeTable = render('table', { data: mapped, config: { ...config, type: 'table', columns: [{ key: 'code', label: '区域编码' }] } });
     assert.match(codeTable, />031000<\/td>/, 'A code-only table is a valid table');
+    const zeroColumns = ['x', 'y', 'value2'].map(key => ({ key, label: key }));
+    const zeroTable = render('table', { data: { rows: [{ name: '零值', x: 0, y: 0, value2: 0 }] }, config: { ...config, type: 'table', columns: zeroColumns } });
+    assert.equal((zeroTable.match(/<td class="widget-cell-(?:x|y|value2)" title="0">0<\/td>/g) || []).length, 3, 'Coordinates and secondary metric retain a valid numeric zero');
+    const decimalTable = render('table', { data: { rows: [{ name: '精度', value2: 1234.567 }] }, config: { ...config, type: 'table', precision: 2, columns: [{ key: 'value2', label: '辅助指标' }] } });
+    assert.match(decimalTable, /title="1,234.57">1,234.57<\/td>/);
   } finally { await server.close(); }
 });

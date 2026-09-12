@@ -1,10 +1,11 @@
-import { memo, useEffect, useId, useMemo, useState } from 'react';
-import { chartDomain, donutRows, formatWidgetNumber as number, getWidgetData, normalizeWidgetData, progressValues, sortTableRows, statusTone, visibleRowCount } from './widgetData.js';
+import { lazy, memo, Suspense, useEffect, useId, useMemo, useState } from 'react';
+import { chartDomain, donutRows, formatWidgetNumber as number, getWidgetData, normalizeWidgetData, PROFESSIONAL_TYPES, progressValues, sortTableRows, statusTone, visibleRowCount } from './widgetData.js';
 import { DATA_FIELDS } from './dataSources.js';
 import './widgets.css';
 
 const PALETTE = ['#f1e8c5', '#cbc8b0', '#afaeb0', '#938a97', '#726d7c', '#d2bda1', '#bfa7a8', '#b3bec1', '#9aab9c', '#848978'];
 const COLUMN_KEYS = new Set(DATA_FIELDS);
+const ProfessionalChart = lazy(() => import('./ProfessionalChart.jsx'));
 
 function EmptyState({ message = '暂无数据', detail, onRefresh }) {
   return <div className="widget-empty" role="status"><span>{message}</span>{detail && <p className="widget-error-reason">{detail}</p>}{onRefresh && <button onClick={onRefresh}>重新加载</button>}</div>;
@@ -96,7 +97,7 @@ function DataTable({ rows, columns, unit, rowCount, title, onNavigate, precision
   const visibleColumns = columns?.filter(column => COLUMN_KEYS.has(column.key)).slice(0, COLUMN_KEYS.size) || [];
   if (!visibleColumns.length) return <EmptyState message="请选择表格列"/>;
   return <div className="widget-table-wrap" tabIndex="0" role="region" aria-label={`${title}，可滚动表格`}><table className="widget-table"><caption className="widget-sr-only">{title}{unit && `，数值单位 ${unit}`}</caption><thead><tr>{visibleColumns.map(column => <th key={column.key} className={`widget-cell-${column.key}`} scope="col" aria-sort={column.key === 'value' ? direction || 'none' : undefined}>{column.key === 'value' ? <button onClick={() => setDirection(current => current === 'descending' ? 'ascending' : 'descending')}>{column.label}{unit && <small>/{unit}</small>}<span aria-hidden="true">{direction === 'ascending' ? '↑' : '↓'}</span><span className="widget-sr-only">按数值{direction === 'descending' ? '升序' : '降序'}排列</span></button> : column.label}</th>)}</tr></thead><tbody>{sorted.map((row, i) => <tr key={row.code || `${row.name}-${row.time}-${i}`}>{visibleColumns.map((column, columnIndex) => {
-    const value = ['value', 'target'].includes(column.key) ? number(row[column.key], precision) : String(row[column.key] || '—');
+    const value = ['value', 'target', 'value2'].includes(column.key) ? number(row[column.key], precision) : row[column.key] === null || row[column.key] === undefined || row[column.key] === '' ? '—' : String(row[column.key]);
     return <td key={column.key} className={`widget-cell-${column.key}`} title={value}>{columnIndex === 0 && row.code && onNavigate ? <button className="widget-table-link" aria-label={`${row.name}，查看区域`} onClick={() => onNavigate(row.code)}>{value}</button> : column.key === 'status' ? <span className={`widget-status is-${statusTone(value)}`}>{value}</span> : value}</td>;
   })}</tr>)}</tbody></table></div>;
 }
@@ -142,7 +143,8 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
   const numericRows = useMemo(() => data.rows.filter(row => row.value !== null), [data]);
   if (config.visible === false) return null;
   const independent = config.type === 'text' || config.type === 'clock';
-  const hasData = ['metric', 'gauge'].includes(config.type) ? data.value !== null : (['table', 'status'].includes(config.type) ? data.rows : numericRows).length > 0;
+  const professional = PROFESSIONAL_TYPES.includes(config.type);
+  const hasData = ['metric', 'gauge'].includes(config.type) ? data.value !== null : (professional || ['table', 'status'].includes(config.type) ? data.rows : numericRows).length > 0;
   const hasError = dataState?.status === 'error' || dataState?.status === 'stale';
   const errorMessage = typeof dataState?.error === 'string' ? dataState.error : dataState?.error?.message;
   const loading = dataState?.status === 'loading';
@@ -150,6 +152,7 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
   if (config.type === 'text') body = config.text ? <div className="widget-text" tabIndex="0">{config.text}</div> : <EmptyState message="暂无公告"/>;
   else if (config.type === 'clock') body = <Clock/>;
   else if (!hasData) body = <EmptyState message={hasError ? '数据暂不可用' : loading ? '正在加载' : data.emptyMessage || '暂无数据'} detail={hasError ? errorMessage : undefined} onRefresh={hasError ? onRefresh : undefined}/>;
+  else if (professional) body = <Suspense fallback={<EmptyState message="正在加载图表"/>}><ProfessionalChart config={config} data={data} onNavigate={onNavigate}/></Suspense>;
   else if (config.type === 'metric') body = <Metric data={data} unit={unit} precision={precision}/>;
   else if (config.type === 'gauge') body = <Gauge data={data} unit={unit} title={config.title} target={config.target} precision={precision}/>;
   else if (['line', 'area', 'column'].includes(config.type)) body = <TrendChart rows={config.type === 'column' ? numericRows.slice(0, rowCount) : numericRows.slice(-rowCount)} unit={unit} title={config.title} type={config.type} precision={precision}/>;
