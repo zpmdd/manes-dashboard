@@ -11,7 +11,35 @@ extend(THREE);
 const vite = await createServer({ root: fileURLToPath(new URL('../', import.meta.url)), configFile: false, server: { middlewareMode: true }, esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true }, logLevel: 'error' });
 const root = createRoot({});
 try {
-  const { RegionMesh } = await vite.ssrLoadModule('/src/MapScene.jsx');
+  const { RegionMesh, fitMapViewport } = await vite.ssrLoadModule('/src/MapScene.jsx');
+  const bounds = new THREE.Box3(new THREE.Vector3(-5, 0, -8), new THREE.Vector3(11, .38, 2));
+  const camera = new THREE.PerspectiveCamera(34, 1, .1, 200);
+  const viewports = [
+    { size: { width: 1920, height: 1080 }, viewport: { x: .22, y: .14, width: .74, height: .55 } },
+    { size: { width: 3840, height: 2160 }, viewport: { x: .22, y: .14, width: .74, height: .55 } },
+    { size: { width: 1280, height: 900 }, viewport: { x: .08, y: .18, width: .3, height: .58 } },
+    { size: { width: 1920, height: 1080 }, viewport: { x: .7, y: .42, width: .18, height: .19 } },
+    { size: { width: 390, height: 844 }, viewport: { x: 0, y: .1, width: 1, height: .5 } },
+  ];
+  for (const { size, viewport } of viewports) {
+    const fitted = fitMapViewport(camera, bounds, size, viewport);
+    const left = viewport.x + viewport.width * .08, right = viewport.x + viewport.width * .92;
+    const top = viewport.y + viewport.height * .12, bottom = viewport.y + viewport.height;
+    assert(fitted && Number.isFinite(fitted.distance), 'A usable viewport must produce a finite camera');
+    for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) {
+      const point = new THREE.Vector3(x, y, z).project(camera), screenX = (point.x + 1) / 2, screenY = (1 - point.y) / 2;
+      assert(screenX >= left - 1e-8 && screenX <= right + 1e-8 && screenY >= top - 1e-8 && screenY <= bottom + 1e-8, 'Every geometry corner must fit with 8% side and 12% title margins');
+      assert(point.z > -1 && point.z < 1, 'Fitted geometry must stay inside the near and far clipping planes');
+    }
+    const center = bounds.getCenter(new THREE.Vector3()).project(camera);
+    assert(Math.abs((center.x + 1) / 2 - (left + right) / 2) < 1e-8);
+    assert(Math.abs((1 - center.y) / 2 - (top + bottom) / 2) < 1e-8);
+    const previousProjection = camera.projectionMatrix.clone();
+    assert.equal(fitMapViewport(camera, bounds, size, undefined), null);
+    assert.equal(fitMapViewport(camera, bounds, size, { ...viewport, width: 0 }), null);
+    assert(camera.projectionMatrix.equals(previousProjection), 'An absent or empty viewport must not change the legacy camera');
+  }
+  console.log('PASS: 40 real Three projections fit resized viewports, centered bounds, reserved margins and clipping planes.');
   const scene = new THREE.Scene();
   await root.configure({ scene, frameloop: 'never', size: { width: 800, height: 600, top: 0, left: 0 }, dpr: 1, gl: { render() {}, setPixelRatio() {}, setSize() {} } });
   const regions = ['湖北省', '湖南省'].map((name, i) => ({ feature: { properties: { adcode: 420000 + i, name } }, geometry: new THREE.BoxGeometry(), color: '#aaa6a0' }));

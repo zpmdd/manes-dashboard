@@ -1,5 +1,8 @@
-export const STORAGE_KEY = 'nexus.dashboard.config.v1';
-export const CONFIG_FILE_LIMIT = 64 * 1024;
+import { DATA_FIELDS, normalizeDataSource, validateDataPath, parseSourceContent } from './dataSources.js';
+
+export const STORAGE_KEY = 'nexus.dashboard.config.v2';
+const LEGACY_STORAGE_KEY = 'nexus.dashboard.config.v1';
+export const CONFIG_FILE_LIMIT = 2 * 1024 * 1024;
 
 export const SOURCES = {
   devices: { label: '设备接入', unit: '台', columns: [{ key: 'name', label: '区域' }, { key: 'value', label: '接入设备' }, { key: 'status', label: '状态' }] },
@@ -17,9 +20,15 @@ export const MODULE_TYPES = [
   { id: 'bar', label: '条形图', sources: ['regions'] },
   { id: 'donut', label: '环形图', sources: ['regions'] },
   { id: 'table', label: '数据表格', sources: Object.keys(SOURCES) },
+  { id: 'area', label: '面积图', sources: ['trend'] },
+  { id: 'column', label: '柱状图', sources: ['regions', 'trend'] },
+  { id: 'progress', label: '目标进度', sources: ['online', 'devices'] },
+  { id: 'status', label: '状态矩阵', sources: ['events', 'devices'] },
+  { id: 'text', label: '文本公告', sources: ['devices'] },
+  { id: 'clock', label: '数字时钟', sources: ['devices'] },
 ];
 
-export const DEFAULT_CONFIG = {
+const LEGACY_CONFIG = {
   version: 1,
   brand: 'NEXUS',
   title: '全域运行监测中心',
@@ -37,7 +46,7 @@ export const DEFAULT_CONFIG = {
 
 const configKeys = ['version', 'brand', 'title', 'mapTitle', 'navLabels', 'showClock', 'modules'];
 const moduleKeys = ['id', 'title', 'subtitle', 'type', 'source', 'visible', 'unit', 'rowCount', 'columns'];
-const moduleIds = DEFAULT_CONFIG.modules.map(module => module.id);
+const moduleIds = LEGACY_CONFIG.modules.map(module => module.id);
 
 function object(value, keys, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) throw new Error(`${label}格式不正确`);
@@ -52,7 +61,7 @@ function text(value, max, label, optional = false) {
   return result;
 }
 
-export function normalizeConfig(raw) {
+function normalizeLegacy(raw) {
   object(raw, configKeys, '配置');
   if (raw.version !== 1) throw new Error('不支持此配置版本');
   if (typeof raw.showClock !== 'boolean') throw new Error('时钟开关格式不正确');
@@ -91,11 +100,99 @@ export function normalizeConfig(raw) {
   };
 }
 
+const DEFAULT_LAYOUTS = [
+  { x: 0, y: 0, w: 19, h: 32 }, { x: 0, y: 34, w: 19, h: 32 },
+  { x: 0, y: 68, w: 19, h: 32 }, { x: 20, y: 75, w: 39.5, h: 25 }, { x: 60.5, y: 75, w: 39.5, h: 25 },
+];
+const defaultFields = () => Object.fromEntries(DATA_FIELDS.map(key => [key, key]));
+function upgrade(config) {
+  return { ...config, version: 2, canvas: { snap: true, grid: 1 },
+    map: { layout: { x: 20, y: 0, w: 80, h: 74 }, visible: true, locked: false }, dataSources: [],
+    modules: config.modules.map((item, i) => ({ ...item, layout: { ...DEFAULT_LAYOUTS[i] }, locked: false,
+      surface: i === 2 ? 'solid' : 'glass', binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: '', target: 100 })),
+  };
+}
+export const DEFAULT_CONFIG = upgrade(LEGACY_CONFIG);
+
+export function createModule(typeId, existing = []) {
+  const type = MODULE_TYPES.find(item => item.id === typeId);
+  if (!type) throw new Error('不支持的组件类型');
+  if (existing.length >= 40) throw new Error('每个画布最多添加 40 个组件');
+  const source = type.sources[0];
+  const offset = existing.length % 7 * 3;
+  return { id: `w_${crypto.randomUUID()}`, title: type.label, subtitle: '', type: type.id, source,
+    unit: SOURCES[source].unit, visible: true, locked: false, rowCount: 5, columns: SOURCES[source].columns.map(column => ({ ...column })),
+    layout: { x: 24 + offset, y: 12 + offset, w: 28, h: 32 }, surface: 'glass',
+    binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: typeId === 'text' ? '请输入公告内容' : '', target: 100 };
+}
+
+function flag(value, label) { if (typeof value !== 'boolean') throw new Error(`${label}格式不正确`); return value; }
+function range(value, min, max, label) { if (!Number.isFinite(value) || value < min || value > max) throw new Error(`${label}需在 ${min}–${max} 之间`); return value; }
+function layout(value) {
+  object(value, ['x', 'y', 'w', 'h'], '组件位置');
+  const result = { x: range(value.x, 0, 90, 'X 位置'), y: range(value.y, 0, 90, 'Y 位置'), w: range(value.w, 10, 100, '宽度'), h: range(value.h, 10, 100, '高度') };
+  if (result.x + result.w > 100.001 || result.y + result.h > 100.001) throw new Error('组件位置不能超出画布');
+  return result;
+}
+export function normalizeConfig(raw) {
+  if (raw?.version === 1) return upgrade(normalizeLegacy(raw));
+  object(raw, [...configKeys, 'canvas', 'map', 'dataSources'], '配置');
+  if (raw.version !== 2) throw new Error('不支持此配置版本');
+  if (!Array.isArray(raw.navLabels) || raw.navLabels.length !== 4) throw new Error('需配置四个导航名称');
+  object(raw.canvas, ['snap', 'grid'], '画布');
+  object(raw.map, ['layout', 'visible', 'locked'], '地图');
+  if (!Array.isArray(raw.dataSources) || raw.dataSources.length > 40) throw new Error('最多配置 40 个数据源');
+  const sourceIds = new Set();
+  const dataSources = raw.dataSources.map(input => {
+    const source = normalizeDataSource(input);
+    if (sourceIds.has(source.id)) throw new Error('数据源标识重复');
+    sourceIds.add(source.id);
+    if (source.type !== 'http') parseSourceContent(source.content, source.type, source.rowsPath);
+    return source;
+  });
+  if (!Array.isArray(raw.modules) || raw.modules.length > 40) throw new Error('最多配置 40 个组件');
+  const seen = new Set();
+  const modules = raw.modules.map(item => {
+    object(item, [...moduleKeys, 'layout', 'locked', 'surface', 'binding', 'aggregate', 'text', 'target'], '组件');
+    if (typeof item.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(item.id) || item.id === 'map' || seen.has(item.id)) throw new Error('组件标识不正确或重复');
+    seen.add(item.id);
+    const type = MODULE_TYPES.find(entry => entry.id === item.type);
+    if (!type || !type.sources.includes(item.source)) throw new Error('图表类型与示例数据不兼容');
+    object(item.binding, ['sourceId', 'fields'], '数据绑定');
+    if (item.binding.sourceId !== 'demo' && !sourceIds.has(item.binding.sourceId)) throw new Error('组件绑定的数据源不存在');
+    const fields = item.binding.fields;
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields) || Object.keys(fields).some(key => !DATA_FIELDS.includes(key))) throw new Error('字段映射格式不正确');
+    const normalizedFields = Object.fromEntries(Object.entries(fields).map(([key, path]) => [key, validateDataPath(path)]));
+    const available = item.binding.sourceId === 'demo' ? SOURCES[item.source].columns.map(column => column.key) : DATA_FIELDS;
+    if (!Array.isArray(item.columns) || !item.columns.length || item.columns.length > available.length) throw new Error('需选择至少一个有效表格列');
+    const used = new Set();
+    const columns = item.columns.map(column => {
+      object(column, ['key', 'label'], '表格列');
+      if (!available.includes(column.key) || used.has(column.key)) throw new Error('表格列字段不正确或重复');
+      used.add(column.key); return { key: column.key, label: text(column.label, 12, '列名称') };
+    });
+    if (!Number.isInteger(item.rowCount) || item.rowCount < 1 || item.rowCount > 100) throw new Error('显示条数需为 1–100 的整数');
+    if (!['glass', 'soft', 'solid'].includes(item.surface)) throw new Error('不支持的面板材质');
+    if (!['sum', 'average', 'first'].includes(item.aggregate)) throw new Error('不支持的汇总方式');
+    if (typeof item.text !== 'string' || item.text.length > 1000 || /[<>\u0000-\u0008\u000b-\u001f\u007f]/.test(item.text)) throw new Error('公告需为 1000 字以内的纯文字');
+    return { id: item.id, title: text(item.title, 20, '组件标题'), subtitle: text(item.subtitle, 40, '副标题', true),
+      type: item.type, source: item.source, visible: flag(item.visible, '显示开关'), unit: text(item.unit, 8, '单位', true), rowCount: item.rowCount, columns,
+      layout: layout(item.layout), locked: flag(item.locked, '锁定开关'), surface: item.surface,
+      binding: { sourceId: item.binding.sourceId, fields: normalizedFields }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值') };
+  });
+  const config = { version: 2, brand: text(raw.brand, 16, '品牌名称'), title: text(raw.title, 36, '大屏标题'), mapTitle: text(raw.mapTitle, 24, '地图标题'),
+    navLabels: raw.navLabels.map(label => text(label, 8, '导航名称')), showClock: flag(raw.showClock, '时钟开关'),
+    canvas: { snap: flag(raw.canvas.snap, '吸附开关'), grid: range(raw.canvas.grid, .5, 5, '网格步长') },
+    map: { layout: layout(raw.map.layout), visible: flag(raw.map.visible, '地图开关'), locked: flag(raw.map.locked, '地图锁定') }, modules, dataSources };
+  if (new TextEncoder().encode(JSON.stringify(config)).byteLength > CONFIG_FILE_LIMIT) throw new Error('配置内容不能超过 2 MB');
+  return config;
+}
+
 export function loadConfig() {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
     if (saved && saved.length <= CONFIG_FILE_LIMIT) return normalizeConfig(JSON.parse(saved));
-  } catch { /* Unavailable storage or invalid saved data falls back without overwriting it. */ }
+  } catch { /* Invalid saved data is preserved, never overwritten with defaults. */ }
   return normalizeConfig(DEFAULT_CONFIG);
 }
 

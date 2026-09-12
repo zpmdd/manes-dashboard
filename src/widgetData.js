@@ -43,16 +43,67 @@ export function getWidgetData(source, code, index) {
 
 export function visibleRowCount(value) {
   const count = Number(value);
-  return Number.isFinite(count) ? Math.max(1, Math.min(10, Math.floor(count))) : 5;
+  return Number.isFinite(count) ? Math.max(1, Math.min(100, Math.floor(count))) : 5;
 }
 
 export function donutRows(rows, count = 5) {
   const sorted = rows.filter(row => Number.isFinite(row.value) && row.value > 0).slice().sort((a, b) => b.value - a.value);
   const limit = visibleRowCount(count);
   if (sorted.length <= limit) return sorted;
-  return [...sorted.slice(0, limit - 1), { name: '其他区域', value: sorted.slice(limit - 1).reduce((sum, row) => sum + row.value, 0) }];
+  return [...sorted.slice(0, limit - 1), { name: '其他', value: sorted.slice(limit - 1).reduce((sum, row) => sum + row.value, 0) }];
 }
 
 export function sortTableRows(rows, direction) {
-  return direction ? rows.slice().sort((a, b) => direction === 'ascending' ? a.value - b.value : b.value - a.value) : rows;
+  if (!direction) return rows;
+  return rows.slice().sort((a, b) => {
+    const left = finiteNumber(a.value), right = finiteNumber(b.value);
+    if (left === null) return right === null ? 0 : 1;
+    if (right === null) return -1;
+    return direction === 'ascending' ? left - right : right - left;
+  });
+}
+
+export function finiteNumber(value) {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !value.trim())) return null;
+  const result = Number(value);
+  return Number.isFinite(result) ? result : null;
+}
+
+export function formatWidgetNumber(value, precision = 1) {
+  const numeric = finiteNumber(value);
+  return numeric === null ? '—' : numeric.toLocaleString('zh-CN', { maximumFractionDigits: Math.max(0, Math.min(3, Math.floor(finiteNumber(precision) ?? 1))), notation: Math.abs(numeric) >= 1e12 ? 'scientific' : 'standard' });
+}
+
+// Every renderer receives the same shape; missing values remain missing instead of becoming zero.
+export function normalizeWidgetData(raw) {
+  const data = raw && typeof raw === 'object' ? raw : {};
+  const rows = (Array.isArray(data.rows) ? data.rows : []).filter(row => row && typeof row === 'object').map(row => ({
+    ...row, name: String(row.name ?? ''), time: String(row.time ?? ''), status: String(row.status ?? ''), value: finiteNumber(row.value), target: finiteNumber(row.target),
+  }));
+  return {
+    ...data, rows, value: finiteNumber(data.value), unit: typeof data.unit === 'string' ? data.unit : '',
+    scope: typeof data.scope === 'string' ? data.scope : '', onlineCount: finiteNumber(data.onlineCount), offlineCount: finiteNumber(data.offlineCount),
+  };
+}
+
+export function chartDomain(rows) {
+  const values = rows.map(row => finiteNumber(row.value)).filter(value => value !== null);
+  const min = Math.min(0, ...values), max = Math.max(0, ...values);
+  if (min === max) return { min: 0, max: 1 };
+  const magnitude = 10 ** Math.floor(Math.log10(Math.max(Math.abs(min), Math.abs(max))));
+  const step = magnitude / 2;
+  if (!step) return { min, max };
+  return { min: Math.max(-Number.MAX_VALUE, Math.floor(min / step) * step), max: Math.min(Number.MAX_VALUE, Math.ceil(max / step) * step) };
+}
+
+export function progressValues(value, target = 100) {
+  const current = finiteNumber(value), suppliedTarget = finiteNumber(target), goal = suppliedTarget !== null && suppliedTarget > 0 ? suppliedTarget : 100;
+  return { value: current, target: goal, percent: current === null ? null : current / goal * 100, fill: current === null ? 0 : Math.max(0, Math.min(100, current / goal * 100)) };
+}
+
+export function statusTone(status) {
+  const value = String(status || '').toLowerCase();
+  if (/离线|故障|异常|失败|告警|超时|offline|error|critical|failed/.test(value)) return 'alert';
+  if (/待处理|延迟|维护|预警|pending|warning|maintenance/.test(value)) return 'pending';
+  return /在线|正常|恢复|处理|接入|统计|运行|完成|online|healthy|ready|success|ok/.test(value) ? 'normal' : 'neutral';
 }

@@ -111,15 +111,53 @@ export const RegionMesh = memo(function RegionMesh({ region, selected, onSelect,
 const heatFragment = `varying vec2 vUv; void main(){float d=length(vUv-0.5)*2.0; float a=pow(max(0.0,1.0-d),2.0)*0.4; gl_FragColor=vec4(1.0,0.70,0.32,a);}`;
 const heatVertex = `varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`;
 
-function CameraControls({ command, onTelemetry, bounds }) {
+export function fitMapViewport(camera, bounds, size, viewport) {
+  if (!viewport || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(viewport[key])) || bounds.isEmpty() || size.width <= 0 || size.height <= 0) return null;
+  const left = Math.max(0, viewport.x), right = Math.min(1, viewport.x + viewport.width);
+  const top = Math.max(0, viewport.y), bottom = Math.min(1, viewport.y + viewport.height);
+  const width = right - left, height = bottom - top;
+  if (width <= 0 || height <= 0) return null;
+  const usable = { left: left + width * .08, right: right - width * .08, top: top + height * .12, bottom };
+  const target = bounds.getCenter(new THREE.Vector3()), direction = new THREE.Vector3(...CAMERA).normalize();
+  const horizontal = new THREE.Vector3().crossVectors(camera.up, direction).normalize();
+  const vertical = new THREE.Vector3().crossVectors(direction, horizontal);
+  const tangent = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const halfWidth = (usable.right - usable.left) * tangent * size.width / size.height;
+  const halfHeight = (usable.bottom - usable.top) * tangent;
+  if (halfWidth <= 0 || halfHeight <= 0) return null;
+  let distance = 10;
+  for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) {
+    const relative = new THREE.Vector3(x, y, z).sub(target), depth = relative.dot(direction);
+    distance = Math.max(distance, depth + Math.abs(relative.dot(horizontal)) / halfWidth, depth + Math.abs(relative.dot(vertical)) / halfHeight);
+  }
+  distance *= 1.015;
+  if (!Number.isFinite(distance)) return null;
+  camera.zoom = 1;
+  camera.far = Math.max(200, distance + bounds.getSize(new THREE.Vector3()).length() + 10);
+  // A full-canvas off-axis frustum places the map inside its editable DOM rectangle.
+  camera.setViewOffset(size.width, size.height, size.width * (.5 - (usable.left + usable.right) / 2), size.height * (.5 - (usable.top + usable.bottom) / 2), size.width, size.height);
+  camera.position.copy(target).addScaledVector(direction, distance);
+  camera.lookAt(target);
+  camera.updateMatrixWorld();
+  return { target, distance, usable };
+}
+
+function CameraControls({ command, onTelemetry, bounds, viewport }) {
   const controls = useRef();
   const { camera, size, gl, invalidate } = useThree();
   const frames = useRef(0), rendered = useRef(false);
   const fit = () => {
+    const framed = fitMapViewport(camera, bounds, size, viewport);
+    if (framed) {
+      if (controls.current) controls.current.maxDistance = Math.max(90, framed.distance * 1.2);
+      return framed.target;
+    }
     const narrow = size.width <= 650;
     const usableWidth = narrow ? .92 : .79;
     let distance = Math.max(23, 16 / (usableWidth * .92 * 2 * Math.tan(17 * Math.PI / 180) * (size.width / size.height)));
     camera.zoom = 1;
+    camera.far = 200;
+    if (controls.current) controls.current.maxDistance = 90;
     camera.setViewOffset(size.width, size.height, narrow ? 0 : -size.width * .105, size.height * (narrow ? .10 : 0), size.width, size.height);
     const corners = [];
     for (const x of [bounds.min.x,bounds.max.x]) for (const y of [bounds.min.y,bounds.max.y]) for (const z of [bounds.min.z,bounds.max.z]) corners.push(new THREE.Vector3(x,y,z));
@@ -131,19 +169,20 @@ function CameraControls({ command, onTelemetry, bounds }) {
       if (projected.every(p => p.x >= (narrow ? -.9 : -.57) && p.x <= .93 && p.y >= (narrow ? -.58 : -.486) && p.y <= (narrow ? .64 : .734))) break;
       distance *= 1.045;
     }
+    return new THREE.Vector3();
   };
   useLayoutEffect(() => {
-    fit();
+    const target = fit();
     camera.updateProjectionMatrix();
-    controls.current?.target.set(0, 0, 0);
+    controls.current?.target.copy(target);
     controls.current?.update();
     invalidate();
-  }, [size.width, size.height, camera, invalidate, bounds]);
+  }, [size.width, size.height, camera, invalidate, bounds, viewport?.x, viewport?.y, viewport?.width, viewport?.height]);
   useEffect(() => {
     const c = controls.current;
     if (!c) return;
     if (command.type === 'reset') {
-      fit(); c.target.set(0, 0, 0);
+      c.target.copy(fit());
     } else if (command.type === 'zoomIn') camera.zoom = Math.min(4, camera.zoom * 1.2);
     else if (command.type === 'zoomOut') camera.zoom = Math.max(.6, camera.zoom / 1.2);
     else if (command.type === 'top') { camera.position.set(0, 25, .1); c.target.set(0, 0, 0); }
@@ -153,7 +192,7 @@ function CameraControls({ command, onTelemetry, bounds }) {
       camera.position.copy(c.target).add(offset);
     }
     camera.updateProjectionMatrix(); c.update(); invalidate();
-  }, [command, camera, invalidate, size.width, size.height, bounds]);
+  }, [command, camera, invalidate]);
   // Count a whole displayed frame, including reflection and shadow passes.
   useFrame(() => { gl.info.reset(); rendered.current = true; frames.current++; }, -1000);
   useEffect(() => {
@@ -174,7 +213,7 @@ function CameraControls({ command, onTelemetry, bounds }) {
   return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={.12} enablePan screenSpacePanning minDistance={10} maxDistance={90} minPolarAngle={.01} maxPolarAngle={Math.PI / 2.12} onChange={() => invalidate()} />;
 }
 
-function World({ data, roadData, code, layers, selected, onSelect, onHover, command, quality, onTelemetry }) {
+function World({ data, roadData, code, layers, selected, onSelect, onHover, command, quality, onTelemetry, viewport }) {
   const national = code === NATIONAL;
   const model = useMemo(() => modelFor(data, national), [data, national]);
   const { gl, invalidate, size, setDpr } = useThree();
@@ -221,7 +260,7 @@ function World({ data, roadData, code, layers, selected, onSelect, onHover, comm
     {layers.heat && hubs.map(h => <mesh key={h.name} rotation={[-Math.PI / 2, 0, 0]} position={[h.position[0], TOP + .025, h.position[2]]}>
       <planeGeometry args={[2.0, 2.0]} /><shaderMaterial vertexShader={heatVertex} fragmentShader={heatFragment} transparent depthWrite={false} />
     </mesh>)}
-    <CameraControls command={command} onTelemetry={onTelemetry} bounds={model.bounds} />
+    <CameraControls command={command} onTelemetry={onTelemetry} bounds={model.bounds} viewport={viewport} />
   </>;
 }
 

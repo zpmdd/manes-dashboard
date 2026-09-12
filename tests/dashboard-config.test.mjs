@@ -1,77 +1,201 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_CONFIG, MODULE_TYPES, SOURCES, STORAGE_KEY, loadConfig, normalizeConfig, saveConfig } from '../src/dashboardConfig.js';
+import { CONFIG_FILE_LIMIT, DEFAULT_CONFIG, MODULE_TYPES, SOURCES, STORAGE_KEY, createModule, loadConfig, normalizeConfig, saveConfig } from '../src/dashboardConfig.js';
 
 const draft = () => structuredClone(DEFAULT_CONFIG);
+const LEGACY_KEY = 'nexus.dashboard.config.v1';
+const source = () => ({ id: 'ds_custom', name: '业务数据', type: 'json', content: '[{"device":{"name":"城区"},"count":12,"goal":20}]', url: '', rowsPath: '', refreshSeconds: 0 });
+function legacyDraft() {
+  const config = draft();
+  const legacy = Object.fromEntries(['brand', 'title', 'mapTitle', 'navLabels', 'showClock'].map(key => [key, config[key]]));
+  return { version: 1, ...legacy, modules: config.modules.map(item => Object.fromEntries(['id', 'title', 'subtitle', 'type', 'source', 'visible', 'unit', 'rowCount', 'columns'].map(key => [key, item[key]]))) };
+}
+function withStorage(storage, run) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  try {
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+    run();
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else delete globalThis.localStorage;
+  }
+}
 
-test('配置可往返保存，裁剪空白且保持独立草稿和固定模块位置', () => {
+test('v2 往返保存保留画布图层顺序，返回独立的配置数据', () => {
   const config = draft(); config.title = '  运行中心  '; config.modules.reverse();
   const result = normalizeConfig(config);
   assert.equal(result.title, '运行中心');
-  assert.deepEqual(result.modules.map(module => module.id), DEFAULT_CONFIG.modules.map(module => module.id));
+  assert.equal(result.version, 2);
+  assert.deepEqual(result.modules.map(module => module.id), config.modules.map(module => module.id));
   result.modules[0].columns[0].label = '变更';
-  assert.equal(DEFAULT_CONFIG.modules[0].columns[0].label, '区域');
+  result.modules[0].layout.x = 0;
+  result.modules[0].binding.fields.name = 'changed';
+  result.map.layout.w = 30;
+  result.canvas.snap = false;
+  assert.equal(config.modules[0].columns[0].label, '发生时间');
+  assert.notEqual(config.modules[0].layout.x, 0);
+  assert.equal(config.modules[0].binding.fields.name, 'name');
+  assert.equal(config.map.layout.w, 80);
+  assert.equal(config.canvas.snap, true);
   assert.deepEqual(normalizeConfig(JSON.parse(JSON.stringify(DEFAULT_CONFIG))), DEFAULT_CONFIG);
 });
 
-test('所有可选图表与数据源组合均为有效配置', () => {
-  for (const type of MODULE_TYPES) for (const source of type.sources) {
-    const config = draft();
-    Object.assign(config.modules[0], { type: type.id, source, unit: SOURCES[source].unit, columns: SOURCES[source].columns });
-    assert.equal(normalizeConfig(config).modules[0].type, type.id);
+test('十二种组件可动态添加、删除与重排，达到 40 个时停止添加', () => {
+  assert.equal(MODULE_TYPES.length, 12);
+  const config = draft();
+  config.modules = MODULE_TYPES.map(type => createModule(type.id));
+  assert.equal(new Set(config.modules.map(item => item.id)).size, 12);
+  assert.deepEqual(normalizeConfig(config).modules, config.modules);
+  for (const type of MODULE_TYPES) for (const id of type.sources) {
+    const module = createModule(type.id);
+    Object.assign(module, { source: id, unit: SOURCES[id].unit, columns: structuredClone(SOURCES[id].columns) });
+    assert.equal(normalizeConfig({ ...config, modules: [module] }).modules[0].source, id);
   }
+  while (config.modules.length < 40) config.modules.push(createModule('metric', config.modules));
+  assert.equal(normalizeConfig(config).modules.length, 40);
+  assert.throws(() => createModule('metric', config.modules), /40/);
+  assert.throws(() => createModule('unknown'), /不支持/);
+  config.modules.push({ ...config.modules[0], id: 'overflow' });
+  assert.throws(() => normalizeConfig(config), /40/);
+  config.modules = [];
+  assert.deepEqual(normalizeConfig(config).modules, []);
+  const module = createModule('metric'); module.columns[0].label = '独立列名';
+  assert.equal(SOURCES.devices.columns[0].label, '区域');
 });
 
-test('损坏、危险文字、未知字段与不兼容组合拒绝导入', () => {
+test('v1 文件及旧存储迁移保留原有内容，显式保存才写入 v2', () => {
+  const legacy = legacyDraft(); legacy.title = '现场监测'; legacy.modules[0].title = '现场设备'; legacy.modules[4].visible = false; legacy.modules.reverse();
+  const result = normalizeConfig(legacy);
+  assert.equal(result.version, 2);
+  assert.equal(result.title, '现场监测');
+  assert.equal(result.modules[0].title, '现场设备');
+  assert.equal(result.modules[4].visible, false);
+  assert.deepEqual(result.modules.map(item => item.id), DEFAULT_CONFIG.modules.map(item => item.id));
+  assert.deepEqual(result.map, DEFAULT_CONFIG.map);
+  assert.deepEqual(result.dataSources, []);
+  const savedLegacy = JSON.stringify(legacy), values = new Map([[LEGACY_KEY, savedLegacy]]), writes = [];
+  withStorage({ getItem: key => values.get(key) ?? null, setItem: (key, value) => { writes.push(key); values.set(key, value); } }, () => {
+    assert.deepEqual(loadConfig(), result);
+    assert.deepEqual(writes, []);
+    assert.deepEqual(saveConfig(result), result);
+    assert.deepEqual(writes, [STORAGE_KEY]);
+    assert.equal(values.get(LEGACY_KEY), savedLegacy);
+    assert.deepEqual(loadConfig(), result);
+    values.set(STORAGE_KEY, JSON.stringify({ ...result, title: '新版优先' }));
+    assert.equal(loadConfig().title, '新版优先');
+  });
+  legacy.modules.pop();
+  assert.throws(() => normalizeConfig(legacy), /五个模块/);
+});
+
+test('自定义数据绑定可保存字段映射、汇总方式及目标值', () => {
+  const config = draft(); config.dataSources = [source()];
+  Object.assign(config.modules[0], { binding: { sourceId: 'ds_custom', fields: { name: 'device.name', value: 'count', target: 'goal' } }, columns: [{ key: 'name', label: '中心' }, { key: 'target', label: '目标值' }], aggregate: 'average', unit: '次', rowCount: 100, target: 1000 });
+  const result = normalizeConfig(config);
+  assert.deepEqual(result.modules[0].binding, config.modules[0].binding);
+  assert.equal(result.modules[0].aggregate, 'average');
+  assert.equal(result.modules[0].rowCount, 100);
+  assert.equal(result.modules[0].target, 1000);
+  result.dataSources[0].content = '[]';
+  assert.notEqual(config.dataSources[0].content, '[]');
+  config.modules[0].binding.sourceId = 'demo';
+  assert.throws(() => normalizeConfig(config), /表格列/);
+  config.modules[0].columns = structuredClone(SOURCES.devices.columns);
+  assert.equal(normalizeConfig(config).modules[0].binding.sourceId, 'demo');
+});
+
+test('损坏、危险文字、未知字段与不兼容组件拒绝导入', () => {
   const invalid = [
-    config => { config.version = 2; },
-    config => { config.title = ''; },
-    config => { config.title = '字'.repeat(37); },
-    config => { config.title = '<script>alert(1)</script>'; },
-    config => { config.title = 'javascript:alert(1)'; },
-    config => { config.title = '非法\u0000文字'; },
-    config => { config.brand = 123; },
-    config => { config.showClock = 'true'; },
-    config => { config.navLabels.pop(); },
-    config => { config.modules.pop(); },
-    config => { config.modules[1].id = 'devices'; },
-    config => { config.modules[0].id = 'unknown'; },
-    config => { config.modules[0].source = 'toString'; },
-    config => { config.modules[0].type = 'gauge'; },
-    config => { config.modules[1].unit = '台'; },
-    config => { config.modules[0].rowCount = 9; },
-    config => { config.modules[0].rowCount = '5'; },
-    config => { config.modules[0].rowCount = 3.5; },
-    config => { config.modules[0].visible = 1; },
-    config => { config.modules[0].columns = []; },
-    config => { config.modules[0].columns[0].key = 'html'; },
-    config => { config.modules[0].columns[1].key = 'name'; },
-    config => { config.modules[0].columns[0].label = '字'.repeat(13); },
-    config => { config.modules[0].columns[0].onclick = 'alert(1)'; },
-    config => { config.modules[0].html = '<b>test</b>'; },
-    config => { config.extra = 'unknown'; },
-    config => { delete config.title; },
+    ['未知版本', config => { config.version = 3; }],
+    ['空标题', config => { config.title = ''; }],
+    ['超长标题', config => { config.title = '字'.repeat(37); }],
+    ['HTML 标题', config => { config.title = '<script>alert(1)</script>'; }],
+    ['脚本标题', config => { config.title = 'javascript:alert(1)'; }],
+    ['控制字符', config => { config.title = '非法\u0000文字'; }],
+    ['品牌类型', config => { config.brand = 123; }],
+    ['时钟类型', config => { config.showClock = 'true'; }],
+    ['导航数量', config => { config.navLabels.pop(); }],
+    ['重复模块', config => { config.modules[1].id = 'devices'; }],
+    ['地图保留标识', config => { config.modules[0].id = 'map'; }],
+    ['非法标识', config => { config.modules[0].id = 'bad/id'; }],
+    ['未知示例源', config => { config.modules[0].source = 'toString'; }],
+    ['不兼容类型', config => { config.modules[0].type = 'gauge'; }],
+    ['零条记录', config => { config.modules[0].rowCount = 0; }],
+    ['超过记录上限', config => { config.modules[0].rowCount = 101; }],
+    ['条数类型', config => { config.modules[0].rowCount = '5'; }],
+    ['小数条数', config => { config.modules[0].rowCount = 3.5; }],
+    ['显隐类型', config => { config.modules[0].visible = 1; }],
+    ['锁定类型', config => { config.modules[0].locked = 'false'; }],
+    ['面板材质', config => { config.modules[0].surface = 'unknown'; }],
+    ['汇总方式', config => { config.modules[0].aggregate = 'eval'; }],
+    ['过低目标', config => { config.modules[0].target = 0; }],
+    ['无限目标', config => { config.modules[0].target = Infinity; }],
+    ['公告 HTML', config => { config.modules[0].text = '<b>公告</b>'; }],
+    ['空表格列', config => { config.modules[0].columns = []; }],
+    ['未知表格列', config => { config.modules[0].columns[0].key = 'html'; }],
+    ['重复表格列', config => { config.modules[0].columns[1].key = 'name'; }],
+    ['超长列名', config => { config.modules[0].columns[0].label = '字'.repeat(13); }],
+    ['未知列属性', config => { config.modules[0].columns[0].onclick = 'alert(1)'; }],
+    ['未知模块属性', config => { config.modules[0].html = '<b>test</b>'; }],
+    ['未知全局属性', config => { config.extra = 'unknown'; }],
+    ['缺少标题', config => { delete config.title; }],
+  ];
+  for (const [label, change] of invalid) { const config = draft(); change(config); assert.throws(() => normalizeConfig(config), Error, label); }
+  for (const value of [null, [], {}, 123, 'config', Object.create(DEFAULT_CONFIG)]) assert.throws(() => normalizeConfig(value), Error);
+  const polluted = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+  Object.defineProperty(polluted, '__proto__', { enumerable: true, value: {} });
+  assert.throws(() => normalizeConfig(polluted), /未知字段/);
+});
+
+test('模块和地图越界、非法吸附及无效数据绑定均被拒绝', () => {
+  const invalidLayouts = [null, [], { x: 0, y: 0, w: 9, h: 20 }, { x: -1, y: 0, w: 20, h: 20 }, { x: 80, y: 0, w: 21, h: 20 }, { x: 0, y: 85, w: 20, h: 16 }, { x: 0, y: 0, w: Infinity, h: 20 }, { x: '0', y: 0, w: 20, h: 20 }, { x: 0, y: 0, w: 20, h: 20, z: 1 }];
+  for (const target of ['map', 'module']) for (const layout of invalidLayouts) {
+    const config = draft();
+    (target === 'map' ? config.map : config.modules[0]).layout = layout;
+    assert.throws(() => normalizeConfig(config), Error, `${target}: ${JSON.stringify(layout)}`);
+  }
+  const invalid = [
+    config => { config.canvas.snap = 1; },
+    config => { config.canvas.grid = 0; },
+    config => { config.canvas.grid = 6; },
+    config => { config.map.visible = 'true'; },
+    config => { config.modules[0].binding.sourceId = 'ds_missing'; },
+    config => { config.modules[0].binding.token = 'disallowed'; },
+    config => { config.modules[0].binding.fields.value = '__proto__.value'; },
+    config => { config.modules[0].binding.fields.value = 'row.constructor'; },
+    config => { config.modules[0].binding.fields.value = 'value[0]'; },
+    config => { config.modules[0].binding.fields.value = 'x'.repeat(161); },
+    config => { config.modules[0].binding.fields.extra = 'value'; },
+    config => { config.modules[0].binding.fields = []; },
+    config => { config.dataSources = [source(), source()]; },
+    config => { config.dataSources = [{ ...source(), content: '{broken' }]; },
   ];
   for (const change of invalid) { const config = draft(); change(config); assert.throws(() => normalizeConfig(config), Error); }
-  for (const value of [null, [], {}, 123, 'config', Object.create(DEFAULT_CONFIG)]) assert.throws(() => normalizeConfig(value), Error);
-  assert.throws(() => normalizeConfig(JSON.parse(JSON.stringify(DEFAULT_CONFIG).replace('"version":1', '"version":1,"__proto__":{}'))), /未知字段/);
 });
 
-test('保存失败不报告成功；损坏和不可用存储可恢复默认', () => {
-  let stored = null;
-  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-  try {
-    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: key => { assert.equal(key, STORAGE_KEY); return stored; }, setItem: (key, value) => { assert.equal(key, STORAGE_KEY); stored = value; } } });
+test('保存失败不报告成功，坏配置与不可用存储保留原数据', () => {
+  const values = new Map(), writes = [];
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => { writes.push(key); values.set(key, value); } };
+  withStorage(storage, () => {
     assert.deepEqual(loadConfig(), DEFAULT_CONFIG);
     const config = draft(); config.brand = 'CUSTOM';
     assert.deepEqual(saveConfig(config), config);
     assert.deepEqual(loadConfig(), config);
-    stored = '{broken'; assert.deepEqual(loadConfig(), DEFAULT_CONFIG); assert.equal(stored, '{broken');
-    stored = 'x'.repeat(65537); assert.deepEqual(loadConfig(), DEFAULT_CONFIG);
+    const previous = values.get(STORAGE_KEY), writeCount = writes.length;
+    assert.throws(() => saveConfig({ ...config, title: '' }), Error);
+    assert.equal(values.get(STORAGE_KEY), previous);
+    assert.equal(writes.length, writeCount);
+    values.set(LEGACY_KEY, JSON.stringify({ ...legacyDraft(), title: '旧版不能覆盖新版损坏记录' }));
+    for (const broken of ['{broken', 'x'.repeat(CONFIG_FILE_LIMIT + 1)]) {
+      values.set(STORAGE_KEY, broken);
+      assert.deepEqual(loadConfig(), DEFAULT_CONFIG);
+      assert.equal(values.get(STORAGE_KEY), broken);
+      assert.equal(writes.length, writeCount);
+    }
+  });
+  withStorage({ getItem: () => null, setItem: () => { throw new Error('quota'); } }, () => assert.throws(() => saveConfig(draft()), /配置未保存/));
+  withStorage(null, () => {
     Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('denied'); } });
     assert.deepEqual(loadConfig(), DEFAULT_CONFIG);
-    assert.throws(() => saveConfig(config), /配置未保存/);
-  } finally {
-    if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else delete globalThis.localStorage;
-  }
+    assert.throws(() => saveConfig(draft()), /配置未保存/);
+  });
 });

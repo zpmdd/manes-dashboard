@@ -1,0 +1,10 @@
+{
+  "rows": [
+    { "name": "华东中心", "value": 862, "target": 1000, "status": "在线", "time": "08:00", "series": "接入设备", "code": "310000" },
+    { "name": "华北中心", "value": 715, "target": 900, "status": "在线", "time": "09:00", "series": "接入设备", "code": "110000" },
+    { "name": "华南中心", "value": 648, "target": 800, "status": "正常", "time": "10:00", "series": "接入设备", "code": "440000" },
+    { "name": "西北中心", "value": 486, "target": 700, "status": "待处理", "time": "11:00", "series": "接入设备", "code": "610000" },
+    { "name": "西南中心", "value": 592, "target": 750, "status": "在线", "time": "12:00", "series": "接入设备", "code": "510000" },
+    { "name": "华中中心", "value": 538, "target": 700, "status": "在线", "time": "13:00", "series": "接入设备", "code": "420000" }
+  ]
+}
