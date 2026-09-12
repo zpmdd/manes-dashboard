@@ -1,0 +1,1 @@
+{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"class":"overview","name":"主要道路（概化）","source":"Natural Earth 1:10m","ref":null},"geometry":{"type":"LineString","coordinates":[[116.40745402596164,34.16333168846545],[116.427512,34.158581],[116.471225,34.158581],[116.53592151641958,34.15026268194311]]}}]}
