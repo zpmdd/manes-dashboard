@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { act, Component, createElement, lazy, Profiler, Suspense } from 'react';
-import { createRoot, extend } from '@react-three/fiber';
+import { createRoot, extend, getRootState } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createServer, transformWithEsbuild } from 'vite';
 
@@ -15,7 +15,7 @@ globalThis.reportError = error => reportedErrors.push(error);
 const root = createRoot({});
 if (previousReporter === undefined) delete globalThis.reportError; else globalThis.reportError = previousReporter;
 try {
-  const { RegionMesh, fitMapViewport } = await vite.ssrLoadModule('/src/MapScene.jsx');
+  const { RegionMesh, fitMapViewport, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
   const bounds = new THREE.Box3(new THREE.Vector3(-5, 0, -8), new THREE.Vector3(11, .38, 2));
   const camera = new THREE.PerspectiveCamera(34, 1, .1, 200);
   const viewports = [
@@ -44,8 +44,31 @@ try {
     assert(camera.projectionMatrix.equals(previousProjection), 'An absent or empty viewport must not change the legacy camera');
   }
   console.log('PASS: 40 real Three projections fit resized viewports, centered bounds, reserved margins and clipping planes.');
-  const scene = new THREE.Scene();
-  await root.configure({ scene, frameloop: 'never', size: { width: 800, height: 600, top: 0, left: 0 }, dpr: 1, gl: { render() {}, setPixelRatio() {}, setSize() {} } });
+  const scene = new THREE.Scene(), renderWrites = [];
+  const renderer = { render() {}, setPixelRatio(value) { renderWrites.push(['dpr', value]); }, setSize(width, height) { renderWrites.push(['size', width, height]); } };
+  const configuration = { scene, frameloop: 'never', size: { width: 2560, height: 1205, top: 0, left: 0 }, gl: renderer };
+  for (const [size, quality, deviceRatio, expected] of [
+    [{ width: 1280, height: 720 }, 'high', 2, 1.5], [{ width: 1280, height: 720 }, 'balanced', 2, 1],
+    [{ width: 3840, height: 2160 }, 'high', 2, 2 / 3], [{ width: 3840, height: 2160 }, 'balanced', 2, .5],
+    [{ width: 1280, height: 720 }, 'high', .75, .75], [undefined, 'high', 2, 1.5], [{ width: 0, height: 0 }, 'balanced', 2, 1],
+  ]) assert.equal(mapPixelRatio(size, quality, deviceRatio), expected, 'Keep both quality caps, pixel budgets, device limit and unmeasured fallback');
+  const previousDeviceRatio = globalThis.devicePixelRatio;
+  globalThis.devicePixelRatio = 2;
+  try {
+    for (const quality of ['high', 'balanced']) {
+      const dpr = mapPixelRatio(configuration.size, quality, 2);
+      assert.equal(MapScene.type({ sceneSize: configuration.size, quality }).props.dpr, dpr, 'Canvas must use the centralized numeric budget');
+      await root.configure({ ...configuration, dpr });
+      const before = renderWrites.length;
+      for (let sequence = 0; sequence < 10; sequence++) {
+        const canvas = MapScene.type({ sceneSize: configuration.size, quality, command: { type: 'reset', sequence } });
+        await root.configure({ ...configuration, dpr: canvas.props.dpr });
+      }
+      assert.equal(getRootState(scene).viewport.dpr, dpr, 'Camera commands must retain the pixel budget');
+      assert.equal(renderWrites.length, before, 'Unchanged canvas configuration must not rewrite DPR or resize the renderer');
+    }
+  } finally { if (previousDeviceRatio === undefined) delete globalThis.devicePixelRatio; else globalThis.devicePixelRatio = previousDeviceRatio; }
+  console.log('PASS: original pixel budgets and quality limits; 20 real R3F reconfigurations cause no DPR or renderer resize writes.');
   const regions = ['湖北省', '湖南省'].map((name, i) => ({ feature: { properties: { adcode: 420000 + i, name } }, geometry: new THREE.BoxGeometry(), color: '#aaa6a0' }));
   const commits = [0, 0], picked = [], labels = [];
   const onSelect = feature => picked.push(feature), onHover = name => labels.push(name);
@@ -81,6 +104,15 @@ try {
 
   // Run the actual lazy loader, visibility guard and outer error boundary in R3F's React renderer.
   const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const measureSource = appSource.slice(appSource.indexOf('const measure = () => {'), appSource.indexOf('    measureRef.current = measure;'));
+  let measuredSize = { width: 0, height: 0 };
+  const backdrop = { getBoundingClientRect: () => ({ width: 2560, height: 1205 }) };
+  const measure = new Function('node', 'setSceneSize', 'setViewport', `${measureSource}; return measure;`)(
+    { getBoundingClientRect: backdrop.getBoundingClientRect, querySelector: selector => selector === '.world-backdrop' ? backdrop : null, style: { setProperty() {} } },
+    next => { measuredSize = typeof next === 'function' ? next(measuredSize) : next; }, () => assert.fail('An absent map must not update its region viewport'),
+  );
+  measure(); assert.deepEqual(measuredSize, { width: 2560, height: 1205 }, 'Scene size must update even while the map is hidden');
+  const previousSize = measuredSize; measure(); assert.strictEqual(measuredSize, previousSize, 'Unchanged measurements must reuse state');
   const loaderSource = appSource.slice(appSource.indexOf('const loadMapScene = '), appSource.indexOf('const ComponentLibrary = ')).replace("import('./MapScene')", 'load()');
   const makeLazy = new Function('lazy', 'load', `${loaderSource}; return { MapScene, loadMapScene };`);
   const preloadSource = appSource.split('\n').find(line => line.includes('void loadMapScene()'));
@@ -98,8 +130,8 @@ try {
     ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
     : createElement(type, props, ...children);
   const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
-  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, setHover, command, quality, captureTelemetry, viewport } = context; ${branchCode}; return branch;`);
-  const context = { loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, setHover, command, quality, captureTelemetry, viewport, sceneSize } = context; ${branchCode}; return branch;`);
+  const context = { sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
   let loads = 0, received;
   const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
   preload(effect => effect(), context.config, loadedMap.loadMapScene);
@@ -114,7 +146,7 @@ try {
   await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
   assert(scene.getObjectByName('loaded-map'));
   assert.strictEqual(received.data, context.loaded.data); assert.strictEqual(received.roadData, context.loaded.roads);
-  assert.strictEqual(received.viewport, context.viewport); assert.strictEqual(received.layers, context.layers);
+  assert.strictEqual(received.sceneSize, context.sceneSize); assert.strictEqual(received.viewport, context.viewport); assert.strictEqual(received.layers, context.layers);
   assert.strictEqual(received.command, context.command); assert.equal(received.quality, 'high');
   await act(async () => root.render(null));
   const failure = new Error('Map chunk unavailable'), failedMap = makeLazy(lazy, () => Promise.reject(failure));

@@ -7,6 +7,10 @@ import { extent, labelPoint, NATIONAL, polygons, projection, shortName } from '.
 
 const CAMERA = [0, 15, 21];
 const TOP = 0.36;
+export function mapPixelRatio(size, quality, deviceRatio = globalThis.devicePixelRatio || 1) {
+  const cap = quality === 'high' ? 1.5 : 1, budget = quality === 'high' ? 2560 * 1440 : 1920 * 1080;
+  return Math.min(deviceRatio, cap, size?.width > 0 && size?.height > 0 ? Math.sqrt(budget / (size.width * size.height)) : cap);
+}
 const PALETTE = ['#aaa6a0', '#a9a6a0', '#555357', '#8e8c88', '#c0bdb3', '#6b6869'];
 const HUBS = [
   { name: '北京', point: [116.4, 39.9], height: 1.25 },
@@ -216,7 +220,7 @@ function CameraControls({ command, onTelemetry, bounds, viewport }) {
 function World({ data, roadData, code, layers, selected, onSelect, onHover, command, quality, onTelemetry, viewport }) {
   const national = code === NATIONAL;
   const model = useMemo(() => modelFor(data, national), [data, national]);
-  const { gl, invalidate, size, setDpr } = useThree();
+  const { gl, invalidate } = useThree();
   const hubs = useMemo(() => national ? HUBS.map(h => {
     const [x, y] = model.project(h.point); return { ...h, position: [x, TOP + .035, -y] };
   }) : model.regions.filter(r => typeof r.feature.properties.adcode === 'number').slice(0, 8).map((r, i) => ({ name: shortName(r.feature.properties.name), position: r.anchor, height: .55 + (i % 3) * .27 })), [model, national]);
@@ -230,10 +234,6 @@ function World({ data, roadData, code, layers, selected, onSelect, onHover, comm
     });
   }, [hubs, national]);
   useEffect(() => { gl.shadowMap.needsUpdate = true; invalidate(); }, [model, gl, invalidate, layers.beacons]);
-  useEffect(() => {
-    const pixelBudget = quality === 'high' ? 2560 * 1440 : 1920 * 1080;
-    setDpr(Math.min(window.devicePixelRatio || 1, quality === 'high' ? 1.5 : 1, Math.sqrt(pixelBudget / (size.width * size.height))));
-  }, [size.width, size.height, quality, setDpr]);
   useEffect(() => () => { model.regions.forEach(r => r.geometry.dispose()); model.edgeGeometry.dispose(); }, [model]);
   return <>
     <color attach="background" args={['#6f6f75']} />
@@ -265,7 +265,7 @@ function World({ data, roadData, code, layers, selected, onSelect, onHover, comm
 }
 
 export const MapScene = memo(function MapScene(props) {
-  return <Canvas shadows={{ type: THREE.PCFShadowMap }} frameloop="demand" dpr={props.quality === 'high' ? [1, 1.5] : 1} camera={{ position: CAMERA, fov: 34, near: .1, far: 200 }} gl={{ antialias: true, powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.shadowMap.autoUpdate = false; gl.shadowMap.needsUpdate = true; }} fallback={<span>三维行政区地图，可通过区域选择与视角按钮操作。</span>}>
+  return <Canvas shadows={{ type: THREE.PCFShadowMap }} frameloop="demand" dpr={mapPixelRatio(props.sceneSize, props.quality)} camera={{ position: CAMERA, fov: 34, near: .1, far: 200 }} gl={{ antialias: true, powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.shadowMap.autoUpdate = false; gl.shadowMap.needsUpdate = true; }} fallback={<span>三维行政区地图，可通过区域选择与视角按钮操作。</span>}>
     <Suspense fallback={null}><World {...props} /></Suspense>
   </Canvas>;
 });

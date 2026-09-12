@@ -73,6 +73,7 @@ export function App() {
   const editing = editor.editing && !editor.preview;
   const [sidePanel, setSidePanel] = useState('library');
   const [viewport, setViewport] = useState(null);
+  const [sceneSize, setSceneSize] = useState(null);
   const [index, setIndex] = useState(null);
   const [code, setCode] = useState(/^#\d{6}$/.test(location.hash) ? location.hash.slice(1) : NATIONAL);
   const [loaded, setLoaded] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(''), [retry, setRetry] = useState(0);
@@ -90,6 +91,7 @@ export function App() {
     const node = main.current;
     const measure = () => {
       const bounds = node.getBoundingClientRect(), scene = node.querySelector('.world-backdrop').getBoundingClientRect(), map = node.querySelector('[data-canvas-id=map]')?.getBoundingClientRect();
+      setSceneSize(previous => previous?.width === scene.width && previous?.height === scene.height ? previous : { width: scene.width, height: scene.height });
       node.style.setProperty('--u', `${Math.max(.45, Math.min(bounds.width / 1120, bounds.height / 718))}px`);
       if (map && scene.width && scene.height) { const next = { x: (map.x - scene.x) / scene.width, y: (map.y - scene.y) / scene.height, width: map.width / scene.width, height: map.height / scene.height }; setViewport(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); }
     };
@@ -161,7 +163,7 @@ export function App() {
     {editing && <div className="editor-mobile-tabs"><button onClick={() => setSidePanel('library')} aria-pressed={sidePanel === 'library'}>组件库</button><button onClick={() => setSidePanel('inspector')} aria-pressed={sidePanel === 'inspector'}>组件属性</button></div>}
     {editing && <aside className={`editor-library-pane ${sidePanel === 'library' ? 'is-open' : ''}`}><Suspense fallback={<p role="status">正在加载组件库…</p>}><ComponentLibrary onAdd={type => { editor.add(type); setSidePanel('inspector'); }}/></Suspense><section className="editor-layer-list" aria-label="图层列表"><h3>画布图层</h3>{[{ ...config.map, id: 'map', title: config.mapTitle }, ...config.modules].map(item => <button key={item.id} onClick={event => { editor.select(item.id, { toggle: event.shiftKey || event.metaKey || event.ctrlKey }); setSidePanel('inspector'); }} aria-pressed={editor.selectedIds.includes(item.id)}><span>{item.title || '未命名组件'}</span><small>{item.locked ? '锁定' : !item.visible ? '隐藏' : ''}</small></button>)}</section></aside>}
     <div className="dashboard-viewport"><main className="dashboard free-dashboard" ref={main}>
-    <div className={`world-backdrop ${loading ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene data={loaded.data} roadData={loaded.roads} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined}/></Suspense></MapErrorBoundary>}</div>
+    <div className={`world-backdrop ${loading ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene data={loaded.data} roadData={loaded.roads} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined} sceneSize={sceneSize}/></Suspense></MapErrorBoundary>}</div>
     <div className="brand canvas-brand"><Atom weight="fill"/><span>{config.brand}</span></div>
     <header className="topbar">
       <div className="screen-title"><h1 title={config.title}>{config.title}</h1><span>{dataLabel}</span></div>
