@@ -67,6 +67,16 @@ test('external numeric data preserves missing values, numeric sorting, negative 
   assert.equal(statusTone('unknown'), 'neutral');
 });
 
+test('reused number formats match locale formatting at precision, sign and notation boundaries', () => {
+  const values = [0, -0, -12.5678, '1234.5678', '-0', 1e12 - 1, 1e12, -1e12 + 1, -1e12, Number.MIN_VALUE, Number.MAX_VALUE, null, undefined, '', false, 'invalid', Infinity];
+  const precisions = [[undefined, 1], [0, 0], [1, 1], [2, 2], [3, 3], [-4, 0], [8, 3], [2.9, 2], ['2', 2], ['invalid', 1], [null, 1], [NaN, 1], [Infinity, 1], [false, 1], [{}, 1]];
+  for (const value of values) for (const [precision, digits] of precisions) {
+    const numeric = finiteNumber(value);
+    const expected = numeric === null ? '—' : numeric.toLocaleString('zh-CN', { maximumFractionDigits: digits, notation: Math.abs(numeric) >= 1e12 ? 'scientific' : 'standard' });
+    assert.equal(formatWidgetNumber(value, precision), expected);
+  }
+});
+
 test('all twelve components render real supplied data and failed connections never fall back to snapshots', async () => {
   const [{ createServer }, { createElement }, { renderToStaticMarkup }] = await Promise.all([import('vite'), import('react'), import('react-dom/server')]);
   const server = await createServer({ configFile: false, appType: 'custom', server: { middlewareMode: true, watch: null, hmr: false, ws: false }, esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true, include: [] } });
@@ -111,4 +121,64 @@ test('all twelve components render real supplied data and failed connections nev
     const decimalTable = render('table', { data: { rows: [{ name: '精度', value2: 1234.567 }] }, config: { ...config, type: 'table', precision: 2, columns: [{ key: 'value2', label: '辅助指标' }] } });
     assert.match(decimalTable, /title="1,234.57">1,234.57<\/td>/);
   } finally { await server.close(); }
+});
+
+test('polling states retain normalized data references while status, replacement rows and external loading remain correct', async () => {
+  const [{ readFile }, { transformWithEsbuild }, widgetData] = await Promise.all([import('node:fs/promises'), import('vite'), import('../src/widgetData.js')]);
+  const source = await readFile(new URL('../src/DashboardWidget.jsx', import.meta.url), 'utf8');
+  const component = source.slice(source.indexOf('export const DashboardWidget =')).replace('export const', 'const');
+  const { code } = await transformWithEsbuild(component, 'DashboardWidget.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false });
+  const cells = []; let cursor = 0, normalizations = 0, snapshots = 0, refreshes = 0;
+  const useMemo = (build, dependencies) => {
+    const index = cursor++, previous = cells[index];
+    if (!previous || dependencies.some((value, i) => !Object.is(value, previous.dependencies[i]))) cells[index] = { dependencies, value: build() };
+    return cells[index].value;
+  };
+  // Execute the real component with persistent hook cells, as in the editor callback regressions.
+  const runtime = {
+    ...widgetData, memo: fn => fn, useMemo, useId: () => 'stable-widget-heading',
+    normalizeWidgetData: raw => { normalizations++; return normalizeWidgetData(raw); },
+    getWidgetData: (...args) => { snapshots++; return getWidgetData(...args); },
+    h: (type, props, ...children) => ({ type, props: props || {}, children }),
+    ...Object.fromEntries(['EmptyState', 'Suspense', 'ProfessionalChart', 'Metric', 'Gauge', 'TrendChart', 'BarChart', 'DonutChart', 'DataTable', 'Progress', 'StatusGrid', 'Clock'].map(name => [name, name])),
+  };
+  const Component = new Function(...Object.keys(runtime), `${code}; return DashboardWidget;`)(...Object.values(runtime));
+  const props = { config: { id: 'polling', type: 'multiLine', title: '轮询趋势', source: 'devices', rowCount: 5 }, code: '100000', index: { '100000': { name: '中国' } }, onRefresh: () => { refreshes++; } };
+  const render = extra => {
+    cursor = 0; const nodes = [];
+    const visit = value => {
+      if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value === 'object') { nodes.push(value); value.children?.forEach(visit); }
+    };
+    visit(Component({ ...props, ...extra }));
+    return { nodes, data: nodes.find(node => node.type === 'ProfessionalChart')?.props.data, text: JSON.stringify(nodes.map(node => node.children)) };
+  };
+  const initial = render({ dataState: { status: 'loading' } });
+  assert.equal(initial.nodes.find(node => node.type === 'EmptyState').props.message, '正在加载');
+  assert.equal(initial.data, undefined);
+  assert.equal(snapshots, 0, 'The first external loading state never reads demo values');
+  const data = { rows: [{ name: '09:00', series: '实际', value: '12' }] };
+  const ready = render({ data, dataState: { status: 'ready' } });
+  const loading = render({ data, dataState: { status: 'loading', stale: true } });
+  const failed = render({ data, dataState: { status: 'error', stale: true, error: '连接中断' } });
+  assert.equal(normalizations, 2, 'Only initial empty data and the first successful result are normalized');
+  assert.strictEqual(loading.data, ready.data);
+  assert.strictEqual(failed.data, ready.data);
+  assert.strictEqual(failed.data.rows, ready.data.rows);
+  assert.equal(ready.data.rows[0].value, 12);
+  assert.match(loading.text, /更新中/);
+  assert.equal(loading.nodes.find(node => node.props.className === 'widget-body').props['aria-busy'], true);
+  assert.match(failed.text, /连接中断.*保留上次数据/);
+  failed.nodes.find(node => node.props.className === 'widget-data-state is-error').props.onClick();
+  assert.equal(refreshes, 1);
+  const changed = render({ data: { rows: [...data.rows, { name: '10:00', series: '实际', value: 27 }] }, dataState: { status: 'ready' } });
+  assert.notStrictEqual(changed.data, ready.data);
+  assert.equal(changed.data.rows.length, 2);
+  assert.equal(normalizations, 3);
+  assert.equal(snapshots, 0);
+  render({ data: undefined, dataState: undefined });
+  assert.equal(snapshots, 1);
+  const externalWithoutStatus = render({ data: undefined, dataState: {} });
+  assert.equal(externalWithoutStatus.data, undefined, 'An external state object still blocks demo data before status is supplied');
+  assert.equal(snapshots, 1);
 });

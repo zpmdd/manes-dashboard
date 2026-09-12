@@ -133,12 +133,13 @@ function Clock() {
 }
 
 export const DashboardWidget = memo(function DashboardWidget({ config, code, index, onNavigate, data: externalData, dataState, onRefresh }) {
+  const hasExternalData = externalData !== undefined || Boolean(dataState);
   const data = useMemo(() => {
     if (config.type === 'text' || config.type === 'clock') return normalizeWidgetData(null);
-    const result = normalizeWidgetData(externalData !== undefined || dataState ? externalData : getWidgetData(config.source, code, index));
+    const result = normalizeWidgetData(hasExternalData ? externalData : getWidgetData(config.source, code, index));
     if (result.value === null && result.rows.length === 1) result.value = result.rows[0].value;
     return result;
-  }, [externalData, dataState?.status, config.source, config.type, code, index]);
+  }, [externalData, hasExternalData, config.source, config.type, code, index]);
   const headingId = useId(), unit = config.unit ?? data.unit, rowCount = visibleRowCount(config.rowCount), precision = config.precision ?? 1;
   const numericRows = useMemo(() => data.rows.filter(row => row.value !== null), [data]);
   if (config.visible === false) return null;

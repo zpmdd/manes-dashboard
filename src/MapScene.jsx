@@ -274,7 +274,7 @@ class MapErrorBoundary extends Component {
 }
 
 export const MapScene = memo(function MapScene(props) {
-  return <MapErrorBoundary><Canvas shadows={{ type: THREE.PCFShadowMap }} frameloop="demand" dpr={props.quality === 'high' ? [1, 1.5] : 1} camera={{ position: CAMERA, fov: 34, near: .1, far: 200 }} gl={{ antialias: true, powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.shadowMap.autoUpdate = false; gl.shadowMap.needsUpdate = true; }} fallback={<div className="map-error">此浏览器不支持 WebGL，请启用硬件加速。</div>}>
+  return <MapErrorBoundary><Canvas shadows={{ type: THREE.PCFShadowMap }} frameloop="demand" dpr={props.quality === 'high' ? [1, 1.5] : 1} camera={{ position: CAMERA, fov: 34, near: .1, far: 200 }} gl={{ antialias: true, powerPreference: 'high-performance' }} onCreated={({ gl }) => { gl.shadowMap.autoUpdate = false; gl.shadowMap.needsUpdate = true; }} fallback={<span>三维行政区地图，可通过区域选择与视角按钮操作。</span>}>
     <Suspense fallback={null}><World {...props} /></Suspense>
   </Canvas></MapErrorBoundary>;
 });

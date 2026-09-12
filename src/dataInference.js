@@ -14,10 +14,22 @@ export function profileDataFields(rows) {
     }
   };
   rows.forEach(row => collect(row));
+  const observed = new Map([...paths].map(path => [path, []]));
+  const gather = (value, prefix = '', depth = 0) => {
+    if (depth > 12 || !value || typeof value !== 'object') return;
+    // 数组的索引和 length 也可能由另一行的对象字段发现。
+    for (const key of Object.getOwnPropertyNames(value)) {
+      if (!key || key.includes('.')) continue;
+      const path = prefix ? `${prefix}.${key}` : key, cell = value[key];
+      observed.get(path)?.push(cell);
+      gather(cell, path, depth + 1);
+    }
+  };
+  rows.forEach(row => { observed.get('')?.push(row); gather(row); });
   return [...paths].map(path => {
     let selectable = !unsupported.has(path);
     try { validateDataPath(path); } catch { selectable = false; }
-    const cells = selectable ? rows.map(row => readDataPath(row, path)) : [];
+    const cells = selectable ? observed.get(path) : [];
     const values = cells.filter(value => value !== undefined && value !== null && value !== '');
     const numericCount = values.filter(value => strictDataNumber(value) !== null).length;
     const identifier = /(?:id|code|编号|编码)$/i.test(path) || values.some(value => typeof value === 'string' && /^0\d+$/.test(value));
@@ -73,14 +85,14 @@ export function suggestDataFields(fields, currentFields = {}) {
   const available = fields.filter(field => field.selectable !== false && field.type !== 'empty' && field.type !== 'unsupported');
   const assigned = new Set(Object.values(result).filter(Boolean));
   for (const key of DATA_FIELDS) {
-    if (result[key]) continue;
+    if (Object.hasOwn(result, key)) continue;
     const exact = available.filter(field => field.path.toLowerCase() === key.toLowerCase());
     const matches = exact.length ? exact : available.filter(field => FIELD_ALIASES[key].includes(field.path.split('.').at(-1).replace(/[_ -]/g, '').toLowerCase()));
     if (matches.length === 1) { result[key] = matches[0].path; assigned.add(matches[0].path); }
     else if (matches.length > 1) ambiguous.push(key);
   }
   for (const [key, types] of [['value', ['number', 'numeric-string']], ['time', ['time']], ['name', ['string']]]) {
-    if (result[key] || ambiguous.includes(key)) continue;
+    if (Object.hasOwn(result, key) || ambiguous.includes(key)) continue;
     const matches = available.filter(field => types.includes(field.type) && !assigned.has(field.path));
     if (matches.length === 1) { result[key] = matches[0].path; assigned.add(matches[0].path); }
     else if (matches.length > 1) ambiguous.push(key);

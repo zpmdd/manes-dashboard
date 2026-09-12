@@ -17,6 +17,15 @@ export function renderProfessionalSVG(config, data, size = { width: 480, height:
   finally { chart.dispose(); }
 }
 
+export function updateProfessionalChart(instance, option, size, notMerge = false) {
+  if (!instance || instance.isDisposed() || !option || !(size.width > 0 && size.height > 0)) return;
+  instance.setOption(option, { notMerge, replaceMerge: ['series', 'dataZoom'], lazyUpdate: true });
+  // ECharts resize consumes a pending lazy update in the same render cycle.
+  if (instance.getWidth() !== size.width || instance.getHeight() !== size.height) {
+    instance.resize({ width: size.width, height: size.height, animation: { duration: 0 } });
+  }
+}
+
 export default function ProfessionalChart({ config, data, onNavigate }) {
   const host = useRef(null), chart = useRef(null), lastType = useRef(null), latestNavigate = useRef(onNavigate);
   const [size, setSize] = useState({ width: 0, height: 0 }), [runtimeError, setRuntimeError] = useState(''), [attempt, setAttempt] = useState(0);
@@ -25,9 +34,9 @@ export default function ProfessionalChart({ config, data, onNavigate }) {
   const settings = config.chartOptions || {};
   const result = useMemo(() => {
     try { return buildProfessionalChart(config, data, { ...size, reducedMotion }); }
-    catch (error) { return { option: null, count: 0, description: error.message || '数据格式不适用于当前图表', error: true }; }
+    catch (error) { return { option: null, count: 0, renderCount: 0, description: error.message || '数据格式不适用于当前图表', error: true }; }
   }, [config.type, config.title, config.unit, config.rowCount, config.target, settings.legend, settings.labels, settings.zoom, settings.smooth, settings.palette, settings.secondaryUnit, settings.primaryName, settings.secondaryName, settings.xName, settings.yName, data, size.width, size.height, reducedMotion]);
-  const hasOption = Boolean(result.option), hasSize = size.width > 0 && size.height > 0, renderer = result.count > 1000 ? 'canvas' : 'svg';
+  const hasOption = Boolean(result.option), hasSize = size.width > 0 && size.height > 0, renderer = result.renderCount > 1000 ? 'canvas' : 'svg';
   useEffect(() => {
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)'), sync = () => setReducedMotion(preference.matches);
     preference.addEventListener('change', sync);
@@ -42,7 +51,6 @@ export default function ProfessionalChart({ config, data, onNavigate }) {
       const width = element.clientWidth, height = element.clientHeight;
       if (width === previousWidth && height === previousHeight) return;
       previousWidth = width; previousHeight = height;
-      if (width > 0 && height > 0) chart.current?.resize({ width, height, animation: { duration: 0 } });
       setSize({ width, height });
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
@@ -63,10 +71,10 @@ export default function ProfessionalChart({ config, data, onNavigate }) {
   useLayoutEffect(() => {
     if (!chart.current || !result.option) return;
     try {
-      chart.current.setOption(result.option, { notMerge: lastType.current !== config.type, replaceMerge: ['series', 'dataZoom'], lazyUpdate: true });
+      updateProfessionalChart(chart.current, result.option, size, lastType.current !== config.type);
       lastType.current = config.type; setRuntimeError('');
     } catch (error) { setRuntimeError(error.message || '图表绘制失败'); }
-  }, [result.option, renderer, hasSize, attempt, config.type]);
+  }, [result.option, renderer, hasSize, attempt, config.type, size.width, size.height]);
   const unavailable = !result.option || runtimeError;
   return <div className="professional-chart-shell" data-chart-renderer={renderer}>
     <div ref={host} className="professional-chart-stage" hidden={Boolean(unavailable)} role="img" tabIndex="0" aria-label={result.description}/>

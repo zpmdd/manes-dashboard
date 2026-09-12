@@ -48,11 +48,12 @@ const BoundWidget = memo(function BoundWidget({ item, result, refresh, code, ind
   const external = item.binding.sourceId !== 'demo' && !['text', 'clock'].includes(item.type);
   const mapped = useMemo(() => {
     if (!external) return null;
-    try { return { data: getMappedData(result, item.binding, item), state: result || { status: 'loading' } }; }
-    catch (error) { return { data: { rows: [] }, state: { status: 'error', error: error.message } }; }
-  }, [external, result, item.binding, item.aggregate, item.type, item.unit, item.columns]);
+    try { return { data: getMappedData({ rows: result?.rows }, item.binding, item) }; }
+    catch (error) { return { data: { rows: [] }, error: error.message }; }
+  }, [external, result?.rows, item.binding, item.aggregate, item.type, item.unit, item.columns]);
+  const state = mapped?.error ? { status: 'error', error: mapped.error } : result || { status: 'loading' };
   const reload = useCallback(() => refresh(item.binding.sourceId), [refresh, item.binding.sourceId]);
-  return <DashboardWidget config={item} code={code} index={index} onNavigate={onNavigate} data={mapped?.data} dataState={mapped?.state} onRefresh={external ? reload : undefined}/>;
+  return <DashboardWidget config={item} code={code} index={index} onNavigate={onNavigate} data={mapped?.data} dataState={external ? state : undefined} onRefresh={external ? reload : undefined}/>;
 });
 
 export function App() {

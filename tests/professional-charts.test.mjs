@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test, { after, before } from 'node:test';
 import { createServer } from 'vite';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import * as echarts from 'echarts/core';
 import { buildProfessionalChart, CHART_PALETTES, PROFESSIONAL_TYPES } from '../src/professionalCharts.js';
 import { getWidgetData, normalizeWidgetData } from '../src/widgetData.js';
@@ -19,10 +21,10 @@ const fixtures = {
   funnel: [{ name: '申请', value: 400 }, { name: '审核', value: 250 }, { name: '办结', value: 110 }],
   treemap: [{ name: '采集器', series: '东区', value: 130 }, { name: '网关', series: '东区', value: 50 }, { name: '终端', series: '西区', value: 70 }],
 };
-let server, renderProfessionalSVG;
+let server, renderProfessionalSVG, updateProfessionalChart, ProfessionalChart;
 before(async () => {
   server = await createServer({ configFile: false, appType: 'custom', server: { middlewareMode: true, watch: null, hmr: false, ws: false }, esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true, include: [] } });
-  ({ renderProfessionalSVG } = await server.ssrLoadModule('/src/ProfessionalChart.jsx'));
+  ({ renderProfessionalSVG, updateProfessionalChart, default: ProfessionalChart } = await server.ssrLoadModule('/src/ProfessionalChart.jsx'));
 });
 after(async () => { await server?.close(); });
 
@@ -53,6 +55,36 @@ test('category windows retain every selected series and preserve gaps and input 
   assert.equal(sparse.option.series[1].connectNulls, false);
   assert.throws(() => build('multiLine', [...trendRows, trendRows[0]]), /重复/);
   assert.throws(() => build('stacked', [{ name: '区域', value: 1 }]), /series/);
+});
+
+test('isolated points remain visible in long sparse series without joining gaps or adding continuous-series markers', () => {
+  const continuous = Array.from({ length: 30 }, (_, i) => ({ time: `T${i}`, series: '连续', value: i + 30 }));
+  const positions = [0, 13, 29];
+  const rows = [...continuous, ...positions.map(i => ({ time: `T${i}`, series: '孤立', value: 80 }))];
+  const size = { width: 220, height: 145 };
+  const result = buildProfessionalChart(config('multiLine', { rowCount: 30, chartOptions: { legend: false } }), { rows }, { ...size, reducedMotion: true });
+  const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, ...size });
+  try {
+    chart.setOption(result.option);
+    const continuousData = chart.getModel().getSeriesByIndex(0).getData();
+    const isolatedData = chart.getModel().getSeriesByIndex(1).getData();
+    assert.equal(continuousData.getItemGraphicEl(13), undefined, 'The complete long series retains its uncluttered line');
+    for (const position of positions) {
+      const symbol = isolatedData.getItemGraphicEl(position);
+      assert.ok(symbol, `Isolated point ${position} has a real graphic even on the compact card`);
+      const bounds = symbol.getBoundingRect();
+      assert.ok(bounds.width > 0 && bounds.height > 0);
+      assert.equal(isolatedData.get('y', position), 80);
+    }
+    assert.equal(chart.getOption().series[1].data[12], null);
+    assert.equal(chart.getOption().series[1].data[14], null);
+    const svg = chart.renderToSVGString();
+    const isolatedPath = svg.match(/<path d="([^"]+)"[^>]*stroke="#aebcb4"[^>]*>/)?.[1];
+    assert.ok(isolatedPath);
+    assert.equal((isolatedPath.match(/M/g) || []).length, 3);
+    assert.doesNotMatch(isolatedPath, /[LCQ]/, 'No line is drawn across the missing categories');
+    assert.doesNotMatch(svg, /NaN|Infinity/);
+  } finally { chart.dispose(); }
 });
 
 test('large cards scale readable type while treemap keeps the selected palette brightness', () => {
@@ -146,6 +178,71 @@ test('real ECharts instance resizes, updates series and releases its renderer', 
     assert.doesNotMatch(chart.renderToSVGString(), /西区/);
   } finally { chart.dispose(); }
   assert.equal(chart.isDisposed(), true);
+});
+
+test('resize consumes one lazy update while initialization and data-only changes keep their deferred render', () => {
+  const size = { width: 480, height: 280 };
+  const rows = trendRows.filter(row => !(row.time === '10:00' && row.series === '西区'));
+  const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, ...size });
+  let updates = 0;
+  chart.on('updated', () => { updates += 1; });
+  // SSR does not run a browser animation loop; advance the real registered ECharts frame listener.
+  const frame = () => chart.getZr().animation.trigger('frame', 16);
+  try {
+    const initial = buildProfessionalChart(config('multiLine'), { rows }, size);
+    updateProfessionalChart(chart, initial.option, size, true);
+    assert.equal(updates, 0, 'Initialization at the known size must not force a resize');
+    frame();
+    assert.equal(updates, 1);
+    const resized = { width: 481, height: 280 };
+    updateProfessionalChart(chart, buildProfessionalChart(config('multiLine'), { rows }, resized).option, resized);
+    assert.equal(updates, 2, 'Resize and pending options share one completed update');
+    frame();
+    assert.equal(updates, 2, 'The next frame must not repeat the completed resize update');
+    assert.match(chart.renderToSVGString(), /<svg width="481" height="280"/);
+    assert.equal(chart.getOption().series[1].data[1], null, 'The missing category remains a gap');
+    const changedRows = rows.map(row => ({ ...row, value: row.value + 7 }));
+    updateProfessionalChart(chart, buildProfessionalChart(config('multiLine'), { rows: changedRows }, resized).option, resized);
+    assert.equal(updates, 2, 'Repeated dimensions with changed data retain lazy rendering');
+    assert.equal(chart.getOption().animation, true);
+    assert.equal(chart.getOption().animationDurationUpdate, 280);
+    frame();
+    assert.equal(updates, 3);
+    assert.equal(chart.getOption().series[0].data[0].value, rows[0].value + 7);
+    updateProfessionalChart(chart, null, resized);
+    updateProfessionalChart(chart, initial.option, { width: 0, height: 0 });
+    frame();
+    assert.equal(updates, 3, 'Unavailable data and zero-size hosts do not update the instance');
+  } finally { chart.dispose(); }
+  assert.doesNotThrow(() => updateProfessionalChart(chart, build('multiLine', rows).option, size));
+  const rebuilt = echarts.init(null, null, { renderer: 'svg', ssr: true, ...size });
+  let rebuiltUpdates = 0;
+  rebuilt.on('updated', () => { rebuiltUpdates += 1; });
+  try {
+    updateProfessionalChart(rebuilt, build('multiLine', rows).option, size, true);
+    assert.equal(rebuiltUpdates, 0, 'A replacement renderer follows the first-initialization path');
+    rebuilt.getZr().animation.trigger('frame', 16);
+    assert.equal(rebuiltUpdates, 1);
+    assert.equal(rebuilt.getOption().series[1].data[1], null);
+  } finally { rebuilt.dispose(); }
+});
+
+test('renderer choice accounts for expanded sparse slots without changing data counts or gaps', () => {
+  const sparseRows = Array.from({ length: 500 }, (_, i) => ({ time: `T${i % 100}`, series: `S${i}`, value: i + 1 }));
+  for (const type of ['multiLine', 'stacked']) {
+    const settings = config(type, { rowCount: 100 });
+    const result = buildProfessionalChart(settings, { rows: sparseRows });
+    assert.equal(result.count, 500);
+    assert.equal(result.renderCount, 50000);
+    assert.equal(result.option.series.length, 500);
+    assert.equal(result.option.series.reduce((total, series) => total + series.data.filter(item => item !== null).length, 0), 500);
+    assert.equal(result.option.series[0].data[1], null);
+    assert.match(result.description, /500 个数据点/);
+    const html = renderToStaticMarkup(createElement(ProfessionalChart, { config: settings, data: { rows: sparseRows } }));
+    assert.match(html, /data-chart-renderer="canvas"/);
+    const smaller = renderToStaticMarkup(createElement(ProfessionalChart, { config: settings, data: { rows: sparseRows.slice(0, 10) } }));
+    assert.match(smaller, /data-chart-renderer="svg"/);
+  }
 });
 
 test('all professional demo sources pass the exact same external-data rendering path', () => {

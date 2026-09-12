@@ -254,6 +254,50 @@ test('field profiles preserve nulls, identifiers and mixed types; suggestions pr
   assert.equal(dotted.find(field => field.path === 'region.name').type, 'unsupported');
 });
 
+test('field profiling preserves mixed parent samples and array properties discovered by object rows', () => {
+  const summarize = rows => profileDataFields(rows).map(field => {
+    assert.equal(field.rowCount, rows.length); assert.equal(field.sample, field.examples[0] || '');
+    return [field.path, field.type, field.examples, field.missingCount, field.numericCount, field.selectable];
+  });
+  assert.deepEqual(summarize([{ metrics: { value: 0 } }, { metrics: 3 }, { metrics: null }, { metrics: {} }, { metrics: { value: 7 } }, {}, { metrics: { value: null } }]), [
+    ['metrics.value', 'number', ['0', '7'], 5, 2, true],
+    ['metrics', 'mixed', ['{"value":0}', '3', '{}'], 2, 1, true],
+  ]);
+  assert.deepEqual(summarize([{ metrics: [{ total: 0 }, 9] }, { metrics: { 0: { total: 7 }, 1: 8, length: 2 } }, { metrics: [] }, { metrics: null }]), [
+    ['metrics', 'mixed', ['[{"total":0},9]', '{"0":{"total":7},"1":8,"length":2}', '[]'], 1, 0, true],
+    ['metrics.0.total', 'number', ['0', '7'], 2, 2, true],
+    ['metrics.1', 'number', ['9', '8'], 2, 2, true],
+    ['metrics.length', 'number', ['2', '0'], 1, 3, true],
+  ]);
+});
+
+test('field profiling keeps dotted keys unsupported and empty paths bound to the root row', () => {
+  assert.deepEqual(profileDataFields([{ region: { name: '嵌套' } }, { 'region.name': '字面键' }, { region: { name: '仍是嵌套' } }]), [
+    { path: 'region.name', type: 'unsupported', examples: [], sample: '', missingCount: 3, numericCount: 0, rowCount: 3, selectable: false },
+  ]);
+  const rows = [{ '': 1, marker: 'A' }, { '': null, marker: 'B' }, { marker: 'C' }];
+  assert.deepEqual(profileDataFields(rows).find(field => field.path === ''), {
+    path: '', type: 'mixed', examples: rows.map(row => JSON.stringify(row)), sample: JSON.stringify(rows[0]), missingCount: 0, numericCount: 0, rowCount: 3, selectable: true,
+  });
+  assert.deepEqual(profileDataFields([{ '': { name: '被空键包裹' }, name: '根字段A' }, { '': { name: '被包裹B' } }, { name: '根字段C' }]), [
+    { path: 'name', type: 'string', examples: ['根字段A', '根字段C'], sample: '根字段A', missingCount: 1, numericCount: 0, rowCount: 3, selectable: true },
+  ]);
+});
+
+test('field profiling keeps the first distinct samples in row order without probing every row for every field', () => {
+  assert.deepEqual(profileDataFields([{ x: 3 }, { x: 3 }, { x: null }, { x: '2' }, {}, { x: 1 }, { x: 0 }]), [
+    { path: 'x', type: 'numeric-string', examples: ['3', '2', '1'], sample: '3', missingCount: 2, numericCount: 5, rowCount: 7, selectable: true },
+  ]);
+  let probes = 0;
+  const rows = Array.from({ length: 24 }, (_, i) => new Proxy({ [`field_${i}`]: i }, {
+    getOwnPropertyDescriptor(target, key) { probes += 1; return Reflect.getOwnPropertyDescriptor(target, key); },
+  }));
+  const fields = profileDataFields(rows);
+  assert.equal(fields.length, rows.length);
+  assert.ok(fields.every((field, i) => field.numericCount === 1 && field.missingCount === rows.length - 1 && field.sample === String(i)));
+  assert.ok(probes <= rows.length * 4, `sparse fields should visit actual own properties, not every field in every row (${probes} probes)`);
+});
+
 test('recommendations use valid mappings and avoid numeric charts for empty or ambiguous values', () => {
   const numeric = analyzeDataContent('[{"name":"A","value":12},{"name":"B","value":8}]');
   assert.ok(suggestDataWidgets(numeric).some(item => item.type === 'metric'));
@@ -267,6 +311,191 @@ test('recommendations use valid mappings and avoid numeric charts for empty or a
   assert.ok(!suggestDataWidgets(missing).some(item => ['metric', 'bar', 'line'].includes(item.type)));
   assert.deepEqual(suggestDataWidgets(analyzeDataContent('[]')), []);
   for (const recommendation of suggestDataWidgets(numeric)) assert.doesNotThrow(() => getMappedData(numeric, { fields: recommendation.fields }, recommendation));
+});
+
+test('manual primary and secondary mappings resolve ambiguous numbers and preserve zero in combo recommendations', () => {
+  const analysis = analyzeDataContent('[{"region":"华东","revenue":0,"cost":5},{"region":"华北","revenue":12,"cost":0}]');
+  assert.ok(!suggestDataWidgets(analysis).some(item => item.type === 'combo'));
+  const overrides = { value: 'revenue', value2: 'cost' };
+  const fields = suggestDataFields(analysis.fields, overrides).fields;
+  assert.deepEqual(fields, { ...overrides, name: 'region' });
+  const combo = suggestDataWidgets(analysis, overrides).find(item => item.type === 'combo');
+  assert.ok(combo, 'manual choices must immediately enable a valid dual-value chart');
+  assert.deepEqual(combo.fields, fields);
+  const mapped = getMappedData(analysis, { fields: combo.fields }, combo);
+  assert.deepEqual(mapped.rows.map(({ name, value, value2 }) => [name, value, value2]), [['华东', 0, 5], ['华北', 12, 0]]);
+  assert.equal(mapped.value, 12);
+  assert.deepEqual(overrides, { value: 'revenue', value2: 'cost' }, 'suggestions do not mutate manual choices');
+});
+
+test('explicit empty mappings stay disabled through aliases, numeric fallback and widget recommendations', () => {
+  for (const row of [{ region: '华东', value: 0, value2: 5 }, { region: '华东', revenue: 0 }]) {
+    const analysis = analyzeDataContent(JSON.stringify([row]));
+    const overrides = { value: '', value2: '' };
+    const suggested = suggestDataFields(analysis.fields, overrides);
+    assert.equal(suggested.fields.value, '', 'an explicit empty primary field cannot be inferred again');
+    assert.equal(suggested.fields.value2, '', 'an explicit empty secondary field cannot be inferred again');
+    assert.equal(suggested.fields.name, 'region');
+    const recommendations = suggestDataWidgets(analysis, overrides);
+    assert.ok(recommendations.some(item => item.type === 'table'));
+    assert.ok(!recommendations.some(item => ['metric', 'bar', 'combo'].includes(item.type)));
+    for (const item of recommendations) {
+      assert.equal(item.fields.value, ''); assert.equal(item.fields.value2, '');
+      assert.ok(!item.columns.some(column => ['value', 'value2'].includes(column.key)));
+      assert.equal(getMappedData(analysis, { fields: item.fields }, item).rows[0].value, null);
+    }
+  }
+  const analysis = analyzeDataContent('[{"region":"华东","value":0,"value2":5}]');
+  const recommendations = suggestDataWidgets(analysis, { value2: '' });
+  assert.ok(recommendations.some(item => item.type === 'metric'));
+  assert.ok(!recommendations.some(item => item.type === 'combo'), 'disabling only the secondary field removes combo');
+});
+
+async function dataSourcePanelHarness(sources) {
+  const [{ readFile }, { transformWithEsbuild }, dataSources, inference, config] = await Promise.all([
+    import('node:fs/promises'), import('vite'), import('../src/dataSources.js'), import('../src/dataInference.js'), import('../src/dashboardConfig.js'),
+  ]);
+  const panelSource = await readFile(new URL('../src/DataSourcePanel.jsx', import.meta.url), 'utf8');
+  const { code } = await transformWithEsbuild(panelSource.slice(panelSource.indexOf('const EXAMPLE')).replace('export function', 'function'), 'DataSourcePanel.jsx', { loader: 'jsx', jsxFactory: 'h', jsxFragment: 'Fragment', sourcemap: false });
+  const state = [], created = []; let cursor = 0;
+  const useState = initial => {
+    const index = cursor++;
+    if (!(index in state)) state[index] = typeof initial === 'function' ? initial() : initial;
+    return [state[index], value => { state[index] = typeof value === 'function' ? value(state[index]) : value; }];
+  };
+  const useMemo = (factory, deps) => {
+    const index = cursor++, previous = state[index];
+    if (!previous || deps.some((value, i) => !Object.is(value, previous.deps[i]))) state[index] = { value: factory(), deps };
+    return state[index].value;
+  };
+  // Run the component's actual JSX callbacks with persistent hook cells, as in editor-events.test.mjs.
+  const runtime = { ...dataSources, ...inference, ...config, useState, useMemo, useEffect() {}, useRef: initial => useState(() => ({ current: initial }))[0], document: { activeElement: null }, h: (type, props, ...children) => ({ type, props: props || {}, children }), Fragment: 'fragment', ...Object.fromEntries(['ArrowsClockwise', 'Check', 'Database', 'Plus', 'Trash', 'UploadSimple', 'X'].map(name => [name, name])) };
+  const Component = new Function(...Object.keys(runtime), `${code}; return DataSourcePanel;`)(...Object.values(runtime));
+  const nodes = () => {
+    cursor = 0; const result = [];
+    const visit = value => {
+      if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value === 'object') { result.push(value); value.children?.forEach(visit); }
+    };
+    visit(Component({ sources, onChange() {}, onClose() {}, onCreateComponent: payload => { created.push(payload); return false; } }));
+    return result;
+  };
+  const find = predicate => { const node = nodes().find(predicate); assert.ok(node, 'expected panel control is present'); return node.props; };
+  return {
+    created, nodes, find,
+    field: label => find(node => node.type === 'select' && node.props['aria-label'] === label),
+    read: () => find(node => node.type === 'button' && node.props.className === 'ds-test' && node.props.onClick).onClick(),
+    choose: id => find(node => node.type === 'button' && node.props.key === id).onClick(),
+  };
+}
+
+test('real data-source panel selectors create the chosen combo and reset overrides only when source data changes', async () => {
+  const financial = [{ region: '华东', revenue: 0, cost: 5 }, { region: '华北', revenue: 12, cost: 0 }];
+  const standard = [{ region: '华南', value: 0, value2: 3 }];
+  const panel = await dataSourcePanelHarness([source({ id: 'ds_a', content: JSON.stringify(financial) }), source({ id: 'ds_b', content: JSON.stringify(standard) })]);
+  const change = (control, value) => control.onChange({ target: { value } });
+  const setPair = (item, value, value2) => { change(item.field('主数值'), value); change(item.field('第二数值'), value2); };
+  const pair = item => [item.field('主数值').value, item.field('第二数值').value];
+  const hasCombo = item => item.nodes().some(node => node.type === 'button' && node.props.key === 'combo');
+  await panel.read(); assert.equal(hasCombo(panel), false);
+  setPair(panel, 'revenue', 'cost'); assert.equal(hasCombo(panel), true);
+  panel.choose('combo');
+  await panel.find(node => node.type === 'button' && node.children.some(child => child === '添加')).onClick();
+  assert.equal(panel.created.length, 1);
+  const payload = panel.created[0];
+  assert.equal(payload.sourceId, 'ds_a'); assert.equal(payload.type, 'combo');
+  assert.deepEqual(payload.fields, { value: 'revenue', value2: 'cost', name: 'region' });
+  assert.deepEqual(getMappedData({ rows: financial }, { fields: payload.fields }, payload).rows.map(row => [row.value, row.value2]), [[0, 5], [12, 0]]);
+  await panel.read(); assert.deepEqual(pair(panel), ['revenue', 'cost'], 're-reading unchanged data keeps manual mappings');
+  setPair(panel, '', ''); await panel.read();
+  assert.deepEqual(pair(panel), ['', '']); assert.equal(hasCombo(panel), false);
+  panel.choose('ds_a'); assert.deepEqual(pair(panel), ['', ''], 'clicking the selected source keeps explicit empty fields');
+  change(panel.find(node => node.type === 'input' && node.props.maxLength === 40), '修改名称');
+  await panel.read(); assert.deepEqual(pair(panel), ['', ''], 'renaming the source does not re-enable disabled fields');
+  panel.choose('ds_b'); await panel.read();
+  assert.deepEqual(pair(panel), ['value', 'value2'], 'another source cannot inherit disabled fields');
+  setPair(panel, 'value2', 'value'); panel.choose('ds_a'); await panel.read();
+  assert.deepEqual(pair(panel), ['', ''], 'another source cannot inherit selected field names');
+  setPair(panel, 'revenue', 'cost');
+  change(panel.find(node => node.type === 'textarea'), JSON.stringify(standard));
+  await panel.read(); assert.deepEqual(pair(panel), ['value', 'value2'], 'changing the content clears obsolete fields');
+
+  const nested = await dataSourcePanelHarness([source({ content: JSON.stringify({ current: financial, next: standard }), rowsPath: 'current' })]);
+  await nested.read(); setPair(nested, 'revenue', 'cost');
+  change(nested.find(node => node.type === 'select' && node.props.value === 'current'), 'next');
+  assert.deepEqual(pair(nested), ['value', 'value2'], 'choosing a different row list clears obsolete fields');
+  setPair(nested, '', '');
+  change(nested.find(node => node.type === 'input' && node.props.maxLength === 160), 'current');
+  await nested.read(); assert.deepEqual(pair(nested), ['', '']);
+  change(nested.find(node => node.type === 'input' && node.props.maxLength === 160), 'next');
+  await nested.read(); assert.deepEqual(pair(nested), ['value', 'value2'], 'editing the row path also clears explicit empty fields');
+});
+
+test('real data-source panel bounds 5000 fields while paging, searching and preserving selected mappings', async () => {
+  const row = { metrics: {} }, paths = [];
+  for (let group = 0; group < 5; group += 1) {
+    row.metrics[`group_${group}`] = {};
+    for (let bucket = 0; bucket < 25; bucket += 1) {
+      const fields = {};
+      for (let field = 0; field < 40; field += 1) {
+        const index = paths.length, key = index === 0 ? 'name' : index === 4999 ? 'value' : `field_${field}`;
+        paths.push(`metrics.group_${group}.bucket_${bucket}.${key}`); fields[key] = index === 0 ? '区域A' : index;
+      }
+      row.metrics[`group_${group}`][`bucket_${bucket}`] = fields;
+    }
+  }
+  assert.equal(profileDataFields([row]).length, 5000, 'field analysis still includes every field');
+  const panel = await dataSourcePanelHarness([source({ id: 'ds_large', content: JSON.stringify([row]) }), source({ id: 'ds_small', content: '[{"name":"区域B","value":7}]' })]);
+  const control = label => panel.find(node => node.props['aria-label'] === label);
+  const change = (item, value) => item.onChange({ target: { value } });
+  const visiblePaths = nodes => nodes.filter(node => node.type === 'strong' && node.props.title?.startsWith('metrics.')).map(node => node.props.title);
+  const bounded = nodes => {
+    assert.ok(nodes.length <= 1800, `the panel renders a bounded field page (${nodes.length} nodes)`);
+    assert.ok(nodes.filter(node => node.type === 'option').length <= 1023, 'all field selectors share the same bounded page');
+    assert.ok(visiblePaths(nodes).length <= 100);
+  };
+  await panel.read();
+  assert.equal(panel.field('主数值').value, paths.at(-1), 'an off-page numeric field still supplies the complete recommendation');
+  assert.ok(panel.nodes().some(node => node.type === 'button' && node.props.key === 'metric'));
+  change(panel.field('主数值'), paths[1]);
+  const visited = [];
+  for (let page = 0; page < 50; page += 1) {
+    if (page === 1) change(panel.field('第二数值'), paths[100]);
+    const nodes = panel.nodes(); bounded(nodes);
+    assert.deepEqual(visiblePaths(nodes), paths.slice(page * 100, (page + 1) * 100));
+    visited.push(...visiblePaths(nodes));
+    assert.equal(panel.field('主数值').value, paths[1]);
+    if (page > 0) assert.equal(panel.field('第二数值').value, paths[100]);
+    assert.equal(control('上一页字段').disabled, page === 0);
+    assert.equal(control('下一页字段').disabled, page === 49);
+    if (page < 49) control('下一页字段').onClick();
+  }
+  assert.deepEqual(visited, paths, 'all 5000 fields remain reachable, in their original order');
+  control('上一页字段').onClick(); assert.deepEqual(visiblePaths(panel.nodes()), paths.slice(4800, 4900));
+  change(control('搜索字段'), '没有匹配的字段');
+  const empty = panel.nodes(); bounded(empty);
+  assert.deepEqual(visiblePaths(empty), []);
+  assert.equal(control('搜索字段').value, '没有匹配的字段', 'the search control stays present for an empty result');
+  for (const [label, selected] of [['主数值', paths[1]], ['第二数值', paths[100]]]) {
+    const select = empty.find(node => node.type === 'select' && node.props['aria-label'] === label);
+    assert.equal(select.props.value, selected);
+    assert.ok(select.children.flat(Infinity).some(node => node?.type === 'option' && node.props.value === selected), 'an off-page selection remains a real option');
+  }
+  assert.ok(empty.some(node => node.type === 'button' && node.props.key === 'combo'), 'search does not change mapping or recommendations');
+  change(control('搜索字段'), paths.at(-1));
+  assert.deepEqual(visiblePaths(panel.nodes()), [paths.at(-1)]);
+  change(control('搜索字段'), 'metrics.group_4'); control('下一页字段').onClick();
+  panel.choose('ds_small'); await panel.read();
+  assert.equal(panel.field('主数值').value, 'value'); assert.equal(panel.field('第二数值').value, '');
+  assert.ok(!panel.nodes().some(node => ['搜索字段', '上一页字段', '下一页字段'].includes(node.props['aria-label'])));
+  panel.choose('ds_large'); await panel.read();
+  assert.equal(control('搜索字段').value, ''); assert.equal(control('上一页字段').disabled, true);
+  assert.deepEqual(visiblePaths(panel.nodes()), paths.slice(0, 100));
+  assert.equal(panel.field('主数值').value, paths.at(-1)); assert.equal(panel.field('第二数值').value, '');
+  const exactly100 = Array.from({ length: 100 }, (_, i) => ({ metrics: { [`field_${i}`]: i } }));
+  change(panel.find(node => node.type === 'textarea'), JSON.stringify(exactly100)); await panel.read();
+  assert.equal(visiblePaths(panel.nodes()).length, 100);
+  assert.ok(!panel.nodes().some(node => ['搜索字段', '上一页字段', '下一页字段'].includes(node.props['aria-label'])), '100 fields need no paging controls');
 });
 
 test('basic chart suggestions do not join multiple series or repeat time and ranking categories', () => {

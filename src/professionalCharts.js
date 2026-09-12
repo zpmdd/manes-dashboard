@@ -44,7 +44,7 @@ function groupedRows(rows, count, latest = false, seriesOptional = false) {
 export function buildProfessionalChart(config, data, size = {}) {
   if (!PROFESSIONAL_TYPES.includes(config.type)) throw new Error('不支持的专业图表');
   const rows = Array.isArray(data?.rows) ? data.rows : [];
-  if (!rows.length) return { option: null, count: 0, description: '暂无数据' };
+  if (!rows.length) return { option: null, count: 0, renderCount: 0, description: '暂无数据' };
   if (rows.length > 5000) throw new Error('专业图表最多支持 5000 行数据');
   if (rows.some(row => !row || typeof row !== 'object')) throw new Error('每行数据需为字段对象');
   const settings = config.chartOptions || {}, count = visibleRowCount(config.rowCount);
@@ -65,19 +65,23 @@ export function buildProfessionalChart(config, data, size = {}) {
     grid: { left: 7, right: config.type === 'combo' ? 8 : 12, top: legend ? spacing(34) : spacing(19), bottom: 8, outerBoundsMode: 'same', outerBoundsContain: 'all' },
     dataZoom: [], series: [],
   };
-  let pointCount = 0, shownRows = rows;
+  let pointCount = 0, renderCount, shownRows = rows;
   if (config.type === 'multiLine' || config.type === 'stacked') {
     const grouped = groupedRows(rows, count, config.type === 'multiLine');
     shownRows = rows.filter((row, i) => grouped.categories.includes(rowCategory(row, i, config.type === 'multiLine')));
     pointCount = shownRows.length;
+    renderCount = grouped.categories.length * grouped.groups.length;
     option.xAxis = categoryAxis(grouped.categories, settings.xName || ''); option.yAxis = axis(unit);
     option.tooltip.trigger = 'axis'; option.tooltip.axisPointer = { type: config.type === 'stacked' ? 'shadow' : 'line', lineStyle: { color: '#e1d1a77d' } };
-    option.series = grouped.groups.map(([name, values], i) => ({
-      id: `series-${name}`, name, type: config.type === 'stacked' ? 'bar' : 'line',
-      ...(config.type === 'stacked' ? { stack: 'total', barMaxWidth: 32, itemStyle: { borderRadius: [2, 2, 0, 0] } } : { smooth: settings.smooth !== false, showSymbol: grouped.categories.length <= 24, symbolSize: 5, lineStyle: { width: 2, color: colors[i % colors.length] }, connectNulls: false }),
-      emphasis: { focus: 'series' }, label: { ...itemLabel, color: config.type === 'stacked' ? fillInk : ink, position: config.type === 'stacked' ? 'inside' : 'top' },
-      data: grouped.categories.map(category => values.has(category) ? { value: values.get(category).value, code: values.get(category).code, name: category } : null),
-    }));
+    option.series = grouped.groups.map(([name, values], i) => {
+      const hasIsolatedPoint = config.type === 'multiLine' && grouped.categories.some((category, position, categories) => values.has(category) && !values.has(categories[position - 1]) && !values.has(categories[position + 1]));
+      return {
+        id: `series-${name}`, name, type: config.type === 'stacked' ? 'bar' : 'line',
+        ...(config.type === 'stacked' ? { stack: 'total', barMaxWidth: 32, itemStyle: { borderRadius: [2, 2, 0, 0] } } : { smooth: settings.smooth !== false, showSymbol: grouped.categories.length <= 24 || hasIsolatedPoint, showAllSymbol: hasIsolatedPoint ? true : 'auto', symbolSize: 5, lineStyle: { width: 2, color: colors[i % colors.length] }, connectNulls: false }),
+        emphasis: { focus: 'series' }, label: { ...itemLabel, color: config.type === 'stacked' ? fillInk : ink, position: config.type === 'stacked' ? 'inside' : 'top' },
+        data: grouped.categories.map(category => values.has(category) ? { value: values.get(category).value, code: values.get(category).code, name: category } : null),
+      };
+    });
   } else if (config.type === 'combo') {
     const categories = rows.map((row, i) => rowCategory(row, i, true));
     if (new Set(categories).size !== categories.length) throw new Error('双轴图同一类别存在多行，请先汇总为一行');
@@ -136,12 +140,12 @@ export function buildProfessionalChart(config, data, size = {}) {
     rows.forEach((row, i) => { requiredLabel(row, 'name', i); numeric(row, 'value', i, true); });
     shownRows = rows.slice(0, count); pointCount = shownRows.length;
     const max = Math.max(...shownRows.map(row => finiteNumber(row.value)));
-    if (max === 0) return { option: null, count: 0, description: '各阶段当前均为 0' };
+    if (max === 0) return { option: null, count: 0, renderCount: 0, description: '各阶段当前均为 0' };
     option.series = [{ id: 'funnel', type: 'funnel', left: labels ? '5%' : '12%', right: labels ? '24%' : '12%', top: legend ? spacing(32) : 8, bottom: 7, min: 0, max, minSize: '0%', maxSize: '100%', sort: 'none', gap: 4, label: { show: true, position: labels ? 'right' : 'inside', color: labels ? ink : fillInk, fontSize: font, formatter: labels ? '{b}: {c}' : '{b}' }, labelLine: { length: 8, lineStyle: { color: muted } }, itemStyle: { borderColor: '#efe4c638', borderWidth: 1, opacity: .86 }, emphasis: { label: { fontWeight: 'bold' } }, data: shownRows.map((row, i) => ({ name: label(row.name), value: numeric(row, 'value', i), code: row.code })) }];
   } else if (config.type === 'treemap') {
     rows.forEach((row, i) => { requiredLabel(row, 'name', i); numeric(row, 'value', i, true); });
     shownRows = rows.slice(0, count); pointCount = shownRows.length;
-    if (!shownRows.some(row => finiteNumber(row.value) > 0)) return { option: null, count: 0, description: '各项目当前均为 0' };
+    if (!shownRows.some(row => finiteNumber(row.value) > 0)) return { option: null, count: 0, renderCount: 0, description: '各项目当前均为 0' };
     const groups = new Map();
     shownRows.forEach((row, i) => {
       const group = label(row.series);
@@ -161,5 +165,5 @@ export function buildProfessionalChart(config, data, size = {}) {
   }).join('；');
   const description = `${config.title}，${pointCount} 个数据点${unit ? `，单位 ${unit}` : ''}。${sample}`;
   option.aria.label.description = description;
-  return { option, count: pointCount, description };
+  return { option, count: pointCount, renderCount: renderCount ?? pointCount, description };
 }

@@ -80,9 +80,14 @@ export function finiteNumber(value) {
   return Number.isFinite(result) ? result : null;
 }
 
+const NUMBER_FORMATTERS = [];
 export function formatWidgetNumber(value, precision = 1) {
   const numeric = finiteNumber(value);
-  return numeric === null ? '—' : numeric.toLocaleString('zh-CN', { maximumFractionDigits: Math.max(0, Math.min(3, Math.floor(finiteNumber(precision) ?? 1))), notation: Math.abs(numeric) >= 1e12 ? 'scientific' : 'standard' });
+  if (numeric === null) return '—';
+  const digits = Math.max(0, Math.min(3, Math.floor(finiteNumber(precision) ?? 1)));
+  const scientific = Math.abs(numeric) >= 1e12, index = digits + (scientific ? 4 : 0);
+  const formatter = NUMBER_FORMATTERS[index] ||= new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits, notation: scientific ? 'scientific' : 'standard' });
+  return formatter.format(numeric);
 }
 
 // Every renderer receives the same shape; missing values remain missing instead of becoming zero.

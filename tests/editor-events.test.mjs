@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { transformWithEsbuild } from 'vite';
 import { DEFAULT_CHART_OPTIONS, DEFAULT_CONFIG, MODULE_TYPES, SOURCES, createModule, normalizeConfig } from '../src/dashboardConfig.js';
 import { analyzeDataContent, suggestDataWidgets } from '../src/dataInference.js';
+import { getMappedData } from '../src/dataSources.js';
 import { arrangeLayouts, changeLayout, editHistory, layoutStyle, snapLayout } from '../src/layout.js';
 
 // Compile the real component to small VNodes so its handlers run without a browser dependency.
@@ -280,4 +281,29 @@ test('真实推荐创建回调使用中性图表语义，数据源与组件同�
     assert.strictEqual(harness.render().config, saved); assert.equal(harness.history.past.length, 0); assert.equal(harness.render().dirty, false);
     assert.deepEqual(harness.render().selectedIds, []); assert.deepEqual(panels, []);
   }
+});
+
+
+test('轮询状态变化保留已映射数据，新增数据和映射错误仍更新组件', async () => {
+  const source = appSource.slice(appSource.indexOf('const BoundWidget = '), appSource.indexOf('export function App('));
+  const { code } = await transformWithEsbuild(source, 'BoundWidget.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false });
+  let previous, cached, conversions = 0;
+  const useMemo = (build, dependencies) => {
+    if (!previous || dependencies.some((value, i) => value !== previous[i])) { cached = build(); previous = dependencies; }
+    return cached;
+  };
+  const BoundWidget = new Function('memo', 'useMemo', 'useCallback', 'getMappedData', 'DashboardWidget', 'h', `${code}; return BoundWidget;`)(fn => fn, useMemo, fn => fn, (...args) => { conversions++; return getMappedData(...args); }, 'DashboardWidget', (type, props) => props);
+  const item = { ...createModule('metric'), binding: { sourceId: 'ds_test', fields: { name: 'name', value: 'value' } } };
+  const props = { item, refresh() {}, code: '100000' }, rows = [{ name: '零值', value: 0 }, { name: '第二项', value: 123 }];
+  const ready = BoundWidget({ ...props, result: { rows, status: 'ready', updatedAt: 1 } });
+  const loading = BoundWidget({ ...props, result: { rows, status: 'loading', stale: true } });
+  const failed = BoundWidget({ ...props, result: { rows, status: 'error', stale: true, error: '连接中断' } });
+  assert.equal(conversions, 1);
+  assert.strictEqual(loading.data, ready.data); assert.strictEqual(failed.data, ready.data);
+  assert.equal(loading.dataState.status, 'loading'); assert.equal(failed.dataState.error, '连接中断');
+  assert.equal(ready.data.rows[0].value, 0);
+  const changed = BoundWidget({ ...props, result: { rows: [...rows, { name: '新增项', value: 7 }], status: 'ready' } });
+  assert.equal(conversions, 2); assert.equal(changed.data.value, 130);
+  const invalid = BoundWidget({ ...props, result: { rows: [{ name: '无效项', value: null }], status: 'ready' } });
+  assert.equal(invalid.dataState.status, 'error'); assert.match(invalid.dataState.error, /缺失或不是有效数字/);
 });
