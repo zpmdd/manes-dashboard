@@ -261,7 +261,7 @@ export function createDataSourceController({ onChange, loader = loadDataSource, 
     for (const entry of entries.values()) { clearInterval(entry.timer); entry.timer = null; }
   };
   const start = entry => {
-    refresh(entry.source, entry.code);
+    if (entry.source.type === 'http' || results[entry.source.id]?.status !== 'ready') refresh(entry.source, entry.code);
     if (entry.source.type === 'http' && entry.source.refreshSeconds > 0) entry.timer = setInterval(() => refresh(entry.source, entry.code), entry.source.refreshSeconds * 1000);
   };
   const setActive = enabled => {

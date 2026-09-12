@@ -70,10 +70,10 @@ function TrendChart({ rows, unit, title, type, precision }) {
 }
 
 function BarChart({ rows, unit, rowCount, onNavigate, precision }) {
-  const shown = rows.slice(0, rowCount), max = Math.max(1, ...rows.map(row => Math.abs(row.value)));
+  const shown = rows.slice(0, rowCount), max = Math.max(...rows.map(row => Math.abs(row.value))) || 1;
   return <ol className="widget-ranking">{shown.map((row, i) => {
     const content = <><span className="widget-rank-number">{String(i + 1).padStart(2, '0')}</span><span className="widget-rank-content"><span className="widget-rank-caption"><span title={row.name}>{row.name}</span><strong>{number(row.value, precision)}<small>{unit}</small></strong></span><span className={`widget-bar-track ${row.value < 0 ? 'is-negative' : ''}`}><span style={{ width: `${Math.abs(row.value) / max * 100}%` }}/></span></span>{row.code && onNavigate && <span className="widget-rank-arrow" aria-hidden="true">›</span>}</>;
-    return <li key={row.code || `${row.name}-${i}`}>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} aria-label={`${row.name}，${number(row.value, precision)} ${unit}，查看区域`}>{content}</button> : <div>{content}</div>}</li>;
+    return <li key={`${row.code || row.name}-${i}`}>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} aria-label={`${row.name}，${number(row.value, precision)} ${unit}，查看区域`}>{content}</button> : <div>{content}</div>}</li>;
   })}</ol>;
 }
 
@@ -97,7 +97,7 @@ function DataTable({ rows, columns, unit, rowCount, title, onNavigate, precision
   const canSort = visibleColumns.some(column => column.key === 'value');
   const sorted = useMemo(() => sortTableRows(rows, canSort ? direction : null), [rows, direction, canSort]).slice(0, rowCount);
   if (!visibleColumns.length) return <EmptyState message="请选择表格列"/>;
-  return <div className="widget-table-wrap" tabIndex="0" role="region" aria-label={`${title}，可滚动表格`}><table className="widget-table"><caption className="widget-sr-only">{title}{unit && `，数值单位 ${unit}`}</caption><thead><tr>{visibleColumns.map(column => <th key={column.key} className={`widget-cell-${column.key}`} scope="col" aria-sort={column.key === 'value' ? direction || 'none' : undefined}>{column.key === 'value' ? <button onClick={() => setDirection(current => current === 'descending' ? 'ascending' : 'descending')}>{column.label}{unit && <small>/{unit}</small>}<span aria-hidden="true">{direction === 'ascending' ? '↑' : '↓'}</span><span className="widget-sr-only">按数值{direction === 'descending' ? '升序' : '降序'}排列</span></button> : column.label}</th>)}</tr></thead><tbody>{sorted.map((row, i) => <tr key={row.code || `${row.name}-${row.time}-${i}`}>{visibleColumns.map((column, columnIndex) => {
+  return <div className="widget-table-wrap" tabIndex="0" role="region" aria-label={`${title}，可滚动表格`}><table className="widget-table"><caption className="widget-sr-only">{title}{unit && `，数值单位 ${unit}`}</caption><thead><tr>{visibleColumns.map(column => <th key={column.key} className={`widget-cell-${column.key}`} scope="col" aria-sort={column.key === 'value' ? direction || 'none' : undefined}>{column.key === 'value' ? <button onClick={() => setDirection(current => current === 'descending' ? 'ascending' : 'descending')}>{column.label}{unit && <small>/{unit}</small>}<span aria-hidden="true">{direction === 'ascending' ? '↑' : '↓'}</span><span className="widget-sr-only">按数值{direction === 'descending' ? '升序' : '降序'}排列</span></button> : column.label}</th>)}</tr></thead><tbody>{sorted.map((row, i) => <tr key={`${row.code || row.name}-${i}`}>{visibleColumns.map((column, columnIndex) => {
     const value = ['value', 'target', 'value2'].includes(column.key) ? number(row[column.key], precision) : row[column.key] === null || row[column.key] === undefined || row[column.key] === '' ? '—' : String(row[column.key]);
     return <td key={column.key} className={`widget-cell-${column.key}`} title={value}>{columnIndex === 0 && row.code && onNavigate ? <button className="widget-table-link" aria-label={`${row.name}，查看区域`} onClick={() => onNavigate(row.code)}>{value}</button> : column.key === 'status' ? <span className={`widget-status is-${statusTone(value)}`}>{value}</span> : value}</td>;
   })}</tr>)}</tbody></table></div>;
@@ -113,7 +113,7 @@ function Progress({ rows, unit, target, precision }) {
 function StatusGrid({ rows, unit, precision, onNavigate }) {
   return <ul className="widget-status-grid">{rows.map((row, i) => {
     const tone = statusTone(row.status), text = <><span className="widget-status-name"><i aria-hidden="true"/>{row.name}</span><strong>{row.status || '未知状态'}</strong>{row.value !== null && <small>{number(row.value, precision)} {unit}</small>}</>;
-    return <li key={row.code || `${row.name}-${i}`} className={`is-${tone}`}>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} aria-label={`${row.name}，${row.status || '未知状态'}，查看区域`}>{text}</button> : <div>{text}</div>}</li>;
+    return <li key={`${row.code || row.name}-${i}`} className={`is-${tone}`}>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} aria-label={`${row.name}，${row.status || '未知状态'}，查看区域`}>{text}</button> : <div>{text}</div>}</li>;
   })}</ul>;
 }
 

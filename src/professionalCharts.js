@@ -114,7 +114,7 @@ export function buildProfessionalChart(config, data, size = {}) {
   } else if (config.type === 'scatter') {
     rows.forEach((row, i) => { numeric(row, 'x', i); numeric(row, 'y', i); if (row.value !== null && row.value !== undefined && row.value !== '') numeric(row, 'value', i, true); });
     shownRows = rows.slice(0, count); pointCount = shownRows.length;
-    const maxSize = Math.max(1, ...shownRows.map(row => finiteNumber(row.value) ?? 0));
+    const maxSize = Math.max(...shownRows.map(row => finiteNumber(row.value) ?? 0)) || 1;
     option.xAxis = { ...axis(settings.xName || 'X'), scale: true }; option.yAxis = { ...axis(settings.yName || 'Y'), scale: true };
     option.series = unique(shownRows.map(row => label(row.series) || '观测值')).map(name => ({
       id: `scatter-${name}`, name, type: 'scatter', dimensions: [{ name: 'x', displayName: settings.xName || 'X', type: 'float' }, { name: 'y', displayName: settings.yName || 'Y', type: 'float' }], encode: { x: 0, y: 1, tooltip: [0, 1] }, emphasis: { focus: 'series' }, label: { ...itemLabel, position: 'top', formatter: '{b}' },
@@ -130,7 +130,7 @@ export function buildProfessionalChart(config, data, size = {}) {
       cells.add(key);
     });
     shownRows = rows.filter(row => xs.includes(label(row.x)) && ys.includes(label(row.y))); pointCount = shownRows.length;
-    const values = shownRows.map(row => finiteNumber(row.value)), min = Math.min(0, ...values), max = Math.max(1, ...values);
+    const values = shownRows.map(row => finiteNumber(row.value)), min = Math.min(0, ...values), max = Math.max(0, ...values) || (min === 0 ? 1 : 0);
     option.legend.show = false; option.grid.top = 12; option.grid.bottom = spacing(40);
     option.xAxis = categoryAxis(xs, settings.xName || ''); option.yAxis = { ...categoryAxis(ys, settings.yName || ''), axisLabel: { color: muted, fontSize: font, overflow: 'truncate', width: spacing(68) } };
     option.visualMap = { show: legend, min, max, calculable: false, orient: 'horizontal', left: 'center', bottom: 0, itemHeight: Math.min(spacing(120), width * .35), itemWidth: spacing(8), text: ['高', '低'], textStyle: { color: muted, fontSize: minorFont }, inRange: { color: ['#4b454f', colors[3], colors[1], colors[0]] } };

@@ -303,6 +303,53 @@ test('reconciliation preserves polling deadlines, visibility pauses and resumes 
   assert.equal(calls.length, beforeDispose);
 });
 
+test('visibility resumes HTTP while reusing ready static rows and restarting changed or interrupted static loads', async () => {
+  const calls = [], loads = [], pending = []; let snapshot;
+  const controller = createDataSourceController({ onChange: result => { snapshot = result; }, loader: (item, code, options) => {
+    calls.push(item.id);
+    const load = () => loadDataSource(item, code, { ...options, fetcher: async () => new Response('[{"value":7}]') });
+    const loading = item.id === 'ds_pending' ? new Promise(resolve => pending.push({ resolve, signal: options.signal })).then(load) : load();
+    loads.push(loading); return loading;
+  } });
+  const settle = async () => { await Promise.all(loads); await Promise.resolve(); };
+  const count = id => calls.filter(value => value === id).length;
+  let sources = [source({ id: 'ds_json', content: '[{"value":1}]' }), source({ id: 'ds_csv', type: 'csv', content: 'name,value\n区域,2' }), source({ id: 'ds_empty', content: '[]' }), source({ id: 'ds_http', type: 'http', url: '/fixed' })];
+  try {
+    controller.reconcile(sources, '100000', false);
+    assert.equal(calls.length, 0, 'initially hidden sources wait until visible');
+    controller.setActive(true); await settle();
+    const ready = snapshot;
+    assert.deepEqual(ready.ds_empty.rows, []); assert.equal(ready.ds_empty.status, 'ready');
+    controller.setActive(false); controller.setActive(true); await settle();
+    assert.equal(count('ds_http'), 2, 'HTTP reloads on visibility resume even without polling');
+    for (const id of ['ds_json', 'ds_csv', 'ds_empty']) {
+      assert.equal(count(id), 1); assert.strictEqual(snapshot[id], ready[id]);
+      assert.strictEqual(snapshot[id].rows, ready[id].rows);
+    }
+    controller.setActive(false);
+    sources = sources.map(item => item.id === 'ds_json' ? { ...item, content: '[{"value":3}]' } : item);
+    controller.reconcile(sources, '110000', false);
+    assert.equal(snapshot.ds_json, undefined); assert.equal(count('ds_json'), 1);
+    controller.setActive(true); await settle();
+    assert.equal(count('ds_json'), 2); assert.equal(snapshot.ds_json.rows[0].value, 3);
+    assert.strictEqual(snapshot.ds_csv, ready.ds_csv); assert.strictEqual(snapshot.ds_empty, ready.ds_empty);
+    await controller.refresh('ds_json'); assert.equal(count('ds_json'), 3, 'explicit refresh remains available');
+    sources = [...sources, source({ id: 'ds_pending', content: '[{"value":42}]' })];
+    controller.reconcile(sources, '110000');
+    const oldLoad = loads.at(-1);
+    controller.setActive(false); assert.equal(pending[0].signal.aborted, true);
+    controller.setActive(true); assert.equal(pending.length, 2);
+    pending[0].resolve(); await oldLoad; await Promise.resolve();
+    assert.equal(snapshot.ds_pending.status, 'loading'); assert.deepEqual(snapshot.ds_pending.rows, []);
+    pending[1].resolve(); await settle();
+    assert.equal(snapshot.ds_pending.rows[0].value, 42); assert.equal(snapshot.ds_pending.status, 'ready');
+    const recovered = snapshot.ds_pending;
+    controller.setActive(false); controller.setActive(true); await settle();
+    assert.equal(count('ds_pending'), 2); assert.strictEqual(snapshot.ds_pending, recovered);
+    assert.equal(count('ds_http'), 5);
+  } finally { controller.dispose(); }
+});
+
 test('data analysis finds a unique nested row path and keeps ambiguous paths explicit', () => {
   const content = JSON.stringify({ code: 200, data: { records: [{ device: { name: '中心' }, amount: '12', date: '2026-09-12', code: '001100' }] } });
   const analysis = analyzeDataContent(content);

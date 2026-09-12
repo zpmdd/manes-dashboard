@@ -150,6 +150,46 @@ test('heatmap limits categories without fabricating cells and counts actual dens
   assert.equal(build('heatmap', dense, { rowCount: 10 }).count, 100);
 });
 
+test('real scatter sizes and heatmap colors retain fractional ranges, zero points and sparse cells', () => {
+  const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width: 480, height: 280 });
+  const render = (type, values) => {
+    const rows = values.map((value, i) => ({ name: `点${i}`, x: i, y: i % 2, value }));
+    const result = buildProfessionalChart(config(type, { chartOptions: { labels: true } }), { rows }, { reducedMotion: true });
+    chart.setOption(result.option, { notMerge: true });
+    const data = chart.getModel().getSeriesByIndex(0).getData();
+    assert.equal(data.count(), values.length, 'Zero points remain present and absent cells are not fabricated');
+    assert.doesNotMatch(chart.renderToSVGString(), /NaN|Infinity|undefined/);
+    return { option: result.option, data };
+  };
+  try {
+    for (const scale of [0.008, 8]) {
+      const { option, data } = render('scatter', [null, 0, scale / 4, scale]);
+      assert.deepEqual(option.series[0].data.map(point => point.symbolSize), [10, 5, 14, 28]);
+      const widths = [0, 1, 2, 3].map(i => data.getItemGraphicEl(i).getBoundingRect().width);
+      assert.ok(widths[3] > widths[2] && widths[2] > widths[0] && widths[0] > widths[1] && widths[1] > 0, 'Actual symbols distinguish fractional magnitudes while keeping zero readable');
+      assert.deepEqual(option.series[0].data.map(point => point.value), [[0, 0], [1, 1], [2, 0], [3, 1]]);
+    }
+    assert.deepEqual(render('scatter', [0, 0]).option.series[0].data.map(point => point.symbolSize), [5, 5]);
+    let positiveColors;
+    for (const scale of [0.008, 8]) {
+      const { option, data } = render('heatmap', [0, scale / 4, scale]);
+      assert.deepEqual([option.visualMap.min, option.visualMap.max], [0, scale]);
+      const colors = [0, 1, 2].map(i => data.getItemGraphicEl(i).style.fill);
+      assert.equal(new Set(colors).size, 3, 'Actual cell colors distinguish zero, quarter and maximum values');
+      assert.deepEqual([0, 1, 2].map(i => data.getItemGraphicEl(i).getTextContent().style.fill), ['#eee7d8', '#342e38', '#342e38']);
+      if (positiveColors) assert.deepEqual(colors, positiveColors, 'Unit changes preserve relative cell colors');
+      positiveColors = colors;
+      assert.deepEqual(option.series[0].data.map(point => point.value[2]), [0, scale / 4, scale]);
+    }
+    for (const [values, range] of [[[0, 0], [0, 1]], [[-0.008, -0.002, 0], [-0.008, 0]], [[-8, -2], [-8, 0]], [[-0.003, 0, 0.005], [-0.003, 0.005]]]) {
+      const { option, data } = render('heatmap', values);
+      assert.deepEqual([option.visualMap.min, option.visualMap.max], range);
+      assert.deepEqual(option.series[0].data.map(point => point.value[2]), values);
+      assert.equal(new Set(values.map((_, i) => data.getItemGraphicEl(i).style.fill)).size, new Set(values).size);
+    }
+  } finally { chart.dispose(); }
+});
+
 test('funnel respects source stage order and treemap retains hierarchy and zero states', () => {
   const stages = [{ name: '第一', value: 20 }, { name: '第二', value: 80 }, { name: '第三', value: 10 }];
   const funnel = build('funnel', stages, { rowCount: 2 }).option.series[0];

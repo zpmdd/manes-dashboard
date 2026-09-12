@@ -132,6 +132,11 @@ test('all twelve components render real supplied data and failed connections nev
       assert.doesNotMatch(html, /NaN|Infinity/);
     }
     assert.match(render('metric', { data: { value: 0.002, rows: [] } }), />2E-3<\/strong>/);
+    for (const [values, widths] of [[[0.002, 0.001], ['100%', '50%']], [[-0.002, 0.001], ['100%', '50%']], [[0, 0], ['0%', '0%']], [[20, 10], ['100%', '50%']]]) {
+      const html = render('bar', { data: { rows: values.map((value, i) => ({ name: `区域${i}`, value })) } });
+      assert.deepEqual([...html.matchAll(/style="width:([^"]+)"/g)].map(match => match[1]), widths);
+      assert.doesNotMatch(html, /NaN|Infinity/);
+    }
 
   } finally { await server.close(); }
 });
@@ -223,4 +228,46 @@ test('table sorting is reused for unchanged rows and hidden sort columns restore
   assert.deepEqual(render({ columns: [columns[0]] }).names, ['十', '二', '百']);
   assert.deepEqual(render({ rows: [...rows, { name: '千', value: 1000 }] }).names, ['千', '百', '十']);
   assert.deepEqual(rows.map(row => row.name), ['十', '二', '百']);
+});
+
+test('records sharing a region remain distinct through reordering, replacement and table sorting', async () => {
+  const [{ readFile }, { transformWithEsbuild }] = await Promise.all([import('node:fs/promises'), import('vite')]);
+  const source = await readFile(new URL('../src/DashboardWidget.jsx', import.meta.url), 'utf8');
+  const { code } = await transformWithEsbuild(source.slice(source.indexOf('function BarChart('), source.indexOf('function Clock(')), 'WidgetRows.jsx', { loader: 'jsx', jsxFactory: 'h', jsxFragment: 'Fragment', sourcemap: false });
+  let direction = null;
+  const runtime = { COLUMN_KEYS: new Set(DATA_FIELDS), number: formatWidgetNumber, statusTone, sortTableRows, progressValues, EmptyState: 'EmptyState', Fragment: 'Fragment',
+    useState: () => [direction, update => { direction = update(direction); }], useMemo: build => build(),
+    h: (type, props, ...children) => ({ type, props: props || {}, children }),
+  };
+  const components = new Function(...Object.keys(runtime), `${code}; return { bar: BarChart, table: DataTable, status: StatusGrid, progress: Progress };`)(...Object.values(runtime));
+  const rows = [{ name: 'A', value: 10, code: '110000', status: '在线' }, { name: 'B', value: 20, code: '110000', status: '在线' }, { name: 'C', value: 30, code: '120000', status: '在线' }];
+  const columns = [{ key: 'name', label: '名称' }, { key: 'value', label: '数值' }];
+  const flatten = tree => {
+    const nodes = [], visit = node => { if (Array.isArray(node)) node.forEach(visit); else if (node && typeof node === 'object') { nodes.push(node); node.children?.forEach(visit); } };
+    visit(tree); return nodes;
+  };
+  for (const [type, Component] of Object.entries(components)) {
+    direction = null;
+    const render = (input, expected = input) => {
+      const navigated = [];
+      const data = normalizeWidgetData(getMappedData({ rows: input }, { fields: { name: 'name', value: 'value', code: 'code', status: 'status' } }, { type, columns }));
+      const nodes = flatten(Component({ rows: data.rows, columns, title: type, unit: '', rowCount: 10, onNavigate: code => navigated.push(code) }));
+      const items = nodes.filter(node => ['li', 'tr'].includes(node.type) && node.props.key !== undefined);
+      assert.equal(items.length, expected.length, type);
+      assert.equal(new Set(items.map(node => node.props.key)).size, expected.length, `${type} must not use region code as unique record identity`);
+      if (type !== 'progress') {
+        items.forEach((item, i) => {
+          const button = flatten(item).find(node => node.type === 'button');
+          assert.ok(button.props['aria-label'].startsWith(`${expected[i].name}，`));
+          button.props.onClick();
+        });
+        assert.deepEqual(navigated, expected.map(row => row.code));
+      }
+      return nodes.find(node => node.type === 'button' && !node.props['aria-label'])?.props.onClick;
+    };
+    render(rows); render([...rows].reverse()); render(rows.slice(1));
+    if (type === 'table') {
+      render(rows)(); render(rows, [...rows].reverse())(); render(rows);
+    }
+  }
 });
