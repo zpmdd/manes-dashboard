@@ -32,7 +32,7 @@ export function profileDataFields(rows) {
     const cells = selectable ? observed.get(path) : [];
     const values = cells.filter(value => value !== undefined && value !== null && value !== '');
     const numericCount = values.filter(value => strictDataNumber(value) !== null).length;
-    const identifier = /(?:id|code|编号|编码)$/i.test(path) || values.some(value => typeof value === 'string' && /^0\d+$/.test(value));
+    const identifier = /(?:id|code|编号|编码)$/i.test(path) || values.some(value => typeof value === 'string' && /^0\d+$/.test(value.trim()));
     const time = value => typeof value === 'string' && /^(?:\d{4}-\d{2}-\d{2}(?:[T ][\d:.+Z-]+)?|(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)$/.test(value);
     const type = !selectable ? 'unsupported' : !values.length ? 'empty' : values.every(time) ? 'time' : numericCount === values.length && !identifier ? values.every(value => typeof value === 'number') ? 'number' : 'numeric-string' : values.every(value => typeof value === 'boolean') ? 'boolean' : values.every(value => typeof value === 'string' || typeof value === 'number') ? numericCount && !identifier ? 'mixed' : 'string' : 'mixed';
     const examples = [...new Set(values.map(value => typeof value === 'object' ? JSON.stringify(value) : String(value)))].slice(0, 3).map(value => value.slice(0, 80));

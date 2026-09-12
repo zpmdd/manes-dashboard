@@ -16,6 +16,24 @@ const createComponent = new Function('useRef', 'useEffect', 'changeLayout', 'sna
 const hookSource = source.slice(source.indexOf('export function useDashboardEditor('), source.indexOf('export function EditorToolbar(')).replace('export function', 'function');
 const createHook = new Function('useState', 'useReducer', 'useCallback', 'useEffect', 'loadConfig', 'saveConfig', 'createModule', 'changeLayout', 'arrangeLayouts', 'editHistory', 'window', 'document', `${hookSource}; return useDashboardEditor;`);
 const [appSource, inspectorSource] = await Promise.all(['../src/App.jsx', '../src/EditorPanels.jsx'].map(path => readFile(new URL(path, import.meta.url), 'utf8')));
+const numberFieldSource = inspectorSource.slice(inspectorSource.indexOf('function NumberField('), inspectorSource.indexOf('function Select('));
+const targetFieldSource = inspectorSource.match(/<NumberField label="目标值".*?\/>/)?.[0];
+assert.ok(targetFieldSource);
+const [{ code: numberFieldCode }, { code: targetFieldCode }] = await Promise.all([
+  transformWithEsbuild(numberFieldSource, 'NumberField.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false }),
+  transformWithEsbuild(`const field = ${targetFieldSource};`, 'TargetField.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false }),
+]);
+const vnode = (type, props, ...children) => ({ type, props, children });
+const targetFieldProps = (item, onChange) => new Function('item', 'onChange', 'NumberField', 'h', `${targetFieldCode}; return field.props;`)(item, onChange, 'NumberField', vnode);
+function numberField(getProps) {
+  let text, initialized = false, previous;
+  const field = new Function('useState', 'useEffect', 'h', `${numberFieldCode}; return NumberField;`)(
+    initial => { if (!initialized) { text = initial; initialized = true; } return [text, next => { text = next; }]; },
+    (effect, dependencies) => { if (!previous || dependencies.some((value, i) => value !== previous[i])) effect(); previous = dependencies; }, vnode,
+  );
+  const input = () => field(getProps()).children.find(child => child?.type === 'input').props;
+  return { input, type: text => input().onChange({ target: { value: text } }), blur: () => input().onBlur() };
+}
 const inspectorCallbacks = inspectorSource.slice(inspectorSource.indexOf('  const changeSource = '), inspectorSource.indexOf('  return <section className="ep-inspector" aria-label="组件属性">'));
 const sourceCallback = appSource.slice(appSource.indexOf('  const createFromSource = '), appSource.indexOf('  const navigate = '));
 assert.match(inspectorCallbacks, /const changeBinding =/); assert.match(sourceCallback, /const createFromSource =/);
@@ -306,4 +324,35 @@ test('轮询状态变化保留已映射数据，新增数据和映射错误仍�
   assert.equal(conversions, 2); assert.equal(changed.data.value, 130);
   const invalid = BoundWidget({ ...props, result: { rows: [{ name: '无效项', value: null }], status: 'ready' } });
   assert.equal(invalid.dataState.status, 'error'); assert.match(invalid.dataState.error, /缺失或不是有效数字/);
+});
+
+test('目标值未修改失焦保留模板精度，不写历史，编辑支持三位小数', () => {
+  for (const type of ['gauge', 'progress', 'radar']) for (const target of [40.123, 40.123456]) {
+    const item = { ...createModule(type), target, precision: 3 }, saved = configWith([item]);
+    const harness = editorHarness(saved, [item.id]);
+    const field = numberField(() => {
+      const editor = harness.render();
+      return targetFieldProps(editor.config.modules[0], values => editor.patch(item.id, values));
+    });
+    field.blur();
+    assert.strictEqual(harness.render().config, saved, `${type} 的未修改目标值不应重写草稿`);
+    assert.equal(harness.history.past.length, 0);
+    field.type('41.237'); field.blur();
+    assert.equal(harness.render().config.modules[0].target, 41.237);
+    assert.equal(harness.history.past.length, 1);
+    assert.equal(normalizeConfig(harness.render().config).modules[0].target, 41.237);
+    field.type(''); field.blur();
+    assert.equal(harness.render().config.modules[0].target, 41.237); assert.equal(harness.history.past.length, 1);
+  }
+});
+
+test('数值输入仍按布局一位小数和条数整数提交，未编辑的有效导入值不被量化', () => {
+  for (const [props, typed, expected] of [[{ label: '宽度', min: 10, max: 100 }, '31.234', 31.2], [{ label: '宽度', min: 10, max: 100 }, '31.15', 31.2], [{ label: '显示条数', min: 1, max: 100, step: 1 }, '8.6', 9]]) {
+    let value = 20, changes = 0;
+    const field = numberField(() => ({ ...props, value, onChange: next => { value = next; changes++; } }));
+    field.type(typed); field.blur(); assert.equal(value, expected); assert.equal(changes, 1);
+  }
+  let changes = 0;
+  const imported = numberField(() => ({ label: '宽度', value: 33.335, min: 10, max: 100, onChange: () => { changes++; } }));
+  imported.blur(); assert.equal(changes, 0);
 });

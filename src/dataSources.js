@@ -146,6 +146,7 @@ export function strictDataNumber(value) {
 export function getMappedData(sourceResult, binding, config = {}) {
   const fields = normalizeDataFields(binding?.fields);
   const textTable = config.type === 'table' && Array.isArray(config.columns) && !config.columns.some(column => column.key === 'value');
+  const showsValue2 = config.type === 'table' && Array.isArray(config.columns) && config.columns.some(column => column.key === 'value2');
   const numeric = !['text', 'clock', 'status', 'scatter'].includes(config.type) && !textTable;
   const scalar = value => ['string', 'number', 'boolean'].includes(typeof value) ? String(value) : '';
   const category = value => (typeof value === 'string' && value.trim() !== '') || (typeof value === 'number' && Number.isFinite(value));
@@ -164,11 +165,11 @@ export function getMappedData(sourceResult, binding, config = {}) {
       if (provided(mapped.value) && (value === null || value < 0)) throw new Error(`第 ${i + 1} 行的点大小必须是非负数字或留空`);
     }
     if (config.type === 'heatmap' && (x === null || y === null)) throw new Error(`第 ${i + 1} 行的 X、Y 类别不能为空`);
-    if (config.type === 'combo' && value2 === null) throw new Error(`第 ${i + 1} 行的第二数值字段必须是有效数字`);
+    if ((config.type === 'combo' || (showsValue2 && provided(mapped.value2))) && value2 === null) throw new Error(`第 ${i + 1} 行的第二数值字段必须是有效数字`);
     if (['multiLine', 'stacked', 'combo'].includes(config.type) && !category(mapped.time) && !category(mapped.name)) throw new Error(`第 ${i + 1} 行需要名称或时间字段`);
     if (['multiLine', 'stacked'].includes(config.type) && !category(mapped.series)) throw new Error(`第 ${i + 1} 行需要系列字段`);
     if (['radar', 'funnel', 'treemap'].includes(config.type) && (!category(mapped.name) || value < 0)) throw new Error(`第 ${i + 1} 行需要名称和非负数值`);
-    if (config.type === 'radar' && target !== null && target <= 0) throw new Error(`第 ${i + 1} 行的雷达目标值必须大于 0`);
+    if (['radar', 'progress'].includes(config.type) && target !== null && target <= 0) throw new Error(`第 ${i + 1} 行的${config.type === 'radar' ? '雷达' : '进度'}目标值必须大于 0`);
     const name = scalar(mapped.name) || (['multiLine', 'stacked', 'combo'].includes(config.type) ? '' : `第 ${i + 1} 项`);
     return { name, value, time: scalar(mapped.time), status: scalar(mapped.status), target, series: scalar(mapped.series), code: scalar(mapped.code), x, y, value2 };
   });

@@ -79,6 +79,17 @@ test('text-only event tables do not require value, while numeric charts and valu
     assert.throws(() => getMappedData(invalid, eventBinding, { type: 'table', columns: [...columns, { key: 'value', label: '数值' }] }), /第 1 行.*有效数字/);
     for (const type of ['metric', 'line', 'bar', 'gauge']) assert.throws(() => getMappedData(invalid, eventBinding, { type, columns }), /第 1 行.*有效数字/);
   }
+  const numericBinding = { fields: { name: 'name', value: 'value', value2: 'value2' } };
+  for (const value2 of [undefined, null, '', 0, '0', '1,234', '12%']) {
+    const data = { rows: [{ name: 'A', value: 0, value2 }] }, shown = [{ key: 'name' }, { key: 'value2' }];
+    const secondary = () => getMappedData(data, numericBinding, { type: 'table', columns: shown });
+    if (['1,234', '12%'].includes(value2)) assert.throws(secondary, /第二数值/);
+    else assert.equal(secondary().rows[0].value2, value2 === 0 || value2 === '0' ? 0 : null);
+    assert.doesNotThrow(() => getMappedData(data, numericBinding, { type: 'table', columns: [{ key: 'name' }, { key: 'value' }] }));
+    for (const type of ['metric', 'bar']) assert.equal(getMappedData(data, numericBinding, { type, columns: shown }).value, 0, 'unused secondary columns do not constrain other component types');
+    if (value2 !== 0 && value2 !== '0') assert.throws(() => getMappedData(data, numericBinding, { type: 'combo' }), /第二数值/);
+    else assert.equal(getMappedData(data, numericBinding, { type: 'combo' }).rows[0].value2, 0);
+  }
 });
 
 test('HTTP loader uses real GET responses, region substitution, failures, timeout and cancellation', async () => {
@@ -392,6 +403,21 @@ test('field profiles preserve nulls, identifiers and mixed types; suggestions pr
   const dotted = analyzeDataContent('region.name,value\n华东,12', 'csv').fields;
   assert.equal(dotted.find(field => field.path === 'region.name').selectable, false, 'literal dots cannot be read as nested paths');
   assert.equal(dotted.find(field => field.path === 'region.name').type, 'unsupported');
+  for (const type of ['json', 'csv']) for (const withRevenue of [false, true]) {
+    const row = { device_no: ' 001100 ', ...(withRevenue ? { revenue: 0 } : {}) };
+    const content = type === 'json' ? JSON.stringify([row]) : `${Object.keys(row).join(',')}\n${Object.values(row).join(',')}`;
+    const analysis = analyzeDataContent(content, type), chosen = suggestDataFields(analysis.fields).fields;
+    const identifier = analysis.fields.find(field => field.path === 'device_no');
+    assert.equal(identifier.type, 'string', 'surrounding spaces cannot turn a leading-zero identifier into a metric');
+    assert.equal(identifier.sample, ' 001100 '); assert.equal(analysis.rows[0].device_no, ' 001100 ');
+    assert.equal(chosen.name, 'device_no'); assert.equal(chosen.value, withRevenue ? 'revenue' : undefined);
+    const recommendations = suggestDataWidgets(analysis);
+    if (!withRevenue) assert.deepEqual(recommendations.map(item => item.type), ['table']);
+    else assert.ok(recommendations.some(item => item.type === 'metric'));
+    const table = recommendations.find(item => item.type === 'table'), mapped = getMappedData(analysis, { fields: table.fields }, table);
+    assert.equal(mapped.rows[0].name, ' 001100 ');
+    assert.equal(mapped.rows[0].value, withRevenue ? 0 : null); assert.equal(mapped.value, withRevenue ? 0 : null);
+  }
 });
 
 test('field profiling preserves mixed parent samples and array properties discovered by object rows', () => {
@@ -451,6 +477,29 @@ test('recommendations use valid mappings and avoid numeric charts for empty or a
   assert.ok(!suggestDataWidgets(missing).some(item => ['metric', 'bar', 'line'].includes(item.type)));
   assert.deepEqual(suggestDataWidgets(analyzeDataContent('[]')), []);
   for (const recommendation of suggestDataWidgets(numeric)) assert.doesNotThrow(() => getMappedData(numeric, { fields: recommendation.fields }, recommendation));
+  for (const type of ['json', 'csv']) {
+    for (const value2 of ['1,234', '12%']) {
+      const content = type === 'json' ? JSON.stringify([{ name: 'A', value: 0, value2 }]) : `name,value,value2\nA,0,"${value2}"`;
+      const analysis = analyzeDataContent(content, type), recommendations = suggestDataWidgets(analysis);
+      assert.ok(!recommendations.some(item => item.type === 'table'), 'a displayed malformed secondary value cannot silently become an empty table cell');
+      for (const widget of ['metric', 'bar']) assert.ok(recommendations.some(item => item.type === widget));
+      const textAndValue = suggestDataWidgets(analysis, { value2: '' }).find(item => item.type === 'table');
+      assert.ok(textAndValue); assert.ok(!textAndValue.columns.some(column => column.key === 'value2'));
+      assert.equal(getMappedData(analysis, { fields: textAndValue.fields }, textAndValue).value, 0);
+    }
+    for (const target of [0, -1, 10]) {
+      const content = type === 'json' ? JSON.stringify([{ name: 'A', value: 0, target }]) : `name,value,target\nA,0,${target}`;
+      const analysis = analyzeDataContent(content, type), fields = suggestDataFields(analysis.fields).fields, recommendations = suggestDataWidgets(analysis);
+      assert.equal(recommendations.some(item => item.type === 'progress'), target > 0);
+      const progress = () => getMappedData(analysis, { fields }, { type: 'progress' });
+      if (target <= 0) assert.throws(progress, /目标值必须大于 0/);
+      else { assert.equal(progress().rows[0].target, target); assert.equal(progress().value, 0); }
+      for (const widget of ['metric', 'table']) {
+        const item = recommendations.find(entry => entry.type === widget); assert.ok(item);
+        assert.equal(getMappedData(analysis, { fields: item.fields }, item).rows[0].target, target, 'non-progress consumers keep the supplied numeric target');
+      }
+    }
+  }
 });
 
 test('manual primary and secondary mappings resolve ambiguous numbers and preserve zero in combo recommendations', () => {
@@ -733,6 +782,10 @@ test('professional charts enforce their coordinate and secondary-value contracts
   }
   assert.doesNotThrow(() => mapped({ name: '覆盖率', value: 3 }, 'radar'));
   assert.throws(() => mapped({ name: '覆盖率', value: 3, target: 0 }, 'radar'), /大于 0/);
+  for (const target of [undefined, null, '']) {
+    const progress = mapped({ name: '完成量', value: 0, target }, 'progress');
+    assert.equal(progress.rows[0].target, null); assert.equal(progress.value, 0, 'missing progress targets remain available for the configured fallback');
+  }
   for (const type of ['radar', 'funnel', 'treemap']) {
     assert.throws(() => mapped({ name: '阶段', value: -1 }, type), /非负/);
     assert.throws(() => mapped({ value: 3 }, type), /名称/);
