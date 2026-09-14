@@ -7,7 +7,7 @@
 - 原稿：`manes-logo-original.png`
 - 页面图标：`../../public/brand/manes-mark.png`，256 × 256，含深烟灰底色。
 - 字标使用项目原有 Michroma 字体，正文沿用 Manrope / 中文系统字体。
-- 旧默认品牌 NEXUS 自动显示为 MANES；既有存储键、布局、数据源和自定义品牌不变。
+- 旧默认品牌自动显示为 MANES；既有存储键、布局、数据源和自定义品牌不变。
 
 ## 生成提示词
 
