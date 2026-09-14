@@ -21,7 +21,7 @@ const TemplatePanel = lazy(() => import('./EditorPanels').then(module => ({ defa
 const DataSourcePanel = lazy(() => import('./DataSourcePanel').then(module => ({ default: module.DataSourcePanel })));
 const ConfigPanel = lazy(() => import('./ConfigPanel').then(module => ({ default: module.ConfigPanel })));
 
-const DEFAULT_LAYERS = { roads: true, beacons: true, arcs: true, heat: false, labels: true, highway: true, nationalRoad: true };
+const DEFAULT_LAYERS = { roads: true, beacons: false, arcs: false, heat: false, labels: true, highway: true, nationalRoad: true };
 const fetchJson = async (path, signal) => {
   const response = await fetch(path, { signal, cache: 'force-cache' });
   if (!response.ok) throw new Error(`本地地图文件读取失败（${response.status}）`);
@@ -90,7 +90,7 @@ export function App() {
   const activeCode = config.map.visible && loaded ? loaded.code : index?.[code] ? code : NATIONAL;
   const [dialog, setDialog] = useState(null), [layers, setLayers] = useState(DEFAULT_LAYERS), [quality, setQuality] = useState('high'), [mode, setMode] = useState('overview');
   const [hover, setHover] = useState(''), [command, setCommand] = useState({ type: 'reset', sequence: 0 }), [telemetry, setTelemetry] = useState({});
-  const main = useRef(), stage = useRef(), measureRef = useRef(null), telemetryRef = useRef({});
+  const main = useRef(), stage = useRef(), mapLabels = useRef(), measureRef = useRef(null), telemetryRef = useRef({});
   const previewMapLayout = useCallback(() => measureRef.current?.(), []);
   const usedSources = useMemo(() => config.dataSources.filter(source => config.modules.some(item => (item.visible || editing) && !['text', 'clock'].includes(item.type) && item.binding.sourceId === source.id)), [config.dataSources, config.modules, editing]);
   const { results, refresh } = useDataSources(usedSources, activeCode);
@@ -130,15 +130,17 @@ export function App() {
     setLoading(true); setError('');
     if (!entry) { setError('没有找到这个区域，请返回全国概览。'); setLoading(false); return; }
     const regionFile = entry.hasChildren || code === NATIONAL ? code : entry.parent;
+    const contextFiles = lineage(regionFile, index).map(region => region.code).filter(id => id !== regionFile);
     const roadFile = code === NATIONAL ? '/data/roads-overview.json' : code === '420381' ? '/data/roads-420381.json' : `/data/roads/${code}.json`;
-    Promise.all([fetchJson(`/data/regions/${regionFile}.json`, abort.signal), fetchJson(roadFile, abort.signal)]).then(([data, roads]) => {
+    Promise.all([fetchJson(`/data/regions/${regionFile}.json`, abort.signal), fetchJson(roadFile, abort.signal), ...contextFiles.map(id => fetchJson(`/data/regions/${id}.json`, abort.signal))]).then(([data, roads, ...context]) => {
       if (abort.signal.aborted) return;
+      const collections = [...context.map((data, i) => ({ code: contextFiles[i], data })), { code: regionFile, data }];
       if (!entry.hasChildren && code !== NATIONAL) data = { ...data, features: data.features.filter(f => String(f.properties.adcode) === code) };
       if (!data.features.length) throw new Error('当前离线包缺少这个区域的边界');
-      setLoaded({ code, data, roads }); setLoading(false); setHover(''); sendCommand('reset');
+      setLoaded({ code, data, roads, collections }); setLoading(false); setHover('');
     }).catch(e => { if (!abort.signal.aborted && e.name !== 'AbortError') { setError(e.message); setLoading(false); } });
     return () => abort.abort();
-  }, [index, code, retry, sendCommand, config.map.visible]);
+  }, [index, code, retry, config.map.visible]);
   useEffect(() => { const change = () => setCode(/^#\d{6}$/.test(location.hash) ? location.hash.slice(1) : NATIONAL); window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change); }, []);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3500); return () => clearTimeout(t); } }, [toast]);
   useEffect(() => { document.title = `${config.brand} · ${config.title}`; }, [config.brand, config.title]);
@@ -165,7 +167,7 @@ export function App() {
   const setView = next => {
     setMode(next);
     if (next === 'overview') setLayers(DEFAULT_LAYERS);
-    if (next === 'monitor') setLayers(s => ({ ...s, heat: true, beacons: true, arcs: false }));
+    if (next === 'monitor') setLayers(s => ({ ...s, heat: true, beacons: false, arcs: false }));
     if (next === 'traffic') setLayers(s => ({ ...s, roads: true, heat: false, arcs: false, beacons: false }));
     if (next === 'regions') { setLayers(s => ({ ...s, heat: false, beacons: false, arcs: false })); setDialog('regions'); }
   };
@@ -176,7 +178,7 @@ export function App() {
     {editing && <div className="editor-mobile-tabs"><button onClick={() => setSidePanel('library')} aria-pressed={sidePanel === 'library'}>组件库</button><button onClick={() => setSidePanel('inspector')} aria-pressed={sidePanel === 'inspector'}>组件属性</button></div>}
     {editing && <aside className={`editor-library-pane ${sidePanel === 'library' ? 'is-open' : ''}`}><PanelErrorBoundary title="组件库"><Suspense fallback={<p role="status">正在加载组件库…</p>}><ComponentLibrary onAdd={type => { editor.add(type); setSidePanel('inspector'); }}/></Suspense></PanelErrorBoundary><section className="editor-layer-list" aria-label="图层列表"><h3>画布图层</h3>{[{ ...config.map, id: 'map', title: config.mapTitle }, ...config.modules].map(item => <button key={item.id} onClick={event => { editor.select(item.id, { toggle: event.shiftKey || event.metaKey || event.ctrlKey }); setSidePanel('inspector'); }} aria-pressed={editor.selectedIds.includes(item.id)}><span>{item.title || '未命名组件'}</span><small>{item.locked ? '锁定' : !item.visible ? '隐藏' : ''}</small></button>)}</section></aside>}
     <div className="dashboard-viewport"><main className="dashboard free-dashboard" ref={main}>
-    <div className={`world-backdrop ${loading ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene data={loaded.data} roadData={loaded.roads} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined} sceneSize={sceneSize}/></Suspense></MapErrorBoundary>}</div>
+    <div className={`world-backdrop ${loading && !loaded ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}><div ref={mapLabels} className="map-labels" style={viewport ? { clipPath: `inset(${100 * (viewport.y + viewport.height * .12)}% ${100 * (1 - viewport.x - viewport.width * .98)}% ${100 * (1 - viewport.y - viewport.height * .98)}% ${100 * (viewport.x + viewport.width * .02)}%)` } : undefined}/>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene data={loaded.data} collections={loaded.collections} roadData={loaded.roads} labelPortal={mapLabels} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined} sceneSize={sceneSize}/></Suspense></MapErrorBoundary>}</div>
     <div className="brand canvas-brand"><img src="/brand/manes-mark.png" width="48" height="48" alt="" decoding="async"/><span>{config.brand}</span></div>
     <header className="topbar">
       <div className="screen-title"><h1 title={config.title}>{config.title}</h1><span>{dataLabel}</span></div>
@@ -188,12 +190,12 @@ export function App() {
     {(config.map.visible || editing) && <CanvasItem id="map" title={config.mapTitle} item={config.map} editor={editor} isMap onLayoutPreview={previewMapLayout}><section className="map-panel" aria-label="交互式三维行政区地图" aria-busy={loading}>
       <div className="map-heading"><div className="atlas-wordmark">CN<span>ATLAS</span></div><div className="map-section-title">{config.mapTitle}</div><div className="location-strip"><div className="breadcrumb">{path.map((p, i) => <span key={p.code}>{i > 0 && <CaretRight size={11}/>}<button onClick={() => navigate(p.code)}>{shortName(p.name)}</button></span>)}</div><button className="scope-select" onClick={() => setDialog('regions')}>{scope?.name === '中国' ? '全国运行总览' : scope?.name || '全国运行总览'}<CaretDown size={13}/></button></div></div>
 
-      <div className="map-side-controls"><IconButton label="切换监测光柱" active={layers.beacons} onClick={() => setLayers(s => ({ ...s, beacons: !s.beacons }))}><Lightning weight="fill"/></IconButton><IconButton label="切换区域连线" active={layers.arcs} onClick={() => setLayers(s => ({ ...s, arcs: !s.arcs }))}><WifiHigh weight="bold"/></IconButton></div>
+      <div className="map-side-controls"><IconButton label="切换监测光柱" title={`监测光柱：已${layers.beacons ? '开启' : '关闭'}（演示）`} active={layers.beacons} onClick={() => setLayers(s => ({ ...s, beacons: !s.beacons }))}><Lightning weight={layers.beacons ? 'fill' : 'regular'}/></IconButton><IconButton label="切换区域连线" active={layers.arcs} onClick={() => setLayers(s => ({ ...s, arcs: !s.arcs }))}><WifiHigh weight="bold"/></IconButton></div>
       <div className="map-interaction"><IconButton label="放大地图" onClick={() => sendCommand('zoomIn')}><Plus/></IconButton><IconButton label="缩小地图" onClick={() => sendCommand('zoomOut')}><Minus/></IconButton><span/><IconButton label="旋转地图十五度" onClick={() => sendCommand('rotate')}><Compass/></IconButton><IconButton label="俯视地图" onClick={() => sendCommand('top')}><MapTrifold/></IconButton></div>
       {loaded?.code === NATIONAL && <SouthSea data={loaded.data}/>}
       {path.length > 1 && <button className="back-region" onClick={() => navigate(path[path.length - 2].code)}><ArrowLeft/>返回{shortName(path[path.length - 2].name)}</button>}
       {hover && <div className="hover-caption" role="status">{hover}<span>点击查看区域</span><ArrowUpRight/></div>}
-      {loading && <div className="loading-state" role="status"><CircleNotch className="spinner" size={24}/><span>正在展开地图</span></div>}
+      {loading && <div className={`loading-state${loaded ? ' is-focusing' : ''}`} role="status"><CircleNotch className="spinner" size={24}/><span>正在展开地图</span></div>}
       {error && <div className="load-error" role="alert"><strong>{error}</strong><div><button onClick={() => setRetry(n => n + 1)}>重试</button><button onClick={() => navigate(NATIONAL)}>返回全国</button></div></div>}
       <div className="map-bottom"><div className="map-legend">{layers.roads && <span><i className="legend-line"/>道路网络</span>}{layers.beacons && <span><i className="legend-dot"/>监测节点</span>}{layers.heat && <span>态势热力</span>}</div><button onClick={showInfo}>{loaded?.code === '420381' ? '© OpenStreetMap contributors' : 'DataV.GeoAtlas · Natural Earth'}<Info size={11}/></button></div>
     </section></CanvasItem>}

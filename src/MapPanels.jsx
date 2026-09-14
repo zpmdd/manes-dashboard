@@ -3,7 +3,7 @@ import { ArrowUpRight, CaretRight, Check, GlobeHemisphereEast, RoadHorizon, X } 
 import { NATIONAL } from './geo';
 
 export function IconButton({ label, children, active, className = '', ...props }) {
-  return <button className={`icon-button ${active ? 'active' : ''} ${className}`} aria-label={label} title={label} {...props}>{children}</button>;
+  return <button className={`icon-button ${active ? 'active' : ''} ${className}`} aria-label={label} aria-pressed={active} title={label} {...props}>{children}</button>;
 }
 
 export function Dialog({ title, subtitle, children, onClose, wide = false }) {
@@ -29,7 +29,7 @@ export function RegionPicker({ index, onNavigate, onClose, code }) {
 }
 
 export function LayerPanel({ layers, setLayers, quality, setQuality, detail, onClose }) {
-  const rows = [['roads', '道路网络', detail ? '高速、国道及主要干线' : '全国主要道路 · 概化数据'], ['beacons', '监测光柱', '区域连接节点'], ['arcs', '区域连线', '示意关联，不表示车辆轨迹'], ['heat', '态势热力', '演示数据的空间分布'], ['labels', '节点名称', '显示地理标签']];
+  const rows = [['roads', '道路网络', detail ? '高速、国道及主要干线' : '全国主要道路 · 概化数据'], ['beacons', '监测光柱', '演示节点，暂未关联业务数据'], ['arcs', '区域连线', '示意关联，不表示车辆轨迹'], ['heat', '态势热力', '演示数据的空间分布'], ['labels', '区域名称', '全国显示各省名称，下钻显示区域与道路标签']];
   return <Dialog title="调整地图图层" subtitle="MAP LAYERS" onClose={onClose}>
     <div className="switch-list">{rows.map(([key, label, hint]) => <label key={key}><span>{label}<small>{hint}</small></span><input type="checkbox" checked={layers[key]} onChange={e => setLayers(s => ({ ...s, [key]: e.target.checked }))}/><span className="switch-track" aria-hidden="true"/></label>)}</div>
     {detail && <div className="road-filters">{[['highway', '高速公路'], ['nationalRoad', '国道 / 干线']].map(([key, label]) => <label key={key}><input type="checkbox" checked={layers[key]} onChange={e => setLayers(s => ({ ...s, [key]: e.target.checked }))}/>{label}</label>)}</div>}

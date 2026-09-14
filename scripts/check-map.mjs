@@ -6,7 +6,7 @@ import { createRoot, extend, getRootState } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createServer, transformWithEsbuild } from 'vite';
 import { createDataSourceController, validateSourceUrl } from '../src/dataSources.js';
-import { lineage } from '../src/geo.js';
+import { lineage, shortName } from '../src/geo.js';
 
 // Exercise the real R3F components without a browser or a GPU render loop.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -17,8 +17,42 @@ globalThis.reportError = error => reportedErrors.push(error);
 const root = createRoot({});
 if (previousReporter === undefined) delete globalThis.reportError; else globalThis.reportError = previousReporter;
 try {
-  const { RegionMesh, fitMapViewport, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
-  const bounds = new THREE.Box3(new THREE.Vector3(-5, 0, -8), new THREE.Vector3(11, .38, 2));
+  const { RegionMesh, modelFor, fitMapViewport, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
+  const mapSource = await readFile(new URL('../src/MapScene.jsx', import.meta.url), 'utf8');
+  const labelExpression = mapSource.split('\n').find(line => line.includes('{layers.labels && model.regions'))?.trim().slice(1, -1);
+  assert(labelExpression, 'National labels must have an independent rendering path');
+  const { code: labelCode } = await transformWithEsbuild(`(national, layers, model) => (${labelExpression})`, 'province-labels.jsx', { loader: 'jsx', jsx: 'transform', jsxFactory: 'createElement' });
+  const renderLabels = new Function('createElement', 'Html', 'shortName', 'TOP', 'labelPortal', `return ${labelCode}`)(createElement, 'html', shortName, .36, { current: null });
+  const nationalData = JSON.parse(await readFile(new URL('../public/data/regions/100000.json', import.meta.url), 'utf8'));
+  const labelModel = { scale: 1, regions: nationalData.features.map(feature => ({ feature, anchor: [0, .36, 0] })) };
+  const provinceNames = nationalData.features.filter(f => f.properties.name).map(f => shortName(f.properties.name));
+  assert.equal(provinceNames.length, 34);
+  for (const beacons of [true, false]) {
+    const provinceLabels = renderLabels(true, { labels: true, beacons }, labelModel);
+    assert.deepEqual(provinceLabels.map(element => element.props.children.props.children), provinceNames, 'All 34 province-level names must remain visible regardless of beacons');
+    assert(provinceLabels.every(element => element.props.style.pointerEvents === 'none'), 'Labels must allow map dragging and selection through them');
+    assert.equal(renderLabels(true, { labels: false, beacons }, labelModel), false, 'The labels switch must hide province names');
+  }
+  assert.equal(renderLabels(false, { labels: true }, labelModel).length, 34, 'Surrounding province labels remain available during drill-down');
+  console.log('PASS: all 34 province names, independent beacon and label switches, pointer passthrough and surrounding labels.');
+  const collections = [{ code: '100000', data: nationalData }], models = [modelFor(nationalData, '100000', collections)];
+  for (const code of ['420000', '420300', '420381']) {
+    let data;
+    if (code === '420381') data = { ...collections.at(-1).data, features: collections.at(-1).data.features.filter(f => String(f.properties.adcode) === code) };
+    else { data = JSON.parse(await readFile(new URL(`../public/data/regions/${code}.json`, import.meta.url), 'utf8')); collections.push({ code, data }); }
+    const model = modelFor(data, code, collections), parent = models.at(-1);
+    assert.deepEqual(model.project([111, 32]), models[0].project([111, 32]), 'Every level must keep the same coordinates for smooth camera zoom');
+    assert(model.regions.some(r => String(r.feature.properties.adcode) === '610000' && !r.focused), 'Neighboring provinces must remain in the scene');
+    assert.deepEqual(model.regions.filter(r => r.focused).map(r => r.feature.properties.adcode), data.features.map(f => f.properties.adcode), 'Only the current region or its children are highlighted');
+    assert(!model.regions.some(r => collections.slice(1).some(c => c.code === String(r.feature.properties.adcode))), 'Expanded parent meshes must not overlap their children');
+    assert.equal(model.backdrops.length, collections.length - 1, 'Every expanded ancestor needs one lower cap to fill simplification gaps');
+    for (const geometry of model.backdrops) { geometry.computeBoundingBox(); assert(geometry.boundingBox.max.y < model.bounds.min.y, 'Gap covers must stay below the focused surface'); }
+    assert(model.bounds.getSize(new THREE.Vector3()).length() < parent.bounds.getSize(new THREE.Vector3()).length(), 'Focus bounds must shrink through province, city and district');
+    assert.equal(renderLabels(false, { labels: true }, model).filter(el => el.props.children.props.className.includes('is-focused')).length, data.features.length);
+    if (code === '420381') assert(model.regions.some(r => String(r.feature.properties.adcode) === '420322' && !r.focused), 'A leaf focus must preserve its neighboring districts');
+    models.push(model);
+  }
+  console.log('PASS: national → Hubei → Shiyan → Danjiangkou retain context, highlight the focus and share fixed coordinates.');
   const camera = new THREE.PerspectiveCamera(34, 1, .1, 200);
   const viewports = [
     { size: { width: 1920, height: 1080 }, viewport: { x: .22, y: .14, width: .74, height: .55 } },
@@ -27,16 +61,24 @@ try {
     { size: { width: 1920, height: 1080 }, viewport: { x: .7, y: .42, width: .18, height: .19 } },
     { size: { width: 390, height: 844 }, viewport: { x: 0, y: .1, width: 1, height: .5 } },
   ];
-  for (const { size, viewport } of viewports) {
-    const fitted = fitMapViewport(camera, bounds, size, viewport);
+  for (const bounds of models.map(model => model.bounds)) for (const viewDirection of [undefined, [0, 1, .011]]) for (const { size, viewport } of viewports) {
+    camera.zoom = 4;
+    const fitted = fitMapViewport(camera, bounds, size, viewport, viewDirection);
     const left = viewport.x + viewport.width * .08, right = viewport.x + viewport.width * .92;
     const top = viewport.y + viewport.height * .12, bottom = viewport.y + viewport.height;
     assert(fitted && Number.isFinite(fitted.distance), 'A usable viewport must produce a finite camera');
+    const direction = camera.position.clone().sub(fitted.target);
+    const elevation = THREE.MathUtils.radToDeg(Math.atan2(direction.y, Math.hypot(direction.x, direction.z)));
+    assert(viewDirection ? elevation > 89 : elevation >= 50 && elevation <= 55, 'Framing must preserve the requested perspective or top view');
+    assert.equal(camera.zoom, 1, 'Changing perspective must clear previous manual zoom');
+    const projected = [];
     for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) {
       const point = new THREE.Vector3(x, y, z).project(camera), screenX = (point.x + 1) / 2, screenY = (1 - point.y) / 2;
+      projected.push({ x: screenX, y: screenY });
       assert(screenX >= left - 1e-8 && screenX <= right + 1e-8 && screenY >= top - 1e-8 && screenY <= bottom + 1e-8, 'Every geometry corner must fit with 8% side and 12% title margins');
       assert(point.z > -1 && point.z < 1, 'Fitted geometry must stay inside the near and far clipping planes');
     }
+    assert(Math.max((Math.max(...projected.map(p => p.x)) - Math.min(...projected.map(p => p.x))) / (right - left), (Math.max(...projected.map(p => p.y)) - Math.min(...projected.map(p => p.y))) / (bottom - top)) > (viewDirection ? .97 : .85), 'Every focus must fill the usable container, allowing perspective foreshortening');
     const center = bounds.getCenter(new THREE.Vector3()).project(camera);
     assert(Math.abs((center.x + 1) / 2 - (left + right) / 2) < 1e-8);
     assert(Math.abs((1 - center.y) / 2 - (top + bottom) / 2) < 1e-8);
@@ -45,7 +87,8 @@ try {
     assert.equal(fitMapViewport(camera, bounds, size, { ...viewport, width: 0 }), null);
     assert(camera.projectionMatrix.equals(previousProjection), 'An absent or empty viewport must not change the legacy camera');
   }
-  console.log('PASS: 40 real Three projections fit resized viewports, centered bounds, reserved margins and clipping planes.');
+  models.forEach(model => { model.regions.forEach(region => region.geometry.dispose()); model.backdrops.forEach(geometry => geometry.dispose()); });
+  console.log('PASS: 320 real Three projections cover four levels, both perspectives, five container sizes, prior zoom, complete fit and fill.');
   const scene = new THREE.Scene(), renderWrites = [];
   const renderer = { render() {}, setPixelRatio(value) { renderWrites.push(['dpr', value]); }, setSize(width, height) { renderWrites.push(['size', width, height]); } };
   const configuration = { scene, frameloop: 'never', size: { width: 2560, height: 1205, top: 0, left: 0 }, gl: renderer };
@@ -106,6 +149,15 @@ try {
 
   // Run the actual lazy loader, visibility guard and outer error boundary in R3F's React renderer.
   const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const defaults = new Function(`${appSource.split('\n').find(line => line.startsWith('const DEFAULT_LAYERS = '))}; return DEFAULT_LAYERS;`)();
+  let presetLayers = defaults;
+  const setView = new Function('DEFAULT_LAYERS', 'setMode', 'setLayers', 'setDialog', `${appSource.slice(appSource.indexOf('  const setView = '), appSource.indexOf('  const fullScreen = '))}; return setView;`)(defaults, () => {}, next => { presetLayers = typeof next === 'function' ? next(presetLayers) : next; }, () => {});
+  assert.equal(defaults.beacons, false);
+  for (const mode of ['overview', 'monitor', 'traffic', 'regions']) {
+    presetLayers = { ...presetLayers, beacons: true }; setView(mode);
+    assert.equal(presetLayers.beacons, false, `${mode} must start with monitoring pillars disabled`);
+  }
+  console.log('PASS: initial map and all four business view presets leave demo pillars disabled.');
   // Exercise App's actual region selection/effect with deferred map reads and the real source controller.
   const activeCodeSource = appSource.split('\n').find(line => line.includes('const activeCode = '));
   const scopeSource = appSource.split('\n').find(line => line.includes('const scope = '));
@@ -118,7 +170,7 @@ try {
   const geoStart = appSource.lastIndexOf('  useEffect(() => {', appSource.indexOf('    const regionFile = '));
   const geoEnd = appSource.indexOf('\n  useEffect(() => { const change = ', geoStart);
   assert(geoStart >= 0 && geoEnd > geoStart, 'The real GeoJSON effect must be available for the regression');
-  const runGeo = new Function('context', 'useEffect', 'fetchJson', 'setLoaded', 'setLoading', 'setError', 'setHover', 'sendCommand', `const { config, index, code, retry } = context, NATIONAL = '100000'; ${appSource.slice(geoStart, geoEnd)}`);
+  const runGeo = new Function('context', 'useEffect', 'fetchJson', 'setLoaded', 'setLoading', 'setError', 'setHover', 'sendCommand', 'lineage', `const { config, index, code, retry } = context, NATIONAL = '100000'; ${appSource.slice(geoStart, geoEnd)}`);
   const sourceCalls = [], geoReads = [], mapCommands = [];
   const businessSources = ['fixed', 'region'].map(id => ({ id: `ds_${id}`, name: id, type: 'http', url: id === 'region' ? '/api/region?adcode={adcode}' : '/api/fixed', content: '', rowsPath: '', refreshSeconds: 0 }));
   const regionIndex = { '100000': { name: '中国', hasChildren: true }, '420000': { name: '湖北省', parent: '100000', hasChildren: true }, '430000': { name: '湖南省', parent: '100000', hasChildren: true } };
@@ -136,7 +188,7 @@ try {
     runGeo(geoState, (effect, dependencies) => {
       if (geoDependencies && dependencies.every((value, i) => Object.is(value, geoDependencies[i]))) return;
       geoCleanup?.(); geoDependencies = dependencies; geoCleanup = effect();
-    }, fetchGeo, value => { geoState.loaded = value; business(); }, value => { geoState.loading = value; }, value => { geoState.error = value; }, value => { geoState.hover = value; }, sendMapCommand);
+    }, fetchGeo, value => { geoState.loaded = value; business(); }, value => { geoState.loading = value; }, value => { geoState.error = value; }, value => { geoState.hover = value; }, sendMapCommand, lineage);
     return business();
   };
   const settleGeo = async reads => {
@@ -153,37 +205,38 @@ try {
     assert.equal(regionCalls().at(-1), '420000', 'Hidden regional sources must use the validated target without waiting for a map');
     assert.equal(geoReads.length, 0);
     changeGeo({ config: { map: { visible: true } } });
-    assert.deepEqual(geoReads.map(read => read.path), ['/data/regions/420000.json', '/data/roads/420000.json']);
-    await settleGeo(geoReads.slice(-2));
+    assert.deepEqual(geoReads.map(read => read.path), ['/data/regions/420000.json', '/data/roads/420000.json', '/data/regions/100000.json']);
+    await settleGeo(geoReads.slice(-3));
     assert.equal(geoState.loaded.code, '420000');
+    assert.deepEqual(geoState.loaded.collections.map(c => c.code), ['100000', '420000'], 'Context must be ordered from national to the focused region');
 
     changeGeo({ config: { map: { visible: false } } });
     assert.equal(geoState.loaded, null, 'Hiding must discard the old map so showing cannot restore an obsolete region');
     changeGeo({ code: '430000' });
-    assert.equal(geoReads.length, 2); assert.equal(regionCalls().at(-1), '430000');
+    assert.equal(geoReads.length, 3); assert.equal(regionCalls().at(-1), '430000');
     const beforeShow = [...regionCalls()];
     changeGeo({ config: { map: { visible: true } } });
     assert.equal(business().activeCode, '430000'); assert.equal(geoState.loaded, null);
     assert.deepEqual(regionCalls(), beforeShow, 'Showing must not request the previously displayed region again');
-    await settleGeo([geoReads.at(-2)]); geoReads.at(-1).reject(new Error('Road file unavailable'));
+    await settleGeo([geoReads.at(-3), geoReads.at(-1)]); geoReads.at(-2).reject(new Error('Road file unavailable'));
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(geoState.loaded, null); assert.equal(geoState.loading, false); assert.equal(geoState.error, 'Road file unavailable');
     assert.equal(business().activeCode, '430000', 'A failed map must not invalidate the independent business region');
     assert.deepEqual(regionCalls(), beforeShow);
     changeGeo({ retry: 1 });
-    await settleGeo(geoReads.slice(-2));
+    await settleGeo(geoReads.slice(-3));
     assert.equal(geoState.loaded.code, '430000'); assert.deepEqual(regionCalls(), beforeShow);
 
     changeGeo({ code: '420000' });
     assert.equal(business().activeCode, '430000', 'A visible map keeps business data in its displayed region while the next region loads');
     assert.deepEqual(regionCalls(), beforeShow);
-    await settleGeo(geoReads.slice(-2));
+    await settleGeo(geoReads.slice(-3));
     assert.equal(geoState.loaded.code, '420000'); assert.equal(regionCalls().at(-1), '420000');
 
     changeGeo({ code: '430000' });
-    const lateReads = geoReads.slice(-2), commandsBeforeHide = mapCommands.length, readsBeforeHide = geoReads.length;
+    const lateReads = geoReads.slice(-3), commandsBeforeHide = mapCommands.length, readsBeforeHide = geoReads.length;
     changeGeo({ config: { map: { visible: false } } });
-    assert(lateReads.every(read => read.signal.aborted), 'Hiding must run the effect cleanup for both outstanding map reads');
+    assert(lateReads.every(read => read.signal.aborted), 'Hiding must cancel the focus, roads and surrounding map reads');
     assert.equal(geoReads.length, readsBeforeHide); assert.equal(business().activeCode, '430000');
     await settleGeo(lateReads); // Deliberately resolve despite abort to exercise App's stale-result guard.
     assert.equal(geoState.loaded, null); assert.equal(geoState.loading, false); assert.equal(geoState.error, '');
@@ -219,7 +272,7 @@ try {
     ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
     : createElement(type, props, ...children);
   const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
-  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, setHover, command, quality, captureTelemetry, viewport, sceneSize } = context; ${branchCode}; return branch;`);
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
   const context = { sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
   let loads = 0, received;
   const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
@@ -235,6 +288,8 @@ try {
   await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
   assert(scene.getObjectByName('loaded-map'));
   assert.strictEqual(received.data, context.loaded.data); assert.strictEqual(received.roadData, context.loaded.roads);
+  assert.strictEqual(received.collections, context.loaded.collections);
+  assert.strictEqual(received.labelPortal, context.mapLabels);
   assert.strictEqual(received.sceneSize, context.sceneSize); assert.strictEqual(received.viewport, context.viewport); assert.strictEqual(received.layers, context.layers);
   assert.strictEqual(received.command, context.command); assert.equal(received.quality, 'high');
   await act(async () => root.render(null));
