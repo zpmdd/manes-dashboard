@@ -10,7 +10,7 @@ Manes工作室。品牌采用已选定的③「构域 / SPATIAL CORE」标志：
 
 ## 本地运行
 
-建议使用 Node.js 24；自动检查使用 Node.js 24，本轮本机验证使用 Node.js 26.8.2。
+建议使用 Node.js 24；自动检查使用 Node.js 24，本轮已使用 Node.js 24.15.0 和 26.8.2 验证。
 
 ```sh
 npm ci

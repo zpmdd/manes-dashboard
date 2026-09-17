@@ -69,7 +69,7 @@ npm ci
 npm run verify
 ```
 
-`verify` 依次检查全量地图数据、功能和地图回归、Sites worker、两版构建和产物边界。基线包中不得出现道研源标识、GPS 快照和车辆状态样本。GitHub Actions 对 `main` 推送和 PR 运行相同检查。
+`verify` 依次检查全量地图数据、功能和地图回归、两版构建、Sites worker 和产物边界。全新检出时先构建，再检查生成的 Sites 文件。基线包中不得出现道研源标识、GPS 快照和车辆状态样本。GitHub Actions 对 `main` 推送和 PR 运行相同检查。
 
 `npm run build:all` 顺序构建两版，保留 `releases/base` 和 `releases/daoyan`；每版都有 `client`、`server`、`.openai` 和 `project.json`。静态服务使用各自 `client`，Sites 使用对应整套目录。`dist` 与 `npm run preview` 指向最后一次构建，发布前核对项目，原 Sites 文件约定不变。
 
