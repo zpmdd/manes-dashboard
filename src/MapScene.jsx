@@ -1,10 +1,12 @@
 import { memo, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { addAfterEffect, Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, Environment, Html, Lightformer, Line, MeshReflectorMaterial, OrbitControls } from '@react-three/drei';
+import { Car } from '@phosphor-icons/react';
 import * as THREE from 'three';
 import { mergeGroups } from 'three/addons/utils/BufferGeometryUtils.js';
 import { extent, labelPoint, layoutLabels, NATIONAL, polygons, projection, shortName } from './geo';
 import { useRoadmap } from './useRoadmap';
+import { VEHICLES } from './vehicles';
 
 const CAMERA = [0, 22, 18];
 const TOP = 0.36;
@@ -58,20 +60,38 @@ export function modelFor(data, code, collections = [{ code, data }]) {
   const bounds = new THREE.Box3();
   regions.forEach(r => { r.geometry.computeBoundingBox(); if (national || r.focused) bounds.union(r.geometry.boundingBox); });
   if (!national) bounds.min.y = TOP;
-  return { regions, project, edges, contextEdges, backdrops, bounds, scale };
+  const vehicles = VEHICLES.map(vehicle => {
+    const [x, y] = project([vehicle.GEO_LON, vehicle.GEO_LAT]);
+    return { vehicle, position: [x, bounds.max.y + .000001, -y] };
+  });
+  return { regions, project, edges, contextEdges, backdrops, bounds, scale, vehicles };
 }
 
-function RegionLabelLayout({ model, labelPortal, viewport }) {
+export function vehicleBounds(project, vehicle, surfaceY = TOP) {
+  const bounds = new THREE.Box3();
+  for (const item of vehicle ? [vehicle] : VEHICLES) {
+    const [x, y] = project([item.GEO_LON, item.GEO_LAT]);
+    bounds.expandByPoint(new THREE.Vector3(x, surfaceY, -y));
+  }
+  // Keep a usable neighborhood around one vehicle or nearly coincident points.
+  const [x0, y0] = project([0, 0]), [x1, y1] = project([.005, .005]);
+  return bounds.expandByVector(new THREE.Vector3(Math.abs(x1 - x0), 0, Math.abs(y1 - y0)));
+}
+
+function MapLabelLayout({ model, labelPortal, viewport }) {
   const { size, invalidate } = useThree();
   const regions = useMemo(() => new Map(model.regions.map(region => [String(region.feature.properties.adcode), region])), [model]);
   useLayoutEffect(() => { invalidate(); }, [model, size, viewport, invalidate]);
   useFrame(({ camera }) => {
-    const labels = [...(labelPortal.current?.querySelectorAll('.map-region-label') || [])].flatMap(element => {
+    const elements = [...(labelPortal.current?.querySelectorAll('.vehicle-marker') || []), ...(labelPortal.current?.querySelectorAll('.map-region-label') || [])];
+    const labels = elements.flatMap(element => {
       const region = regions.get(element.dataset.adcode);
-      if (!region) return [];
-      const point = new THREE.Vector3(region.anchor[0], TOP + .08 * model.scale, region.anchor[2]).project(camera);
+      const vehicle = model.vehicles[Number(element.dataset.vehicle)];
+      if (!region && !vehicle) return [];
+      const position = vehicle?.position || [region.anchor[0], TOP + .08 * model.scale, region.anchor[2]];
+      const point = new THREE.Vector3(...position).project(camera);
       const rect = element.getBoundingClientRect();
-      return [{ element, focused: region.focused, x: (point.x + 1) * size.width / 2, y: (1 - point.y) * size.height / 2, width: rect.width, height: rect.height }];
+      return [{ element, focused: !!vehicle || region.focused, x: (point.x + 1) * size.width / 2, y: (1 - point.y) * size.height / 2, width: rect.width, height: rect.height }];
     });
     const bounds = viewport ? { left: (viewport.x + viewport.width * .02) * size.width, right: (viewport.x + viewport.width * .98) * size.width, top: (viewport.y + viewport.height * .12) * size.height, bottom: (viewport.y + viewport.height * .98) * size.height } : { left: 0, right: size.width, top: 0, bottom: size.height };
     for (const { element, dx = 0, dy = 0, width, height, hidden } of layoutLabels(labels, bounds)) {
@@ -193,17 +213,19 @@ export function fitMapViewport(camera, bounds, size, viewport, viewDirection = C
   return { target, distance, usable };
 }
 
-function CameraControls({ command, onTelemetry, bounds, viewport }) {
+function CameraControls({ command, onTelemetry, bounds, viewport, project }) {
   const controls = useRef();
   const { camera, size, gl, invalidate } = useThree();
   const frames = useRef(0), rendered = useRef(false);
   const flight = useRef(null), initialized = useRef(false), direction = useRef(new THREE.Vector3(...CAMERA));
+  const focusBounds = useRef(bounds);
+  useLayoutEffect(() => { focusBounds.current = bounds; }, [bounds]);
   const cancelFlight = () => { flight.current = null; if (controls.current) controls.current.enableDamping = true; };
   const fit = (animate = true) => {
     const c = controls.current;
     if (!c) return;
     const destination = camera.clone();
-    const framed = fitMapViewport(destination, bounds, size, viewport || { x: 0, y: 0, width: 1, height: 1 }, direction.current.toArray());
+    const framed = fitMapViewport(destination, focusBounds.current, size, viewport || { x: 0, y: 0, width: 1, height: 1 }, direction.current.toArray());
     if (!framed) return;
     c.minDistance = Math.max(.0001, framed.distance * .2);
     c.maxDistance = Math.max(90, framed.distance * 1.2);
@@ -223,7 +245,9 @@ function CameraControls({ command, onTelemetry, bounds, viewport }) {
   useEffect(() => {
     const c = controls.current;
     if (!c || !command.sequence) return;
+    if (command.type === 'vehicles') { focusBounds.current = vehicleBounds(project, command.vehicle, bounds.max.y); fit(); return; }
     if (command.type === 'reset' || command.type === 'top') {
+      if (command.type === 'reset') focusBounds.current = bounds;
       direction.current.set(...(command.type === 'top' ? [0, 1, .011] : CAMERA)); fit(); return;
     }
     cancelFlight();
@@ -269,7 +293,7 @@ function CameraControls({ command, onTelemetry, bounds, viewport }) {
   return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={.12} enablePan screenSpacePanning minDistance={.0001} maxDistance={90} minPolarAngle={.01} maxPolarAngle={Math.PI / 2.12} onStart={cancelFlight} onEnd={() => direction.current.copy(camera.position).sub(controls.current.target)} onChange={() => invalidate()} />;
 }
 
-function World({ data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, command, quality, onTelemetry, viewport }) {
+function World({ data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, command, quality, onTelemetry, viewport }) {
   const national = code === NATIONAL;
   const model = useMemo(() => modelFor(data, code, collections), [data, code, collections]);
   const { gl, invalidate } = useThree();
@@ -313,12 +337,13 @@ function World({ data, collections, roadData, labelPortal, code, layers, selecte
     {layers.roads && <Roads data={roadData} project={model.project} scale={model.scale} labelPortal={labelPortal} layers={layers} detail={code === '420381'} />}
     {layers.arcs && arcs.map((p, i) => <Line key={i} points={p} color="#f5e3b9" transparent opacity={.55} lineWidth={1} depthWrite={false} />)}
     {layers.beacons && hubs.map(h => <Beacon key={h.name} position={h.position} height={h.height} scale={model.scale} />)}
+    {layers.vehicles && model.vehicles.map(({ vehicle, position }, i) => <Html key={vehicle.VEHICLENO} portal={labelPortal} position={position} center zIndexRange={[12, 9]} style={{ pointerEvents: 'none' }}><button ref={element => { if (element) invalidate(); }} className={`vehicle-marker${vehicle.GPS_SPEED > 0 ? ' is-moving' : ''}`} data-vehicle={i} aria-label={`查看车辆 ${vehicle.VEHICLENO}`} title={`车辆 ${vehicle.VEHICLENO} · GPS速度 ${vehicle.GPS_SPEED}`} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onVehicleSelect(vehicle); }}><Car size={14} weight="fill"/><span>{vehicle.VEHICLENO}</span></button></Html>)}
     {layers.labels && model.regions.filter(r => r.feature.properties.name).map(({ feature, anchor, focused }) => <Html key={feature.properties.adcode} portal={labelPortal} position={[anchor[0], TOP + .08 * model.scale, anchor[2]]} center zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}><span ref={element => { if (element) invalidate(); }} className={`map-region-label${focused ? ' is-focused' : ''}`} data-adcode={feature.properties.adcode} title={feature.properties.name}>{shortName(feature.properties.name)}</span></Html>)}
     {layers.heat && hubs.map(h => <mesh key={h.name} rotation={[-Math.PI / 2, 0, 0]} position={[h.position[0], TOP + .025 * model.scale, h.position[2]]}>
       <planeGeometry args={[2.0 * model.scale, 2.0 * model.scale]} /><shaderMaterial vertexShader={heatVertex} fragmentShader={heatFragment} transparent depthWrite={false} />
     </mesh>)}
-    <CameraControls command={command} onTelemetry={onTelemetry} bounds={model.bounds} viewport={viewport} />
-    {layers.labels && <RegionLabelLayout model={model} labelPortal={labelPortal} viewport={viewport} />}
+    <CameraControls command={command} onTelemetry={onTelemetry} bounds={model.bounds} viewport={viewport} project={model.project} />
+    {(layers.labels || layers.vehicles) && <MapLabelLayout model={model} labelPortal={labelPortal} viewport={viewport} />}
   </>;
 }
 

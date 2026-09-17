@@ -6,7 +6,8 @@ import { createRoot, extend, getRootState } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createServer, transformWithEsbuild } from 'vite';
 import { createDataSourceController, validateSourceUrl } from '../src/dataSources.js';
-import { lineage, shortName } from '../src/geo.js';
+import { layoutLabels, lineage, shortName } from '../src/geo.js';
+import { VEHICLES, VEHICLE_FIELDS } from '../src/vehicles.js';
 import { atlasGrid, roadmapMaterial, viewAtlas } from '../src/useRoadmap.js';
 
 // Exercise the real R3F components without a browser or a GPU render loop.
@@ -18,7 +19,7 @@ globalThis.reportError = error => reportedErrors.push(error);
 const root = createRoot({});
 if (previousReporter === undefined) delete globalThis.reportError; else globalThis.reportError = previousReporter;
 try {
-  const { RegionMesh, modelFor, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
+  const { RegionMesh, modelFor, vehicleBounds, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
   const mapSource = await readFile(new URL('../src/MapScene.jsx', import.meta.url), 'utf8');
   const labelExpression = mapSource.split('\n').find(line => line.includes('{layers.labels && model.regions'))?.trim().slice(1, -1);
   assert(labelExpression, 'National labels must have an independent rendering path');
@@ -58,6 +59,37 @@ try {
   }
   console.log('PASS: national → Hubei → Shiyan → Danjiangkou retain context, highlight the focus and share fixed coordinates.');
   const camera = new THREE.PerspectiveCamera(34, 1, .1, 200);
+  const vehicleModel = models[0], vehicleSize = { width: 1280, height: 720 }, vehicleViewport = { x: .21, y: .15, width: .78, height: .61 };
+  assert.equal(VEHICLES.length, 5); assert.equal(VEHICLE_FIELDS.length, 15);
+  assert.deepEqual(VEHICLES.map(row => [row.GEO_LON, row.GEO_LAT]), [[116.522857, 39.862656], [116.522857, 39.8627], [116.522857, 39.863], [116.522858, 39.862656], [117.522858, 40]]);
+  assert.equal(VEHICLES[2].GPS_SPEED, 10); assert.equal(VEHICLES[4].PALTE_COLOR, '2');
+  for (const row of VEHICLES) {
+    assert.deepEqual(Object.keys(row), VEHICLE_FIELDS.map(([key]) => key));
+    assert.equal(row.GEO_ALT, null); assert.equal(row.MILEAGE, null);
+    assert.equal(row.ALARM_CODE, '00000000000000000000000000000011');
+    assert.equal(row.STATE_CODE, '00000000000000000000000000000010');
+  }
+  camera.aspect = vehicleSize.width / vehicleSize.height;
+  for (const item of [null, ...VEHICLES]) {
+    const bounds = vehicleBounds(vehicleModel.project, item, vehicleModel.bounds.max.y);
+    const frame = fitMapViewport(camera, bounds, vehicleSize, vehicleViewport);
+    assert(frame && camera.position.y > vehicleModel.bounds.max.y, 'Vehicle focus must remain above the map surface, including individual vehicles');
+    const visible = item ? vehicleModel.vehicles.filter(point => point.vehicle.VEHICLENO === item.VEHICLENO) : vehicleModel.vehicles;
+    const projected = visible.map(({ vehicle, position }) => {
+      const [x, y] = vehicleModel.project([vehicle.GEO_LON, vehicle.GEO_LAT]);
+      assert.equal(position[0], x); assert.equal(position[2], -y, 'Vehicle coordinates must never be offset to separate labels');
+      const point = new THREE.Vector3(...position).project(camera);
+      assert(point.z > -1 && point.z < 1, 'Vehicle must stay inside the camera clipping range');
+      return { x: (point.x + 1) * vehicleSize.width / 2, y: (1 - point.y) * vehicleSize.height / 2, width: 44, height: 28 };
+    });
+    const labels = layoutLabels(projected, { left: vehicleViewport.x * vehicleSize.width, right: (vehicleViewport.x + vehicleViewport.width) * vehicleSize.width, top: (vehicleViewport.y + vehicleViewport.height * .12) * vehicleSize.height, bottom: (vehicleViewport.y + vehicleViewport.height) * vehicleSize.height });
+    assert(labels.every(label => !label.hidden), 'All five vehicles must remain individually selectable, even at nearly identical coordinates');
+    for (let i = 0; i < labels.length; i++) for (let j = i + 1; j < labels.length; j++) {
+      const a = labels[i], b = labels[j];
+      assert(Math.abs(a.x + a.dx - b.x - b.dx) >= 44 || Math.abs(a.y + a.dy - b.y - b.dy) >= 28, 'Vehicle labels must not overlap');
+    }
+  }
+  console.log('PASS: 5 vehicles, all 15 raw fields, exact coordinates, fleet/individual camera fit and overlapping label separation.');
   const viewports = [
     { size: { width: 1920, height: 1080 }, viewport: { x: .22, y: .14, width: .74, height: .55 } },
     { size: { width: 3840, height: 2160 }, viewport: { x: .22, y: .14, width: .74, height: .55 } },
@@ -329,7 +361,7 @@ try {
     ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
     : createElement(type, props, ...children);
   const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
-  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, pickVehicle, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
   const context = { sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
   let loads = 0, received;
   const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
