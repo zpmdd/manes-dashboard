@@ -50,6 +50,17 @@ export function VehiclePanel({ vehicle, onSelect, onFocus, onClose }) {
   </Dialog>;
 }
 
+export function VehicleCallout({ vehicle, onClose, onDetails }) {
+  return <div className="vehicle-callout" data-vehicle={VEHICLES.indexOf(vehicle)}>
+    <svg className="vehicle-callout-leader" aria-hidden="true"><path/><circle r="3"/></svg>
+    <section className="vehicle-tooltip vehicle-callout-card" aria-label={`选中车辆 ${vehicle.VEHICLENO} 信息`} onPointerDown={event => event.stopPropagation()}>
+      <header><strong>车辆 {vehicle.VEHICLENO}</strong><span>{vehicle.GPS_SPEED > 0 ? '行驶' : '静止'}</span><button onClick={onClose} aria-label="取消车辆选择">×</button></header>
+      <dl><div><dt>GPS 速度</dt><dd>{vehicle.GPS_SPEED}</dd></div><div><dt>行车定位速度</dt><dd>{vehicle.RECORD_SPEED}</dd></div><div><dt>经度</dt><dd>{vehicle.GEO_LON.toFixed(6)}</dd></div><div><dt>纬度</dt><dd>{vehicle.GEO_LAT.toFixed(6)}</dd></div></dl>
+      <time>GPS · {vehicle.GPS_DATE}</time><button className="vehicle-callout-details" onClick={() => onDetails(vehicle)}>完整车辆信息<ArrowUpRight size={13}/></button>
+    </section>
+  </div>;
+}
+
 export function VehicleTooltip({ value: { vehicles, rect }, detailed, ...events }) {
   const item = vehicles[0], group = vehicles.length > 1;
   const left = Math.max(12, Math.min(rect.right + 12, window.innerWidth - 272));
@@ -58,6 +69,6 @@ export function VehicleTooltip({ value: { vehicles, rect }, detailed, ...events 
     <strong>{group ? `此处 ${vehicles.length} 辆车` : `车辆 ${item.VEHICLENO}`}</strong>
     <span className="vehicle-tooltip-status">{group ? `行驶 ${vehicles.filter(row => row.GPS_SPEED > 0).length} · 静止 ${vehicles.filter(row => row.GPS_SPEED === 0).length}` : item.GPS_SPEED > 0 ? '行驶' : '静止'}</span>
     {group ? <p>{vehicles.map(row => `车辆 ${row.VEHICLENO}`).join('、')}</p> : <dl><div><dt>GPS 速度</dt><dd>{item.GPS_SPEED}</dd></div><div><dt>行车定位速度</dt><dd>{item.RECORD_SPEED}</dd></div><div><dt>经纬度</dt><dd>{item.GEO_LON.toFixed(6)}, {item.GEO_LAT.toFixed(6)}</dd></div></dl>}
-    <time>GPS · {item.GPS_DATE}</time><small>{detailed ? '点击查看车辆详情' : '点击放大查看车辆'}</small>
+    <time>GPS · {item.GPS_DATE}</time><small>{detailed ? '点击选中车辆' : '点击放大查看车辆'}</small>
   </div>, document.body);
 }

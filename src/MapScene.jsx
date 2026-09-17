@@ -6,7 +6,8 @@ import * as THREE from 'three';
 import { mergeGroups } from 'three/addons/utils/BufferGeometryUtils.js';
 import { extent, labelPoint, layoutLabels, NATIONAL, polygons, projection, shortName } from './geo';
 import { useRoadmap } from './useRoadmap';
-import { VEHICLES, linkedVehicles, groupVehiclePoints } from './vehicles';
+import { VEHICLES, linkedVehicles, groupVehiclePoints, vehicleCalloutPosition } from './vehicles';
+import { VehicleCallout } from './MapPanels';
 
 const CAMERA = [0, 22, 18];
 const TOP = 0.36;
@@ -78,6 +79,13 @@ export function vehicleBounds(project, vehicle, surfaceY = TOP) {
   return bounds.expandByVector(new THREE.Vector3(Math.abs(x1 - x0), 0, Math.abs(y1 - y0)));
 }
 
+export function districtVehicleBounds(bounds, project, vehicle) {
+  const [x, y] = project([vehicle.GEO_LON, vehicle.GEO_LAT]);
+  const twiceCenter = new THREE.Vector3(x, bounds.max.y + .000001, -y).multiplyScalar(2);
+  // Mirror the district about the vehicle: it stays centered while the whole district still fits.
+  return bounds.clone().union(new THREE.Box3(twiceCenter.clone().sub(bounds.max), twiceCenter.clone().sub(bounds.min)));
+}
+
 export function vehicleDetailVisible(camera, project, size, previous = false) {
   const points = [[116.52, 39.86], [116.53, 39.86]].map(coords => {
     const [x, y] = project(coords);
@@ -107,17 +115,21 @@ function MapLabelLayout({ model, labelPortal, viewport, onVehicleDetailChange })
       const rect = element.getBoundingClientRect();
       return [{ element, vehicle, focused: !!vehicle || region.focused, x: (point.x + 1) * size.width / 2, y: (1 - point.y) * size.height / 2, width: rect.width, height: rect.height }];
     });
-    const groups = groupVehiclePoints(labels.filter(label => label.vehicle), detailed);
+    const groups = groupVehiclePoints(labels.filter(label => label.vehicle).sort((a, b) => Number(b.element.dataset.highlighted === 'true') - Number(a.element.dataset.highlighted === 'true')), detailed);
     for (const group of groups) for (const [i, point] of group.entries()) {
+      const highlighted = group.some(p => p.element.dataset.highlighted === 'true');
       point.element.dataset.members = group.map(p => p.element.dataset.vehicle).join(',');
       point.element.dataset.count = group.length;
+      point.element.classList.toggle('is-selected', highlighted);
+      point.element.setAttribute('aria-pressed', String(highlighted));
       point.element.setAttribute('aria-label', detailed ? `查看车辆 ${point.vehicle.vehicle.VEHICLENO}` : `车辆点 · ${group.length} 辆 · 点击放大`);
       point.element.style.visibility = i ? 'hidden' : 'visible';
       point.element.tabIndex = i ? -1 : 0;
     }
     const placed = [...groups.map(group => group[0]), ...labels.filter(label => !label.vehicle)];
     const bounds = viewport ? { left: (viewport.x + viewport.width * .02) * size.width, right: (viewport.x + viewport.width * .98) * size.width, top: (viewport.y + viewport.height * .12) * size.height, bottom: (viewport.y + viewport.height * .98) * size.height } : { left: 0, right: size.width, top: 0, bottom: size.height };
-    for (const { element, vehicle, x, y, dx = 0, dy = 0, width, height, hidden } of layoutLabels(placed, bounds)) {
+    const arranged = layoutLabels(placed, bounds);
+    for (const { element, vehicle, x, y, dx = 0, dy = 0, width, height, hidden } of arranged) {
       const length = Math.hypot(dx, dy), edge = Math.min(dx ? width / 2 / Math.abs(dx) : Infinity, dy ? height / 2 / Math.abs(dy) : Infinity);
       // Broad-view dots stay at their actual coordinates; only detailed labels are displaced.
       if (vehicle && !detailed) {
@@ -130,6 +142,22 @@ function MapLabelLayout({ model, labelPortal, viewport, onVehicleDetailChange })
       element.style.setProperty('--label-y', `${dy}px`);
       element.style.setProperty('--leader-length', `${length ? Math.max(0, length * (1 - edge) - 2) : 0}px`);
       element.style.setProperty('--leader-angle', `${Math.atan2(dy, dx)}rad`);
+    }
+    const callout = labelPortal.current?.querySelector('.vehicle-callout');
+    if (callout) {
+      const anchor = arranged.find(label => label.element.dataset.vehicle === callout.dataset.vehicle);
+      callout.style.visibility = !anchor || anchor.hidden ? 'hidden' : 'visible';
+      if (anchor && !anchor.hidden) {
+        const card = callout.querySelector('.vehicle-callout-card');
+        card.style.maxWidth = `${bounds.right - bounds.left}px`;
+        const rect = card.getBoundingClientRect(), dx = detailed ? anchor.dx || 0 : 0, dy = detailed ? anchor.dy || 0 : 0;
+        const position = vehicleCalloutPosition({ x: anchor.x + dx, y: anchor.y + dy }, rect.width, rect.height, bounds);
+        card.style.transform = `translate(${position.left - anchor.x}px, ${position.top - anchor.y}px)`;
+        const endX = position.x - anchor.x, endY = position.y - anchor.y;
+        const direction = Math.sign(endX - dx);
+        callout.querySelector('path').setAttribute('d', `M${dx},${dy} L${dx + direction * 28},${dy} L${endX - direction * 20},${endY} L${endX},${endY}`);
+        const dot = callout.querySelector('circle'); dot.setAttribute('cx', dx); dot.setAttribute('cy', dy);
+      }
     }
   });
   return null;
@@ -242,12 +270,13 @@ export function fitMapViewport(camera, bounds, size, viewport, viewDirection = C
   return { target, distance, usable };
 }
 
-function CameraControls({ command, onTelemetry, bounds, viewport, project }) {
+function CameraControls({ command, code, onTelemetry, bounds, viewport, project }) {
   const controls = useRef();
   const { camera, size, gl, invalidate } = useThree();
   const frames = useRef(0), rendered = useRef(false);
   const flight = useRef(null), initialized = useRef(false), direction = useRef(new THREE.Vector3(...CAMERA));
   const focusBounds = useRef(bounds);
+  const appliedCommand = useRef(0);
   useLayoutEffect(() => { focusBounds.current = bounds; }, [bounds]);
   const cancelFlight = () => { flight.current = null; if (controls.current) controls.current.enableDamping = true; };
   const fit = (animate = true) => {
@@ -273,7 +302,12 @@ function CameraControls({ command, onTelemetry, bounds, viewport, project }) {
   }, [size.width, size.height, camera, invalidate, bounds, viewport?.x, viewport?.y, viewport?.width, viewport?.height]);
   useEffect(() => {
     const c = controls.current;
-    if (!c || !command.sequence) return;
+    if (!c || !command.sequence || appliedCommand.current === command.sequence) return;
+    if (command.type === 'region' && command.vehicle !== code) return;
+    if (command.type === 'vehicle' && command.regionCode !== code) return;
+    appliedCommand.current = command.sequence;
+    if (command.type === 'vehicle') { focusBounds.current = districtVehicleBounds(bounds, project, command.vehicle); fit(); return; }
+    if (command.type === 'region') { focusBounds.current = bounds; fit(); return; }
     if (command.type === 'vehicles') { focusBounds.current = vehicleBounds(project, command.vehicle, bounds.max.y); fit(); return; }
     if (command.type === 'reset' || command.type === 'top') {
       if (command.type === 'reset') focusBounds.current = bounds;
@@ -289,7 +323,7 @@ function CameraControls({ command, onTelemetry, bounds, viewport, project }) {
       direction.current.copy(offset);
     }
     camera.updateProjectionMatrix(); c.update(); invalidate();
-  }, [command, camera, invalidate]);
+  }, [command, code, camera, invalidate]);
   useFrame(() => {
     const f = flight.current, c = controls.current;
     if (!c) return;
@@ -322,13 +356,14 @@ function CameraControls({ command, onTelemetry, bounds, viewport, project }) {
   return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={.12} enablePan screenSpacePanning minDistance={.0001} maxDistance={90} minPolarAngle={.01} maxPolarAngle={Math.PI / 2.12} onStart={cancelFlight} onEnd={() => direction.current.copy(camera.position).sub(controls.current.target)} onChange={() => invalidate()} />;
 }
 
-function World({ data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, vehicleFilter = 'vehicle:all', command, quality, onTelemetry, viewport }) {
+function World({ data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, onVehicleClear, onVehicleDetails, vehicleHighlight = 'vehicle:all', command, quality, onTelemetry, viewport }) {
   const national = code === NATIONAL;
   const model = useMemo(() => modelFor(data, code, collections), [data, code, collections]);
   const { gl, invalidate } = useThree();
-  const shownVehicles = linkedVehicles(vehicleFilter) || VEHICLES;
+  const highlightedVehicles = vehicleHighlight === 'vehicle:all' ? [] : linkedVehicles(vehicleHighlight) || [];
+  const selectedVehicle = highlightedVehicles.length === 1 ? model.vehicles.find(point => point.vehicle === highlightedVehicles[0]) : null;
   const vehicleMembers = element => (element.dataset.members || element.dataset.vehicle).split(',').map(i => model.vehicles[Number(i)].vehicle);
-  const hoverVehicle = event => onVehicleHover?.({ vehicles: vehicleMembers(event.currentTarget), rect: event.currentTarget.getBoundingClientRect() });
+  const hoverVehicle = event => { if (event.currentTarget.dataset.vehicle !== String(VEHICLES.indexOf(selectedVehicle?.vehicle))) onVehicleHover?.({ vehicles: vehicleMembers(event.currentTarget), rect: event.currentTarget.getBoundingClientRect() }); };
   const { material: roadmap, status: roadmapStatus } = useRoadmap(layers.roadmap, model.project, viewport);
   const hubs = useMemo(() => national ? HUBS.map(h => {
     const [x, y] = model.project(h.point); return { ...h, position: [x, TOP + .035, -y] };
@@ -369,12 +404,13 @@ function World({ data, collections, roadData, labelPortal, code, layers, selecte
     {layers.roads && <Roads data={roadData} project={model.project} scale={model.scale} labelPortal={labelPortal} layers={layers} detail={code === '420381'} />}
     {layers.arcs && arcs.map((p, i) => <Line key={i} points={p} color="#f5e3b9" transparent opacity={.55} lineWidth={1} depthWrite={false} />)}
     {layers.beacons && hubs.map(h => <Beacon key={h.name} position={h.position} height={h.height} scale={model.scale} />)}
-    {layers.vehicles && model.vehicles.map(({ vehicle, position }, i) => shownVehicles.includes(vehicle) && <Html key={vehicle.VEHICLENO} portal={labelPortal} position={position} center zIndexRange={[12, 9]} style={{ pointerEvents: 'none' }}><button ref={element => { if (element) invalidate(); }} className={`vehicle-marker${vehicle.GPS_SPEED > 0 ? ' is-moving' : ''}${vehicleFilter === `vehicle:${vehicle.VEHICLENO}` ? ' is-selected' : ''}`} data-vehicle={i} aria-label={`查看车辆 ${vehicle.VEHICLENO}`} aria-describedby="vehicle-hover-details" onPointerEnter={hoverVehicle} onPointerLeave={() => onVehicleHover?.(null)} onFocus={hoverVehicle} onBlur={() => onVehicleHover?.(null)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onVehicleHover?.(null); const detailed = labelPortal.current?.dataset.vehicleDetail === 'true'; onVehicleSelect(detailed ? vehicle : vehicleMembers(event.currentTarget), detailed); }}><i className="vehicle-dot" aria-hidden="true"/><span className="vehicle-symbol"><Car size={14} weight="fill"/><span>{vehicle.VEHICLENO}</span></span></button></Html>)}
+    {layers.vehicles && model.vehicles.map(({ vehicle, position }, i) => <Html key={vehicle.VEHICLENO} portal={labelPortal} position={position} center zIndexRange={[12, 9]} style={{ pointerEvents: 'none' }}><button ref={element => { if (element) invalidate(); }} className={`vehicle-marker${vehicle.GPS_SPEED > 0 ? ' is-moving' : ''}${highlightedVehicles.includes(vehicle) ? ' is-selected' : ''}`} data-vehicle={i} data-highlighted={highlightedVehicles.includes(vehicle)} aria-label={`查看车辆 ${vehicle.VEHICLENO}`} aria-pressed={highlightedVehicles.includes(vehicle)} aria-describedby="vehicle-hover-details" onPointerEnter={hoverVehicle} onPointerLeave={() => onVehicleHover?.(null)} onFocus={hoverVehicle} onBlur={() => onVehicleHover?.(null)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onVehicleHover?.(null); const detailed = labelPortal.current?.dataset.vehicleDetail === 'true'; onVehicleSelect(detailed ? vehicle : vehicleMembers(event.currentTarget), detailed); }}><i className="vehicle-dot" aria-hidden="true"/><span className="vehicle-symbol"><Car size={14} weight="fill"/><span>{vehicle.VEHICLENO}</span></span></button></Html>)}
+    {layers.vehicles && selectedVehicle && <Html portal={labelPortal} position={selectedVehicle.position} zIndexRange={[15, 13]} style={{ pointerEvents: 'none' }}><VehicleCallout vehicle={selectedVehicle.vehicle} onClose={onVehicleClear} onDetails={onVehicleDetails}/></Html>}
     {layers.labels && model.regions.filter(r => r.feature.properties.name).map(({ feature, anchor, focused }) => <Html key={feature.properties.adcode} portal={labelPortal} position={[anchor[0], TOP + .08 * model.scale, anchor[2]]} center zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}><span ref={element => { if (element) invalidate(); }} className={`map-region-label${focused ? ' is-focused' : ''}`} data-adcode={feature.properties.adcode} title={feature.properties.name}>{shortName(feature.properties.name)}</span></Html>)}
     {layers.heat && hubs.map(h => <mesh key={h.name} rotation={[-Math.PI / 2, 0, 0]} position={[h.position[0], TOP + .025 * model.scale, h.position[2]]}>
       <planeGeometry args={[2.0 * model.scale, 2.0 * model.scale]} /><shaderMaterial vertexShader={heatVertex} fragmentShader={heatFragment} transparent depthWrite={false} />
     </mesh>)}
-    <CameraControls command={command} onTelemetry={onTelemetry} bounds={model.bounds} viewport={viewport} project={model.project} />
+    <CameraControls command={command} code={code} onTelemetry={onTelemetry} bounds={model.bounds} viewport={viewport} project={model.project} />
     {(layers.labels || layers.vehicles) && <MapLabelLayout model={model} labelPortal={labelPortal} viewport={viewport} onVehicleDetailChange={onVehicleDetailChange} />}
   </>;
 }

@@ -1,3 +1,5 @@
+import { inFeature, NATIONAL } from './geo.js';
+
 export const VEHICLE_FIELDS = [
   ['VEHICLENO', '号牌号码'], ['PALTE_COLOR', '号牌颜色'],
   ['GEO_LON', '经度'], ['GEO_LAT', '纬度'], ['GEO_ANG', '角度'], ['GEO_ALT', '海拔'],
@@ -22,6 +24,36 @@ export function linkedVehicles(code) {
   if (code === 'vehicle:stopped') return VEHICLES.filter(row => row.GPS_SPEED === 0);
   const vehicle = VEHICLES.find(row => code === `vehicle:${row.VEHICLENO}`);
   return vehicle ? [vehicle] : null;
+}
+
+export async function vehicleDistrict(vehicles, index, readRegion) {
+  let code = NATIONAL;
+  const visited = new Set();
+  while (index?.[code]?.hasChildren && !visited.has(code)) {
+    visited.add(code);
+    const data = await readRegion(code);
+    const feature = data.features.find(item => vehicles.every(vehicle => inFeature([vehicle.GEO_LON, vehicle.GEO_LAT], item)));
+    if (!feature) return null;
+    code = String(feature.properties.adcode);
+    if (index[code]?.level === 'district') return code;
+  }
+  return null;
+}
+
+export function vehicleCalloutPosition(point, width, height, bounds) {
+  const gap = 80, clamp = (value, min, max) => Math.max(min, Math.min(value, max));
+  let left = point.x + gap, top = point.y - height - 48;
+  if (left + width > bounds.right) {
+    left = point.x - gap - width;
+    if (left < bounds.left) {
+      left = point.x - width / 2;
+      top = point.y - 24 - height >= bounds.top ? point.y - 24 - height : point.y + 24;
+    }
+  }
+  left = clamp(left, bounds.left, bounds.right - width);
+  top = clamp(top, bounds.top, bounds.bottom - height);
+  const x = clamp(point.x, left, left + width), y = clamp(point.y, top, top + height);
+  return { left, top, x, y };
 }
 
 export function groupVehiclePoints(points, detailed) {

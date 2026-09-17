@@ -8,7 +8,7 @@ import { createServer, transformWithEsbuild } from 'vite';
 import { createDataSourceController, validateSourceUrl, getMappedData, parseSourceContent } from '../src/dataSources.js';
 import { normalizeConfig } from '../src/dashboardConfig.js';
 import { layoutLabels, lineage, shortName } from '../src/geo.js';
-import { VEHICLES, VEHICLE_FIELDS, linkedVehicles, groupVehiclePoints } from '../src/vehicles.js';
+import { VEHICLES, VEHICLE_FIELDS, linkedVehicles, groupVehiclePoints, vehicleDistrict, vehicleCalloutPosition } from '../src/vehicles.js';
 import { atlasGrid, roadmapMaterial, viewAtlas } from '../src/useRoadmap.js';
 
 // Exercise the real R3F components without a browser or a GPU render loop.
@@ -20,7 +20,7 @@ globalThis.reportError = error => reportedErrors.push(error);
 const root = createRoot({});
 if (previousReporter === undefined) delete globalThis.reportError; else globalThis.reportError = previousReporter;
 try {
-  const { RegionMesh, modelFor, vehicleBounds, vehicleDetailVisible, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
+  const { RegionMesh, modelFor, vehicleBounds, districtVehicleBounds, vehicleDetailVisible, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
   const mapSource = await readFile(new URL('../src/MapScene.jsx', import.meta.url), 'utf8');
   const labelExpression = mapSource.split('\n').find(line => line.includes('{layers.labels && model.regions'))?.trim().slice(1, -1);
   assert(labelExpression, 'National labels must have an independent rendering path');
@@ -99,11 +99,34 @@ try {
   assert.equal(groupVehiclePoints(points, false).flat().length, 5, 'Clustering preserves every vehicle');
   assert(groupVehiclePoints(points, false).length < 5, 'Nearly identical coordinates share an overview point');
   assert.equal(groupVehiclePoints(points, true).length, 5, 'Detail view separates all vehicle labels');
+  const vehicleRegionIndex = JSON.parse(await readFile(new URL('../public/data/index.json', import.meta.url), 'utf8'));
+  const readVehicleRegion = async code => JSON.parse(await readFile(new URL(`../public/data/regions/${code}.json`, import.meta.url), 'utf8'));
+  const districts = await Promise.all(VEHICLES.map(vehicle => vehicleDistrict([vehicle], vehicleRegionIndex, readVehicleRegion)));
+  assert.deepEqual(districts, ['110105', '110105', '110105', '110105', '120119'], 'Resolve actual boundaries, including municipalities without a city tier');
+  assert.equal(await vehicleDistrict(VEHICLES.slice(0, 4), vehicleRegionIndex, readVehicleRegion), '110105', 'Overlapping groups stop at their shared district too');
+  assert.equal(await vehicleDistrict(VEHICLES, vehicleRegionIndex, readVehicleRegion), null, 'Cross-district fleet focus stays separate from single-vehicle focus');
+  assert.equal(await vehicleDistrict([{ GEO_LON: 0, GEO_LAT: 0 }], vehicleRegionIndex, readVehicleRegion), null);
+  await assert.rejects(vehicleDistrict([VEHICLES[0]], vehicleRegionIndex, async () => { throw new DOMException('Cancelled', 'AbortError'); }), { name: 'AbortError' });
   for (const item of [null, ...VEHICLES]) {
-    const bounds = vehicleBounds(vehicleModel.project, item, vehicleModel.bounds.max.y);
+    let bounds = vehicleBounds(vehicleModel.project, null, vehicleModel.bounds.max.y), districtModel;
+    if (item) {
+      const district = districts[VEHICLES.indexOf(item)], parent = vehicleRegionIndex[district].parent;
+      const data = await readVehicleRegion(parent);
+      districtModel = modelFor({ ...data, features: data.features.filter(f => String(f.properties.adcode) === district) }, district, [{ code: '100000', data: nationalData }, { code: parent, data }]);
+      bounds = districtVehicleBounds(districtModel.bounds, districtModel.project, item);
+      assert(bounds.containsBox(districtModel.bounds), 'Centering a vehicle must retain the full district boundary');
+      assert.equal(districtModel.vehicles.length, 5, 'Drill-down retains all vehicles, including those outside the viewport');
+    }
     const frame = fitMapViewport(camera, bounds, vehicleSize, vehicleViewport);
     assert.equal(vehicleDetailVisible(camera, vehicleModel.project, vehicleSize), true, 'Fleet and individual focus reveal vehicle icons');
     assert(frame && camera.position.y > vehicleModel.bounds.max.y, 'Vehicle focus must remain above the map surface, including individual vehicles');
+    if (item) {
+      const position = districtModel.vehicles.find(point => point.vehicle.VEHICLENO === item.VEHICLENO).position;
+      const centered = new THREE.Vector3(...position).project(camera);
+      assert(Math.abs((centered.x + 1) / 2 - (frame.usable.left + frame.usable.right) / 2) < 1e-8);
+      assert(Math.abs((1 - centered.y) / 2 - (frame.usable.top + frame.usable.bottom) / 2) < 1e-8, 'The selected vehicle, not the district centroid, is centered');
+      districtModel.regions.forEach(region => region.geometry.dispose()); districtModel.backdrops.forEach(geometry => geometry.dispose());
+    }
     const visible = item ? vehicleModel.vehicles.filter(point => point.vehicle.VEHICLENO === item.VEHICLENO) : vehicleModel.vehicles;
     const projected = visible.map(({ vehicle, position }) => {
       const [x, y] = vehicleModel.project([vehicle.GEO_LON, vehicle.GEO_LAT]);
@@ -119,7 +142,24 @@ try {
       assert(Math.abs(a.x + a.dx - b.x - b.dx) >= 44 || Math.abs(a.y + a.dy - b.y - b.dy) >= 28, 'Vehicle labels must not overlap');
     }
   }
-  console.log('PASS: 5 vehicles, all 15 raw fields, exact coordinates, fleet/individual camera fit and overlapping label separation.');
+  const markerExpression = mapSource.split('\n').find(line => line.includes('{layers.vehicles && model.vehicles.map')).trim().slice(1, -1);
+  const { code: markerCode } = await transformWithEsbuild(`(model, highlightedVehicles) => (${markerExpression})`, 'vehicle-markers.jsx', { loader: 'jsx', jsx: 'transform', jsxFactory: 'createElement' });
+  const renderMarkers = new Function('createElement', 'Html', 'Car', 'layers', 'labelPortal', 'invalidate', 'hoverVehicle', 'onVehicleHover', 'onVehicleSelect', `return ${markerCode}`)(createElement, 'html', 'car', { vehicles: true }, { current: null }, () => {}, () => {}, () => {}, () => {});
+  for (const highlighted of [[], [VEHICLES[3]], linkedVehicles('vehicle:stopped')]) {
+    const markers = renderMarkers(vehicleModel, vehicleModel.vehicles.map(point => point.vehicle).filter(vehicle => highlighted.some(item => item.VEHICLENO === vehicle.VEHICLENO)));
+    assert.equal(markers.length, 5, 'Selections highlight without filtering any markers');
+    assert.equal(markers.filter(marker => marker.props.children.props['data-highlighted']).length, highlighted.length);
+  }
+  for (const bounds of [{ left: 280, right: 1200, top: 160, bottom: 680 }, { left: 18, right: 372, top: 180, bottom: 510 }]) {
+    for (const x of [bounds.left + 10, (bounds.left + bounds.right) / 2, bounds.right - 10]) for (const y of [bounds.top + 10, (bounds.top + bounds.bottom) / 2, bounds.bottom - 10]) {
+      const position = vehicleCalloutPosition({ x, y }, 260, 204, bounds);
+      assert(position.left >= bounds.left && position.left + 260 <= bounds.right && position.top >= bounds.top && position.top + 204 <= bounds.bottom, 'Callouts stay inside desktop and narrow map viewports');
+      assert(position.x >= position.left && position.x <= position.left + 260 && position.y >= position.top && position.y <= position.top + 204, 'The leader ends on the information card');
+    }
+  }
+  const narrowCallout = vehicleCalloutPosition({ x: 187.5, y: 371.4 }, 248, 150, { left: 20, right: 355, top: 178, bottom: 556 });
+  assert(narrowCallout.top + 150 < 371.4 - 14, 'A compact callout leaves the centered vehicle visible in narrow containers');
+  console.log('PASS: five vehicles retained, boundary-based district focus centered on selection, bounded callouts and overlapping label separation.');
   const viewports = [
     { size: { width: 1920, height: 1080 }, viewport: { x: .22, y: .14, width: .74, height: .55 } },
     { size: { width: 3840, height: 2160 }, viewport: { x: .22, y: .14, width: .74, height: .55 } },
@@ -268,6 +308,24 @@ try {
 
   // Run the actual lazy loader, visibility guard and outer error boundary in R3F's React renderer.
   const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const focusSource = appSource.slice(appSource.indexOf('  const focusVehicles = '), appSource.indexOf('  const pickVehicle = '));
+  const pendingVehicles = [], focusedVehicles = [], vehicleNotices = [], vehicleHighlights = [], vehicleRequest = { current: null };
+  const focusVehicle = new Function('context', 'useCallback', 'vehicleDistrict', 'fetchJson', 'VEHICLES', `const { index, vehicleRequest, navigate, sendCommand, setLayers, setDialog, setVehicleHover, setVehicleHighlight, setVehicle, setToast } = context; ${focusSource}; return focusVehicles;`)(
+    { index: vehicleRegionIndex, vehicleRequest, navigate: (code, vehicle) => focusedVehicles.push([code, vehicle.VEHICLENO]), sendCommand: () => assert.fail('Single vehicles must never use point-radius zoom'), setLayers() {}, setDialog() {}, setVehicleHover() {}, setVehicleHighlight: code => vehicleHighlights.push(code), setVehicle() {}, setToast: message => vehicleNotices.push(message) },
+    fn => fn, () => new Promise((resolve, reject) => pendingVehicles.push({ resolve, reject })), () => {}, VEHICLES,
+  );
+  const obsoleteFocus = focusVehicle([VEHICLES[0]]), obsoleteRequest = vehicleRequest.current;
+  const currentFocus = focusVehicle(VEHICLES[4]);
+  assert(obsoleteRequest.signal.aborted, 'A new vehicle selection cancels the prior lookup');
+  pendingVehicles[1].resolve('120119'); await currentFocus;
+  pendingVehicles[0].resolve('110105'); await obsoleteFocus;
+  assert.deepEqual(focusedVehicles, [['120119', '5']], 'Late district lookup results cannot steal the selected vehicle focus');
+  assert.deepEqual(vehicleHighlights, ['vehicle:1', 'vehicle:5']);
+  const cancelledFocus = focusVehicle(VEHICLES[2]); vehicleRequest.current.abort(); pendingVehicles[2].resolve('110105'); await cancelledFocus;
+  assert.equal(focusedVehicles.length, 1, 'Clearing selection or navigating away cancels a pending focus');
+  const failedFocus = focusVehicle(VEHICLES[1]); pendingVehicles[3].reject(new Error('Offline boundary unavailable')); await failedFocus;
+  assert(vehicleNotices[0].includes('Offline boundary unavailable'), 'Boundary failures surface without overzooming or hiding vehicles');
+  console.log('PASS: all single-vehicle entrypoints share district focus; rapid selection, cancellation and boundary failure preserve the latest intent.');
   const defaults = new Function(`${appSource.split('\n').find(line => line.startsWith('const DEFAULT_LAYERS = '))}; return DEFAULT_LAYERS;`)();
   let presetLayers = defaults;
   const setView = new Function('DEFAULT_LAYERS', 'setMode', 'setLayers', 'setDialog', `${appSource.slice(appSource.indexOf('  const setView = '), appSource.indexOf('  const fullScreen = '))}; return setView;`)(defaults, () => {}, next => { presetLayers = typeof next === 'function' ? next(presetLayers) : next; }, () => {});
@@ -391,7 +449,7 @@ try {
     ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
     : createElement(type, props, ...children);
   const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
-  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleFilter, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
   const context = { sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
   let loads = 0, received;
   const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
