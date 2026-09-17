@@ -20,10 +20,11 @@ function EmptyState({ message = '暂无数据', detail, onRefresh }) {
   return <div className="widget-empty" role="status"><span>{message}</span>{detail && <p className="widget-error-reason">{detail}</p>}{onRefresh && <button onClick={onRefresh}>重新加载</button>}</div>;
 }
 
-function Metric({ data, unit, precision }) {
+function Metric({ data, unit, precision, visual }) {
   return <div className="widget-metric">
+    {visual}
     <div className="widget-value"><strong title={number(data.value, precision)}>{number(data.value, precision)}</strong><span>{unit}</span></div>
-    {data.scope && <div className="widget-metric-scope"><i aria-hidden="true"/>{data.scope}</div>}
+    {data.scope && <div className="widget-metric-scope">{data.scope}</div>}
     {data.onlineCount !== null && data.offlineCount !== null && <dl className="widget-metric-details"><div><dt>在线设备</dt><dd>{number(data.onlineCount, precision)}</dd></div><div><dt>离线设备</dt><dd>{number(data.offlineCount, precision)}</dd></div></dl>}
   </div>;
 }
@@ -78,11 +79,12 @@ function TrendChart({ rows, unit, title, type, precision }) {
   </figure>;
 }
 
-function BarChart({ rows, unit, rowCount, onNavigate, precision }) {
+function BarChart({ rows, unit, rowCount, onNavigate, precision, selectedCodes }) {
   const shown = rows.slice(0, rowCount), max = Math.max(...rows.map(row => Math.abs(row.value))) || 1;
   return <ol className="widget-ranking">{shown.map((row, i) => {
-    const content = <><span className="widget-rank-number">{String(i + 1).padStart(2, '0')}</span><span className="widget-rank-content"><span className="widget-rank-caption"><span title={row.name}>{row.name}</span><strong>{number(row.value, precision)}<small>{unit}</small></strong></span><span className={`widget-bar-track ${row.value < 0 ? 'is-negative' : ''}`}><span style={{ width: `${Math.abs(row.value) / max * 100}%` }}/></span></span>{row.code && onNavigate && <span className="widget-rank-arrow" aria-hidden="true">›</span>}</>;
-    return <li key={`${row.code || row.name}-${i}`}>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} aria-label={`${row.name}，${number(row.value, precision)} ${unit}，查看区域`}>{content}</button> : <div>{content}</div>}</li>;
+    const selected = selectedCodes?.includes(row.code);
+    const content = <><span className="widget-rank-number">{String(i + 1).padStart(2, '0')}</span><span className="widget-rank-content"><span className="widget-rank-caption"><span title={row.name}>{row.name}</span><strong>{number(row.value, precision)}<small>{unit}</small></strong></span><span className={`widget-bar-track ${row.value < 0 ? 'is-negative' : ''}`}><span style={{ width: `${Math.abs(row.value) / max * 100}%` }}/></span></span>{row.code && onNavigate && <span className="widget-rank-arrow" aria-hidden="true">{selected ? '✓' : '›'}</span>}</>;
+    return <li key={`${row.code || row.name}-${i}`}>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} aria-pressed={selected} aria-label={`${row.name}，${number(row.value, precision)} ${unit}，查看区域`}>{content}</button> : <div>{content}</div>}</li>;
   })}</ol>;
 }
 
@@ -142,7 +144,7 @@ function Clock() {
   return <div className="widget-clock"><time dateTime={now.toISOString()}><strong>{now.toLocaleTimeString('zh-CN', { hour12: false })}</strong><span>{date}</span></time><div className="widget-clock-rule" aria-hidden="true"><i/></div></div>;
 }
 
-export const DashboardWidget = memo(function DashboardWidget({ config, code, index, onNavigate, data: externalData, dataState, onRefresh, theme = DEFAULT_THEME, fontFamily }) {
+export const DashboardWidget = memo(function DashboardWidget({ config, code, index, onNavigate, data: externalData, dataState, onRefresh, theme = DEFAULT_THEME, fontFamily, selectedCodes, metricVisual }) {
   const hasExternalData = externalData !== undefined || Boolean(dataState);
   const data = useMemo(() => {
     if (config.type === 'text' || config.type === 'clock') return normalizeWidgetData(null);
@@ -164,10 +166,10 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
   else if (config.type === 'clock') body = <Clock/>;
   else if (!hasData) body = <EmptyState message={hasError ? '数据暂不可用' : loading ? '正在加载' : data.emptyMessage || '暂无数据'} detail={hasError ? errorMessage : undefined} onRefresh={hasError ? onRefresh : undefined}/>;
   else if (professional) body = <ChartErrorBoundary key={config.type}><Suspense fallback={<EmptyState message="正在加载图表"/>}><ProfessionalChart theme={theme} fontFamily={fontFamily} config={config} data={data} onNavigate={onNavigate}/></Suspense></ChartErrorBoundary>;
-  else if (config.type === 'metric') body = <Metric data={data} unit={unit} precision={precision}/>;
+  else if (config.type === 'metric') body = <Metric data={data} unit={unit} precision={precision} visual={metricVisual}/>;
   else if (config.type === 'gauge') body = <Gauge data={data} unit={unit} title={config.title} target={config.target} precision={precision}/>;
   else if (['line', 'area', 'column'].includes(config.type)) body = <TrendChart rows={config.type === 'column' ? numericRows.slice(0, rowCount) : numericRows.slice(-rowCount)} unit={unit} title={config.title} type={config.type} precision={precision}/>;
-  else if (config.type === 'bar') body = <BarChart rows={numericRows} unit={unit} rowCount={rowCount} onNavigate={onNavigate} precision={precision}/>;
+  else if (config.type === 'bar') body = <BarChart rows={numericRows} unit={unit} rowCount={rowCount} onNavigate={onNavigate} precision={precision} selectedCodes={selectedCodes}/>;
   else if (config.type === 'donut') body = <DonutChart theme={theme} rows={numericRows} unit={unit} rowCount={rowCount} title={config.title} onNavigate={onNavigate} precision={precision}/>;
   else if (config.type === 'table') body = <DataTable rows={data.rows} columns={config.columns} unit={unit} rowCount={rowCount} title={config.title} onNavigate={onNavigate} precision={precision}/>;
   else if (config.type === 'progress') body = <Progress rows={numericRows.slice(0, rowCount)} unit={unit} target={config.target} precision={precision}/>;
@@ -175,7 +177,7 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
   else body = <EmptyState message="组件类型暂不可用"/>;
   const stateText = hasError ? hasData ? '更新延迟' : '未连接' : loading ? '更新中' : null;
   return <section className={`dashboard-widget widget-type-${config.type} widget-surface-${['glass', 'soft', 'solid'].includes(config.surface) ? config.surface : 'glass'}`} aria-labelledby={headingId} data-widget-id={config.id} style={{ '--widget-rows': rowCount }}>
-    <header className="widget-heading"><div><h2 id={headingId} title={config.title}>{config.title}</h2>{config.subtitle && <p title={config.subtitle}>{config.subtitle}</p>}</div>{stateText && !independent ? onRefresh && hasError ? <button className={`widget-data-state ${hasError ? 'is-error' : ''}`} title="重新加载数据" onClick={onRefresh}>{stateText}</button> : <span className="widget-data-state" role="status">{stateText}</span> : <span className="widget-heading-mark" aria-hidden="true"/>}</header>
+    <header className="widget-heading"><div><h2 id={headingId} title={config.title}>{config.title}</h2>{config.subtitle && <p title={config.subtitle}>{config.subtitle}</p>}</div>{stateText && !independent && (onRefresh && hasError ? <button className={`widget-data-state ${hasError ? 'is-error' : ''}`} title="重新加载数据" onClick={onRefresh}>{stateText}</button> : <span className="widget-data-state" role="status">{stateText}</span>)}</header>
     {hasError && hasData && !independent && <p className="widget-stale-note" role="status" title={errorMessage}>{errorMessage || '数据更新失败'} · 保留上次数据</p>}
     <div className="widget-body" aria-busy={loading && !independent}>{body}</div>
   </section>;

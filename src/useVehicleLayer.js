@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { linkedVehicles, vehicleDistrict } from './vehicles';
 import { NATIONAL } from './geo';
 
@@ -7,6 +7,7 @@ export function useVehicleLayer({ allVehicles, index, mapVisible, layers, setLay
   const vehicle = allVehicles.find(item => item.VEHICLENO === vehicleId) || allVehicles[0];
   const setVehicle = useCallback(item => setVehicleId(item?.VEHICLENO ?? null), []);
   const [vehicleHighlight, setVehicleHighlight] = useState('vehicle:all'), [vehicleDetailed, setVehicleDetailed] = useState(false), [vehicleHover, setVehicleHover] = useState(null);
+  const selectedCodes = useMemo(() => vehicleHighlight === 'vehicle:all' ? [] : (linkedVehicles(vehicleHighlight, allVehicles) || []).map(item => item.code), [allVehicles, vehicleHighlight]);
   const hoverTimer = useRef(), vehicleRequest = navigationRequest;
   const hoverVehicle = useCallback(value => { clearTimeout(hoverTimer.current); if (value) setVehicleHover(value); else hoverTimer.current = setTimeout(() => setVehicleHover(null), 120); }, []);
   useEffect(() => { setVehicleHover(null); return () => clearTimeout(hoverTimer.current); }, [command, vehicleHighlight, vehicleDetailed, code, layers.vehicles]);
@@ -46,5 +47,5 @@ export function useVehicleLayer({ allVehicles, index, mapVisible, layers, setLay
     }
     return false;
   }, [index, navigate, focusVehicles, vehicleDetailed, activeCode, allVehicles]);
-  return { vehicle, setVehicle, vehicleHighlight, vehicleDetailed, setVehicleDetailed, vehicleHover, hoverVehicle, hoverTimer, focusVehicles, pickVehicle, clearVehicleSelection, showVehicleDetails, navigateWidget };
+  return { vehicle, setVehicle, vehicleHighlight, selectedCodes, vehicleDetailed, setVehicleDetailed, vehicleHover, hoverVehicle, hoverTimer, focusVehicles, pickVehicle, clearVehicleSelection, showVehicleDetails, navigateWidget };
 }

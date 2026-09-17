@@ -1,0 +1,15 @@
+{
+  "baseErrors": [],
+  "daoyanErrors": [],
+  "daoyan": {
+    "alerts": [],
+    "dots": 0,
+    "project": "daoyan",
+    "selected": [
+      "03车辆 310✓"
+    ],
+    "vehicles": 5,
+    "widgets": 3,
+    "width": 1920
+  }
+}

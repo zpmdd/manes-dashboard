@@ -88,6 +88,7 @@ test('all twelve components render real supplied data and failed connections nev
   const server = await createServer({ configFile: false, appType: 'custom', server: { middlewareMode: true, watch: null, hmr: false, ws: false }, esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true, include: [] } });
   try {
     const { DashboardWidget } = await server.ssrLoadModule('/src/DashboardWidget.jsx');
+    const { VehicleWidget } = await server.ssrLoadModule('/src/VehiclePanels.jsx');
     const { ComponentInspector } = await server.ssrLoadModule('/src/EditorPanels.jsx');
     const { MODULE_TYPES, DEFAULT_CONFIG, createModule } = await server.ssrLoadModule('/src/dashboardConfig.js');
     const basicTypes = ['metric', 'gauge', 'line', 'area', 'bar', 'column', 'donut', 'table', 'progress', 'status'];
@@ -105,7 +106,18 @@ test('all twelve components render real supplied data and failed connections nev
       const html = render(type);
       assert.match(html, new RegExp(`widget-type-${type}`));
       assert.doesNotMatch(html, /暂无数据|组件类型暂不可用|NaN|Infinity|undefined/);
+      assert.doesNotMatch(html, /widget-heading-mark/, 'All shared widget headers omit decorative dots');
     }
+    const vehicles = { value: 2, scope: '车辆定位快照', rows: [{ name: '车辆甲', code: 'vehicle:A', value: 0 }, { name: '车辆乙', code: 'vehicle:B', value: 10 }] };
+    const selectedRanking = render('bar', { data: vehicles, selectedCodes: ['vehicle:A'], onNavigate() {} });
+    assert.match(selectedRanking, /aria-pressed="true" aria-label="车辆甲/);
+    assert.match(selectedRanking, /aria-pressed="false" aria-label="车辆乙/);
+    assert.match(selectedRanking, /✓/);
+    assert.doesNotMatch(render('bar', { data: vehicles, selectedCodes: [], onNavigate() {} }), /aria-pressed="true"|✓/, 'Clearing selection removes the check mark');
+    assert.doesNotMatch(render('bar', { data: vehicles, onNavigate() {} }), /aria-pressed/, 'Unbound base rankings retain ordinary navigation semantics');
+    const vehicleMetric = renderToStaticMarkup(createElement(VehicleWidget, { item: config, data: vehicles, state: { status: 'ready' }, onNavigate() {} }, createElement(DashboardWidget, { config, data: vehicles })));
+    assert.match(vehicleMetric, /vehicle-metric-visual/); assert.match(vehicleMetric, />2<\/strong>/);
+    assert.doesNotMatch(vehicleMetric, /行驶|静止/, 'The total uses a vehicle icon without duplicating the second chart');
     assert.match(render('metric'), />42<\/strong>/);
     assert.match(render('text'), /&lt;script&gt;alert\(1\)&lt;\/script&gt;\n第二行/);
     assert.doesNotMatch(render('text'), /<script>/);

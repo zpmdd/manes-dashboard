@@ -236,6 +236,10 @@ export const RegionMesh = memo(function RegionMesh({ region, selected, onSelect,
 const heatFragment = `varying vec2 vUv; void main(){float d=length(vUv-0.5)*2.0; float a=pow(max(0.0,1.0-d),2.0)*0.4; gl_FragColor=vec4(1.0,0.70,0.32,a);}`;
 const heatVertex = `varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`;
 
+export function heatPointsFor(model, hubs, vehicleHeat) {
+  return vehicleHeat ? model.vehicles.map(({ vehicle, position }) => ({ name: vehicle.VEHICLENO, position })) : hubs;
+}
+
 export function updateMapClipping(camera, target, surfaceY = TOP) {
   const distance = camera.position.distanceTo(target);
   // A district-sized near plane loses depth precision when the camera pulls back.
@@ -362,7 +366,7 @@ function CameraControls({ command, code, onTelemetry, bounds, viewport, project 
   return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={.12} enablePan screenSpacePanning minDistance={.0001} maxDistance={90} minPolarAngle={.01} maxPolarAngle={Math.PI / 2.12} onStart={cancelFlight} onEnd={() => direction.current.copy(camera.position).sub(controls.current.target)} onChange={() => invalidate()} />;
 }
 
-function World({ vehicles = EMPTY_VEHICLES, data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, onVehicleClear, onVehicleDetails, vehicleHighlight = 'vehicle:all', command, quality, onTelemetry, viewport, theme = DEFAULT_THEME, fontFamily }) {
+function World({ vehicles = EMPTY_VEHICLES, vehicleHeat = false, data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, onVehicleClear, onVehicleDetails, vehicleHighlight = 'vehicle:all', command, quality, onTelemetry, viewport, theme = DEFAULT_THEME, fontFamily }) {
   const national = code === NATIONAL;
   const geography = useMemo(() => modelFor(data, code, collections), [data, code, collections]);
   const model = useMemo(() => ({ ...geography, vehicles: projectVehicles(vehicles, geography.project, geography.bounds) }), [geography, vehicles]);
@@ -414,7 +418,7 @@ function World({ vehicles = EMPTY_VEHICLES, data, collections, roadData, labelPo
     {layers.vehicles && model.vehicles.map(({ vehicle, position }, i) => <Html key={vehicle.VEHICLENO} portal={labelPortal} position={position} center zIndexRange={[12, 9]} style={{ pointerEvents: 'none' }}><button ref={element => { if (element) invalidate(); }} className={`vehicle-marker${vehicle.GPS_SPEED > 0 ? ' is-moving' : ''}${highlightedVehicles.includes(vehicle) ? ' is-selected' : ''}`} data-vehicle={i} data-highlighted={highlightedVehicles.includes(vehicle)} aria-label={`查看车辆 ${vehicle.VEHICLENO}`} aria-pressed={highlightedVehicles.includes(vehicle)} aria-describedby="vehicle-hover-details" onPointerEnter={hoverVehicle} onPointerLeave={() => onVehicleHover?.(null)} onFocus={hoverVehicle} onBlur={() => onVehicleHover?.(null)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onVehicleHover?.(null); const detailed = labelPortal.current?.dataset.vehicleDetail === 'true'; onVehicleSelect(detailed ? vehicle : vehicleMembers(event.currentTarget), detailed); }}><i className="vehicle-dot" aria-hidden="true"/><span className="vehicle-symbol"><Car size={14} weight="fill"/><span>{vehicle.VEHICLENO}</span></span></button></Html>)}
     {layers.vehicles && selectedVehicle && <Html portal={labelPortal} position={selectedVehicle.position} zIndexRange={[15, 13]} style={{ pointerEvents: 'none' }}><VehicleCallout index={model.vehicles.indexOf(selectedVehicle)} vehicle={selectedVehicle.vehicle} onClose={onVehicleClear} onDetails={onVehicleDetails}/></Html>}
     {layers.labels && model.regions.filter(r => r.feature.properties.name).map(({ feature, anchor, focused }) => <Html key={feature.properties.adcode} portal={labelPortal} position={[anchor[0], TOP + .08 * model.scale, anchor[2]]} center zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}><span ref={element => { if (element) invalidate(); }} className={`map-region-label${focused ? ' is-focused' : national ? '' : ' is-context'}`} data-adcode={feature.properties.adcode} title={feature.properties.name}>{shortName(feature.properties.name)}</span></Html>)}
-    {layers.heat && hubs.map(h => <mesh key={h.name} rotation={[-Math.PI / 2, 0, 0]} position={[h.position[0], TOP + .025 * model.scale, h.position[2]]}>
+    {layers.heat && heatPointsFor(model, hubs, vehicleHeat).map(h => <mesh key={h.name} rotation={[-Math.PI / 2, 0, 0]} position={[h.position[0], TOP + .025 * model.scale, h.position[2]]}>
       <planeGeometry args={[2.0 * model.scale, 2.0 * model.scale]} /><shaderMaterial vertexShader={heatVertex} fragmentShader={heatFragment} transparent depthWrite={false} />
     </mesh>)}
     <CameraControls command={command} code={code} onTelemetry={onTelemetry} bounds={model.bounds} viewport={viewport} project={model.project} />

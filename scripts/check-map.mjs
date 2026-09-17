@@ -24,7 +24,7 @@ globalThis.reportError = error => reportedErrors.push(error);
 const root = createRoot({});
 if (previousReporter === undefined) delete globalThis.reportError; else globalThis.reportError = previousReporter;
 try {
-  const { RegionMesh, modelFor, vehicleBounds, districtVehicleBounds, vehicleDetailVisible, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
+  const { RegionMesh, modelFor, heatPointsFor, vehicleBounds, districtVehicleBounds, vehicleDetailVisible, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
   const mapSource = await readFile(new URL('../src/MapScene.jsx', import.meta.url), 'utf8');
   const labelExpression = mapSource.split('\n').find(line => line.includes('{layers.labels && model.regions'))?.trim().slice(1, -1);
   assert(labelExpression, 'National labels must have an independent rendering path');
@@ -65,6 +65,20 @@ try {
   console.log('PASS: national → Hubei → Shiyan → Danjiangkou retain context, highlight the focus and share fixed coordinates.');
   const baseModel = modelFor(nationalData, '100000', collections);
   assert.equal(baseModel.vehicles.length, 0, 'The shared map never supplies project vehicles implicitly');
+  const demoHeat = [{ name: '演示节点', position: [0, .36, 0] }];
+  assert.strictEqual(heatPointsFor(baseModel, demoHeat, false), demoHeat, 'Base heat retains its demo source');
+  assert.deepEqual(heatPointsFor(baseModel, demoHeat, true), [], 'Empty vehicle data must never fall back to demo heat');
+  for (const model of models) {
+    const heat = heatPointsFor(model, demoHeat, true);
+    assert.deepEqual(heat.map(point => point.name), VEHICLES.map(row => row.VEHICLENO));
+    assert.deepEqual(heat.map(point => [point.position[0], point.position[2]]), VEHICLES.map(row => { const [x, y] = model.project([row.GEO_LON, row.GEO_LAT]); return [x, -y]; }), 'Heat stays at actual GPS coordinates through drill-down');
+  }
+  const changedHeatModel = modelFor(nationalData, '100000', [{ code: '100000', data: nationalData }], [{ ...VEHICLES[0], VEHICLENO: 'NEW', GEO_LON: 108.94, GEO_LAT: 34.34 }]);
+  const changedHeat = heatPointsFor(changedHeatModel, demoHeat, true);
+  assert.equal(changedHeat.length, 1); assert.equal(changedHeat[0].name, 'NEW');
+  assert.notDeepEqual(changedHeat[0].position, heatPointsFor(models[0], demoHeat, true)[0].position, 'Replacing vehicles moves heat and removes obsolete points');
+  changedHeatModel.regions.forEach(region => region.geometry.dispose()); changedHeatModel.backdrops.forEach(geometry => geometry.dispose());
+  console.log('PASS: GPS heat follows vehicle additions, removals, coordinates and drill-down; empty data never shows demo points.');
   baseModel.regions.forEach(region => region.geometry.dispose()); baseModel.backdrops.forEach(geometry => geometry.dispose());
   const camera = new THREE.PerspectiveCamera(34, 1, .1, 200);
   const vehicleModel = models[0], vehicleSize = { width: 1280, height: 720 }, vehicleViewport = { x: .21, y: .15, width: .78, height: .61 };
@@ -466,8 +480,8 @@ try {
     ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
     : createElement(type, props, ...children);
   const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
-  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { vehicles, theme, fontFamily, loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
-  const context = { theme: DEFAULT_THEME, sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { project, vehicles, theme, fontFamily, loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
+  const context = { project: { vehicles: true }, theme: DEFAULT_THEME, sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
   let loads = 0, received;
   const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
   preload(effect => effect(), context.config, loadedMap.loadMapScene);
@@ -486,6 +500,7 @@ try {
   assert.strictEqual(received.labelPortal, context.mapLabels);
   assert.strictEqual(received.sceneSize, context.sceneSize); assert.strictEqual(received.viewport, context.viewport); assert.strictEqual(received.layers, context.layers);
   assert.strictEqual(received.command, context.command); assert.equal(received.quality, 'high');
+  assert.equal(received.vehicleHeat, true, 'Daoyan passes the vehicle heat source even before rows arrive');
   await act(async () => root.render(null));
   const failure = new Error('Map chunk unavailable'), failedMap = makeLazy(lazy, () => Promise.reject(failure));
   preload(effect => effect(), context.config, failedMap.loadMapScene);
