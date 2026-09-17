@@ -1,0 +1,57 @@
+{
+  "fonts": [
+    {
+      "id": "mi",
+      "fonts": [
+        {
+          "familyName": "MiSans",
+          "postScriptName": "MiSans-Medium",
+          "isCustomFont": true,
+          "glyphCount": 8
+        }
+      ]
+    },
+    {
+      "id": "harmony",
+      "fonts": [
+        {
+          "familyName": "HarmonyOS Sans SC",
+          "postScriptName": "HarmonyOS_Sans_SC_Medium",
+          "isCustomFont": true,
+          "glyphCount": 8
+        }
+      ]
+    },
+    {
+      "id": "sans",
+      "fonts": [
+        {
+          "familyName": "Source Han Sans CN Medium",
+          "postScriptName": "SourceHanSansCN-Medium",
+          "isCustomFont": true,
+          "glyphCount": 8
+        }
+      ]
+    },
+    {
+      "id": "serif",
+      "fonts": [
+        {
+          "familyName": "Source Han Serif CN Medium",
+          "postScriptName": "SourceHanSerifCN-Medium",
+          "isCustomFont": true,
+          "glyphCount": 8
+        }
+      ]
+    }
+  ],
+  "widths": [
+    1440,
+    768,
+    390,
+    320
+  ],
+  "storageUnchanged": true,
+  "errors": [],
+  "failed": []
+}

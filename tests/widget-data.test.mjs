@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { DEFAULT_THEME } from '../src/themes.js';
 import { demoMetrics } from '../src/geo.js';
 import { DATA_FIELDS, getMappedData } from '../src/dataSources.js';
 import { chartDomain, donutRows, finiteNumber, formatWidgetNumber, formatAxisNumber, getWidgetData, normalizeWidgetData, progressValues, sortTableRows, statusTone, visibleRowCount } from '../src/widgetData.js';
@@ -174,7 +175,7 @@ test('polling states retain normalized data references while status, replacement
   };
   // Execute the real component with persistent hook cells, as in the editor callback regressions.
   const runtime = {
-    ...widgetData, memo: fn => fn, useMemo, useId: () => 'stable-widget-heading',
+    ...widgetData, DEFAULT_THEME, memo: fn => fn, useMemo, useId: () => 'stable-widget-heading',
     normalizeWidgetData: raw => { normalizations++; return normalizeWidgetData(raw); },
     getWidgetData: (...args) => { snapshots++; return getWidgetData(...args); },
     h: (type, props, ...children) => ({ type, props: props || {}, children }),

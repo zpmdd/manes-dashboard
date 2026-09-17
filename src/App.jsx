@@ -1,5 +1,5 @@
 import { Component, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { SlidersHorizontal, ArrowLeft, ArrowRight, ArrowUpRight, ArrowsOut, CaretDown, CaretRight, CircleNotch, Compass, Info, MapTrifold, Minus, Plus, Stack } from '@phosphor-icons/react';
+import { Gear, ArrowLeft, ArrowRight, ArrowUpRight, ArrowsOut, CaretDown, CaretRight, CircleNotch, Compass, Info, MapTrifold, Minus, Plus, Stack } from '@phosphor-icons/react';
 import '@fontsource/michroma/latin-400.css';
 import '@fontsource/manrope/latin-400.css';
 import '@fontsource/manrope/latin-500.css';
@@ -7,6 +7,11 @@ import '@fontsource/manrope/latin-600.css';
 import { Dialog, IconButton, LayerPanel, RegionPicker, VehiclePanel, VehicleTooltip } from './MapPanels';
 import { VEHICLES, linkedVehicles, vehicleDistrict } from './vehicles';
 import { DashboardWidget } from './DashboardWidget';
+import { ThemePanel } from './ThemePanel';
+import { getTheme, themeVariables } from './themes';
+import { getFont, SYSTEM_FONT } from './fonts';
+import './fonts.css';
+import './themes.css';
 import { createModule, DEFAULT_CHART_OPTIONS, normalizeConfig } from './dashboardConfig';
 import { CanvasItem, EditorToolbar, useDashboardEditor } from './DashboardEditor';
 import { useDataSources } from './useDataSources';
@@ -66,7 +71,7 @@ class PanelErrorBoundary extends Component {
   }
 }
 
-const BoundWidget = memo(function BoundWidget({ item, result, refresh, code, index, onNavigate }) {
+const BoundWidget = memo(function BoundWidget({ item, result, refresh, code, index, onNavigate, theme, fontFamily }) {
   const external = item.binding.sourceId !== 'demo' && !['text', 'clock'].includes(item.type);
   const mapped = useMemo(() => {
     if (!external) return null;
@@ -80,13 +85,36 @@ const BoundWidget = memo(function BoundWidget({ item, result, refresh, code, ind
   }, [external, result?.rows, item.binding, item.aggregate, item.type, item.unit, item.columns]);
   const state = mapped?.error ? { status: 'error', error: mapped.error } : result || { status: 'loading' };
   const reload = useCallback(() => refresh(item.binding.sourceId), [refresh, item.binding.sourceId]);
-  const widget = <DashboardWidget config={item} code={code} index={index} onNavigate={onNavigate} data={mapped?.data} dataState={external ? state : undefined} onRefresh={external ? reload : undefined}/>;
+  const widget = <DashboardWidget theme={theme} fontFamily={fontFamily} config={item} code={code} index={index} onNavigate={onNavigate} data={mapped?.data} dataState={external ? state : undefined} onRefresh={external ? reload : undefined}/>;
   return mapped?.vehicleData ? <div className="vehicle-widget">{widget}{item.type === 'metric' && state.status === 'ready' && <button className="vehicle-metric-link" onClick={() => onNavigate('vehicle:all')} aria-label={`显示全部车辆 · ${mapped.data.value} 辆`}>显示全部车辆<ArrowUpRight size={14}/></button>}</div> : widget;
 });
 
 export function App() {
   const [toast, setToast] = useState('');
   const editor = useDashboardEditor(setToast), config = editor.config;
+  const theme = getTheme(config.theme);
+  const selectedFont = getFont(config.font), [loadedFont, setLoadedFont] = useState(null);
+  const fontFamily = loadedFont?.family || SYSTEM_FONT;
+  useEffect(() => {
+    let current = true;
+    // Load before switching: Canvas text metrics must not cache a fallback under the new family.
+    Promise.all([400, 500].map(weight => document.fonts.load(`${weight} 16px "${selectedFont.face}"`, '全域运行监测')))
+      .then(() => { if (current) setLoadedFont(selectedFont); })
+      .catch(() => { if (current) setToast(`${selectedFont.name}加载失败，暂用当前字体，请刷新重试`); });
+    return () => { current = false; };
+  }, [selectedFont]);
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.dataset.font = loadedFont?.id || 'system';
+    root.style.setProperty('--font-ui', fontFamily);
+    return () => { delete root.dataset.font; root.style.removeProperty('--font-ui'); };
+  }, [loadedFont, fontFamily]);
+  useLayoutEffect(() => {
+    const root = document.documentElement, variables = themeVariables(theme);
+    root.dataset.theme = theme.id;
+    for (const [key, value] of Object.entries(variables)) root.style.setProperty(key, value);
+    return () => { delete root.dataset.theme; for (const key of Object.keys(variables)) root.style.removeProperty(key); };
+  }, [theme]);
   const editing = editor.editing && !editor.preview;
   const [sidePanel, setSidePanel] = useState('library');
   const [viewport, setViewport] = useState(null);
@@ -221,10 +249,10 @@ export function App() {
     {editing && <div className="editor-mobile-tabs"><button onClick={() => setSidePanel('library')} aria-pressed={sidePanel === 'library'}>组件库</button><button onClick={() => setSidePanel('inspector')} aria-pressed={sidePanel === 'inspector'}>组件属性</button></div>}
     {editing && <aside className={`editor-library-pane ${sidePanel === 'library' ? 'is-open' : ''}`}><PanelErrorBoundary title="组件库"><Suspense fallback={<p role="status">正在加载组件库…</p>}><ComponentLibrary onAdd={type => { editor.add(type); setSidePanel('inspector'); }}/></Suspense></PanelErrorBoundary><section className="editor-layer-list" aria-label="图层列表"><h3>画布图层</h3>{[{ ...config.map, id: 'map', title: config.mapTitle }, ...config.modules].map(item => <button key={item.id} onClick={event => { editor.select(item.id, { toggle: event.shiftKey || event.metaKey || event.ctrlKey }); setSidePanel('inspector'); }} aria-pressed={editor.selectedIds.includes(item.id)}><span>{item.title || '未命名组件'}</span><small>{item.locked ? '锁定' : !item.visible ? '隐藏' : ''}</small></button>)}</section></aside>}
     <div className="dashboard-viewport"><main className="dashboard free-dashboard" ref={main}>
-    <div className={`world-backdrop ${loading && !loaded ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}><div ref={mapLabels} className="map-labels" style={viewport ? { clipPath: `inset(${100 * (viewport.y + viewport.height * .12)}% ${100 * (1 - viewport.x - viewport.width * .98)}% ${100 * (1 - viewport.y - viewport.height * .98)}% ${100 * (viewport.x + viewport.width * .02)}%)` } : undefined}/>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene data={loaded.data} collections={loaded.collections} roadData={loaded.roads} labelPortal={mapLabels} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} onVehicleSelect={pickVehicle} onVehicleHover={hoverVehicle} onVehicleDetailChange={setVehicleDetailed} vehicleHighlight={vehicleHighlight} onVehicleClear={clearVehicleSelection} onVehicleDetails={showVehicleDetails} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined} sceneSize={sceneSize}/></Suspense></MapErrorBoundary>}</div>
+    <div className={`world-backdrop ${loading && !loaded ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}><div ref={mapLabels} className="map-labels" style={viewport ? { clipPath: `inset(${100 * (viewport.y + viewport.height * .12)}% ${100 * (1 - viewport.x - viewport.width * .98)}% ${100 * (1 - viewport.y - viewport.height * .98)}% ${100 * (viewport.x + viewport.width * .02)}%)` } : undefined}/>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene theme={theme} fontFamily={fontFamily} data={loaded.data} collections={loaded.collections} roadData={loaded.roads} labelPortal={mapLabels} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} onVehicleSelect={pickVehicle} onVehicleHover={hoverVehicle} onVehicleDetailChange={setVehicleDetailed} vehicleHighlight={vehicleHighlight} onVehicleClear={clearVehicleSelection} onVehicleDetails={showVehicleDetails} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined} sceneSize={sceneSize}/></Suspense></MapErrorBoundary>}</div>
     <header className="topbar">
       <div className="screen-title"><h1 title={config.title}>{config.title}</h1><span>{dataLabel}</span></div>
-      <div className="header-tools">{config.showClock && <DashboardClock/>}<IconButton label="全屏显示" onClick={fullScreen}><ArrowsOut/></IconButton><button className="configure-button" onClick={editor.start} disabled={editor.editing}><SlidersHorizontal/><span>编辑大屏</span></button></div>
+      <div className="header-tools">{config.showClock && <DashboardClock/>}<IconButton label="全屏显示" onClick={fullScreen}><ArrowsOut/></IconButton><IconButton label="设置大屏" className="configure-button" onClick={editor.start} disabled={editor.editing}><Gear/></IconButton></div>
       <nav aria-label="视图切换">{['overview', 'monitor', 'traffic', 'regions'].map((id, i) => <button key={id} className={mode === id ? 'selected' : ''} aria-pressed={mode === id} onClick={() => setView(id)}>{config.navLabels[i]}</button>)}</nav>
     </header>
     <div ref={stage} className={`canvas-stage ${editing && config.canvas.snap ? 'show-grid' : ''}`} onPointerDown={editing ? () => editor.select(null) : undefined}>
@@ -239,10 +267,11 @@ export function App() {
       {error && <div className="load-error" role="alert"><strong>{error}</strong><div><button onClick={() => setRetry(n => n + 1)}>重试</button><button onClick={() => navigate(NATIONAL)}>返回全国</button></div></div>}
       <div className="map-bottom"><div className="vehicle-toolbar"><button onClick={() => focusVehicles()} disabled={!loaded || loading}>定位车辆 · {VEHICLES.length}</button>{vehicleDetailed && layers.vehicles && <button onClick={() => showVehicleDetails(vehicle)}>车辆详情</button>}{vehicleHighlight !== 'vehicle:all' && <button onClick={clearVehicleSelection}>取消高亮 · {linkedVehicles(vehicleHighlight)?.length} 辆</button>}<span>GPS · 2026/9/13 00:00</span><span className="vehicle-mode" aria-live="polite">{vehicleDetailed ? '车辆视图' : '点位概览 · 点击放大'}</span></div><div className="map-legend">{layers.roadmap && <span>离线道路底图</span>}{layers.roads && <span><i className="legend-line"/>道路网络</span>}{layers.beacons && <span><i className="legend-dot"/>监测节点</span>}{layers.heat && <span>态势热力</span>}</div><button onClick={showInfo}>{layers.roadmap ? '本地道路瓦片 · 1–10 级' : loaded?.code === '420381' ? '© OpenStreetMap contributors' : 'DataV.GeoAtlas · Natural Earth'}<Info size={11}/></button></div>
     </section></CanvasItem>}
-    {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}><BoundWidget item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={activeCode} index={index} onNavigate={navigateWidget}/></CanvasItem>)}
+    {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}><BoundWidget theme={theme} fontFamily={fontFamily} item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={activeCode} index={index} onNavigate={navigateWidget}/></CanvasItem>)}
     {editing && <div className="canvas-guides" aria-hidden="true">{editor.guides.map(guide => <i key={guide.axis} className={`canvas-guide guide-${guide.axis}`} style={guide.axis === 'x' ? { left: `${guide.position}%`, top: `${guide.from}%`, height: `${guide.to - guide.from}%` } : { top: `${guide.position}%`, left: `${guide.from}%`, width: `${guide.to - guide.from}%` }}/>)}</div>}
     </div>
     {vehicleHover && layers.vehicles && !editing && <VehicleTooltip value={vehicleHover} detailed={vehicleDetailed} onPointerEnter={() => clearTimeout(hoverTimer.current)} onPointerLeave={() => hoverVehicle(null)}/>}
+    {editor.editing && dialog === 'theme' && <ThemePanel theme={theme} editing={editor.editing} onChange={editor.setTheme} onClose={() => setDialog(null)}/>}
     {dialog === 'regions' && index && <RegionPicker index={index} code={activeCode} onNavigate={navigate} onClose={() => setDialog(null)}/>}
     {dialog === 'layers' && <LayerPanel layers={layers} setLayers={setLayers} quality={quality} setQuality={setQuality} detail={loaded?.code === '420381'} onClose={() => setDialog(null)}/>}
     {dialog === 'vehicle' && <VehiclePanel vehicle={vehicle} onSelect={setVehicle} onFocus={focusVehicles} onClose={() => setDialog(null)}/>}

@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import * as echarts from 'echarts/core';
 import { buildProfessionalChart, CHART_PALETTES, PROFESSIONAL_TYPES } from '../src/professionalCharts.js';
 import { getWidgetData, normalizeWidgetData } from '../src/widgetData.js';
+import { FONTS } from '../src/fonts.js';
 
 const config = (type, extra = {}) => ({ type, title: '实际业务数据', rowCount: 5, target: 100, unit: '台', chartOptions: {}, ...extra });
 const build = (type, rows, extra) => buildProfessionalChart(config(type, extra), { rows });
@@ -27,6 +28,17 @@ before(async () => {
   ({ renderProfessionalSVG, updateProfessionalChart, default: ProfessionalChart } = await server.ssrLoadModule('/src/ProfessionalChart.jsx'));
 });
 after(async () => { await server?.close(); });
+
+test('两套中文字体覆盖全部专业图表的真实 SVG 文本', () => {
+  for (const font of FONTS) for (const type of PROFESSIONAL_TYPES) {
+    const settings = config(type, { chartOptions: { labels: true } });
+    const data = normalizeWidgetData({ rows: fixtures[type] });
+    const svg = renderProfessionalSVG(settings, data, { width: 480, height: 280, fontFamily: font.family });
+    const texts = [...svg.matchAll(/<text\b[^>]*>/g)].map(match => match[0]);
+    assert(texts.length, `${font.id}/${type}: text is rendered`);
+    assert(texts.every(text => text.includes(font.face)), `${font.id}/${type}: every chart label uses the selected font`);
+  }
+});
 
 test('all eight professional types draw real ECharts SVG at normal and compact card sizes', () => {
   for (const type of PROFESSIONAL_TYPES) {

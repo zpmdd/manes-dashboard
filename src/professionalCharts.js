@@ -1,13 +1,14 @@
+import { DEFAULT_THEME } from './themes.js';
+import { DEFAULT_FONT } from './fonts.js';
 import { finiteNumber, formatAxisNumber, formatWidgetNumber, PROFESSIONAL_TYPES, visibleRowCount } from './widgetData.js';
 
 export { PROFESSIONAL_TYPES } from './widgetData.js';
 export const CHART_PALETTES = {
-  champagne: ['#eee2b9', '#aebcb4', '#c6a9a5', '#9aa7b9', '#b7afc5', '#c6bf9f', '#8faca6', '#b49b87'],
+  champagne: DEFAULT_THEME.colors,
   ocean: ['#b5d0d2', '#95b4c7', '#ddd1b3', '#aeb7ce', '#c5b5ca', '#92b9b4', '#c7d0cc', '#a5aabf'],
   forest: ['#c4d0b3', '#99b8a5', '#e0d2ae', '#adbdae', '#c8bc9f', '#8caeae', '#bcc49d', '#b8acb9'],
 };
-const ink = '#eee7d8', fillInk = '#342e38', muted = '#cfc6b3', line = '#e7decb24';
-const valueAxis = (name, font) => ({ type: 'value', name, nameTextStyle: { color: muted, fontSize: Math.max(10, font - 1) }, axisLabel: { color: muted, fontSize: font, formatter: formatAxisNumber }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: line, type: 'dashed' } } });
+const valueAxis = (name, font, muted, line) => ({ type: 'value', name, nameTextStyle: { color: muted, fontSize: Math.max(10, font - 1) }, axisLabel: { color: muted, fontSize: font, formatter: formatAxisNumber }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: line, type: 'dashed' } } });
 const unique = values => [...new Set(values)];
 const label = value => typeof value === 'string' ? value.trim() : typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
 const rowName = (row, index) => label(row.name) || label(row.time) || `第 ${index + 1} 项`;
@@ -41,27 +42,30 @@ function groupedRows(rows, count, latest = false, seriesOptional = false) {
 }
 
 // The same plain options drive browser rendering and real ECharts SVG regression checks.
-export function buildProfessionalChart(config, data, size = {}) {
+export function buildProfessionalChart(config, data, size = {}, theme = DEFAULT_THEME) {
   if (!PROFESSIONAL_TYPES.includes(config.type)) throw new Error('不支持的专业图表');
   const rows = Array.isArray(data?.rows) ? data.rows : [];
   if (!rows.length) return { option: null, count: 0, renderCount: 0, description: '暂无数据' };
   if (rows.length > 5000) throw new Error('专业图表最多支持 5000 行数据');
   if (rows.some(row => !row || typeof row !== 'object')) throw new Error('每行数据需为字段对象');
   const settings = config.chartOptions || {}, count = visibleRowCount(config.rowCount);
-  const colors = CHART_PALETTES[settings.palette] || CHART_PALETTES.champagne;
+  const colors = ['ocean', 'forest'].includes(settings.palette) ? CHART_PALETTES[settings.palette] : theme.colors;
+  const original = theme.id === DEFAULT_THEME.id;
+  const ink = original ? '#eee7d8' : theme.text, fillInk = original ? '#342e38' : theme.bg, muted = original ? '#cfc6b3' : theme.muted, line = original ? '#e7decb24' : `${theme.muted}24`;
+  const surface = original ? '#4b454f' : theme.panel;
   const legend = settings.legend !== false, labels = settings.labels === true;
   const unit = config.unit ?? data.unit ?? '', width = size.width || 480, height = size.height || 260;
   const font = Math.round(Math.max(11, Math.min(18, 11 * Math.sqrt(width / 480) * Math.pow(height / 260, .25), height / 12)));
   const spacing = value => Math.round(value * font / 11), minorFont = Math.max(10, font - 1);
-  const axis = name => valueAxis(name, font);
+  const axis = name => valueAxis(name, font, muted, line);
   const categoryAxis = (data, name = '') => ({ ...axis(name), type: 'category', data, axisLabel: { color: muted, fontSize: font, hideOverlap: true, overflow: 'truncate', width: spacing(64) }, splitLine: { show: false } });
   const itemLabel = { show: labels, color: ink, fontSize: font, overflow: 'truncate' };
   const option = {
-    backgroundColor: 'transparent', color: colors, textStyle: { fontFamily: 'Manrope, PingFang SC, Microsoft YaHei, sans-serif', color: ink },
+    backgroundColor: 'transparent', color: colors, textStyle: { fontFamily: size.fontFamily || DEFAULT_FONT.family, color: ink },
     animation: size.reducedMotion !== true, animationDuration: 480, animationDurationUpdate: 280,
     aria: { enabled: true, label: { description: `${config.title}，${rows.length} 条数据${unit ? `，单位 ${unit}` : ''}。` } },
-    tooltip: { trigger: 'item', renderMode: 'richText', confine: true, backgroundColor: '#302b32f2', borderColor: '#cdbf9b78', borderWidth: 1, textStyle: { color: ink, fontSize: Math.max(12, font) }, padding: [spacing(9), spacing(11)] },
-    legend: { id: 'legend', show: legend, type: 'scroll', top: 0, left: 'center', textStyle: { color: muted, fontSize: font }, pageTextStyle: { color: muted, fontSize: minorFont }, pageIconColor: ink, pageIconInactiveColor: '#6c6570', itemWidth: spacing(13), itemHeight: spacing(7), itemGap: spacing(15) },
+    tooltip: { trigger: 'item', renderMode: 'richText', confine: true, backgroundColor: `${theme.panel}f2`, borderColor: original ? '#cdbf9b78' : `${theme.accent}78`, borderWidth: 1, textStyle: { color: ink, fontSize: Math.max(12, font) }, padding: [spacing(9), spacing(11)] },
+    legend: { id: 'legend', show: legend, type: 'scroll', top: 0, left: 'center', textStyle: { color: muted, fontSize: font }, pageTextStyle: { color: muted, fontSize: minorFont }, pageIconColor: ink, pageIconInactiveColor: original ? '#6c6570' : `${theme.muted}66`, itemWidth: spacing(13), itemHeight: spacing(7), itemGap: spacing(15) },
     grid: { left: 7, right: config.type === 'combo' ? 8 : 12, top: legend ? spacing(34) : spacing(19), bottom: 8, outerBoundsMode: 'same', outerBoundsContain: 'all' },
     dataZoom: [], series: [],
   };
@@ -72,7 +76,7 @@ export function buildProfessionalChart(config, data, size = {}) {
     pointCount = shownRows.length;
     renderCount = grouped.categories.length * grouped.groups.length;
     option.xAxis = categoryAxis(grouped.categories, settings.xName || ''); option.yAxis = axis(unit);
-    option.tooltip.trigger = 'axis'; option.tooltip.axisPointer = { type: config.type === 'stacked' ? 'shadow' : 'line', lineStyle: { color: '#e1d1a77d' } };
+    option.tooltip.trigger = 'axis'; option.tooltip.axisPointer = { type: config.type === 'stacked' ? 'shadow' : 'line', lineStyle: { color: original ? '#e1d1a77d' : `${theme.accent}7d` } };
     option.series = grouped.groups.map(([name, values], i) => {
       const hasIsolatedPoint = config.type === 'multiLine' && grouped.categories.some((category, position, categories) => values.has(category) && !values.has(categories[position - 1]) && !values.has(categories[position + 1]));
       return {
@@ -109,7 +113,7 @@ export function buildProfessionalChart(config, data, size = {}) {
       return { name, max: Math.max(...values), min: 0 };
     });
     pointCount = grouped.categories.length * grouped.groups.length;
-    option.radar = { indicator: indicators, center: ['50%', legend ? '56%' : '51%'], radius: Math.max(22, Math.min(width * .31, (height - spacing(legend ? 50 : 25)) * .42)), splitNumber: 4, axisName: { color: muted, fontSize: font, overflow: 'truncate', width: Math.max(42, width * .2) }, axisNameGap: spacing(9), axisLine: { lineStyle: { color: line } }, splitLine: { lineStyle: { color: line } }, splitArea: { areaStyle: { color: ['#efe3bd04', '#efe3bd09'] } } };
+    option.radar = { indicator: indicators, center: ['50%', legend ? '56%' : '51%'], radius: Math.max(22, Math.min(width * .31, (height - spacing(legend ? 50 : 25)) * .42)), splitNumber: 4, axisName: { color: muted, fontSize: font, overflow: 'truncate', width: Math.max(42, width * .2) }, axisNameGap: spacing(9), axisLine: { lineStyle: { color: line } }, splitLine: { lineStyle: { color: line } }, splitArea: { areaStyle: { color: original ? ['#efe3bd04', '#efe3bd09'] : [`${theme.accent}04`, `${theme.accent}09`] } } };
     option.series = [{ id: 'radar', type: 'radar', symbolSize: 4, lineStyle: { width: 2 }, areaStyle: { opacity: .13 }, label: itemLabel, data: grouped.groups.map(([name, values]) => ({ name, value: grouped.categories.map(category => values.get(category).value) })) }];
   } else if (config.type === 'scatter') {
     rows.forEach((row, i) => { numeric(row, 'x', i); numeric(row, 'y', i); if (row.value !== null && row.value !== undefined && row.value !== '') numeric(row, 'value', i, true); });
@@ -119,7 +123,7 @@ export function buildProfessionalChart(config, data, size = {}) {
     option.xAxis = { ...axis(settings.xName || 'X'), scale: true }; option.yAxis = { ...axis(settings.yName || 'Y'), scale: true };
     option.series = unique(shownRows.map(row => label(row.series) || '观测值')).map(name => ({
       id: `scatter-${name}`, name, type: 'scatter', dimensions: [{ name: 'x', displayName: settings.xName || 'X', type: 'float' }, { name: 'y', displayName: settings.yName || 'Y', type: 'float' }, ...(hasSizeValue ? [{ name: 'value', displayName: unit ? `数值 / ${unit}` : '数值', type: 'float' }] : [])], encode: { x: 0, y: 1, tooltip: hasSizeValue ? [0, 1, 2] : [0, 1] }, emphasis: { focus: 'series' }, label: { ...itemLabel, position: 'top', formatter: '{b}' },
-      itemStyle: { opacity: .78, borderColor: '#fff4d478', borderWidth: 1 },
+      itemStyle: { opacity: .78, borderColor: original ? '#fff4d478' : `${theme.accent}78`, borderWidth: 1 },
       data: shownRows.flatMap((row, i) => (label(row.series) || '观测值') === name ? [{ name: rowName(row, i), value: [numeric(row, 'x', i), numeric(row, 'y', i), ...(hasSizeValue ? [finiteNumber(row.value)] : [])], code: row.code, symbolSize: finiteNumber(row.value) === null ? 10 : Math.max(5, Math.sqrt(row.value / maxSize) * 28) }] : []),
     }));
   } else if (config.type === 'heatmap') {
@@ -134,15 +138,15 @@ export function buildProfessionalChart(config, data, size = {}) {
     const values = shownRows.map(row => finiteNumber(row.value)), min = Math.min(0, ...values), max = Math.max(0, ...values) || (min === 0 ? 1 : 0);
     option.legend.show = false; option.grid.top = 12; option.grid.bottom = spacing(40);
     option.xAxis = categoryAxis(xs, settings.xName || ''); option.yAxis = { ...categoryAxis(ys, settings.yName || ''), axisLabel: { color: muted, fontSize: font, overflow: 'truncate', width: spacing(68) } };
-    option.visualMap = { show: legend, min, max, calculable: false, orient: 'horizontal', left: 'center', bottom: 0, itemHeight: Math.min(spacing(120), width * .35), itemWidth: spacing(8), text: ['高', '低'], textStyle: { color: muted, fontSize: minorFont }, inRange: { color: ['#4b454f', colors[3], colors[1], colors[0]] } };
+    option.visualMap = { show: legend, min, max, calculable: false, orient: 'horizontal', left: 'center', bottom: 0, itemHeight: Math.min(spacing(120), width * .35), itemWidth: spacing(8), text: ['高', '低'], textStyle: { color: muted, fontSize: minorFont }, inRange: { color: [surface, colors[3], colors[1], colors[0]] } };
     if (!legend) option.grid.bottom = 8;
-    option.series = [{ id: 'heatmap', type: 'heatmap', dimensions: ['横向类别', '纵向类别', unit ? `数值 / ${unit}` : '数值'], encode: { x: 0, y: 1, value: 2, tooltip: [2] }, label: { ...itemLabel, color: '#faf3df' }, itemStyle: { borderColor: '#423b4666', borderWidth: 2, borderRadius: 3 }, emphasis: { itemStyle: { borderColor: '#f1e4b5', borderWidth: 1 } }, data: shownRows.map(row => ({ value: [xs.indexOf(label(row.x)), ys.indexOf(label(row.y)), finiteNumber(row.value)], name: `${label(row.x)} / ${label(row.y)}`, label: { color: (finiteNumber(row.value) - min) / (max - min) < .2 ? ink : fillInk }, code: row.code })) }];
+    option.series = [{ id: 'heatmap', type: 'heatmap', dimensions: ['横向类别', '纵向类别', unit ? `数值 / ${unit}` : '数值'], encode: { x: 0, y: 1, value: 2, tooltip: [2] }, label: { ...itemLabel, color: original ? '#faf3df' : ink }, itemStyle: { borderColor: original ? '#423b4666' : `${theme.panel}66`, borderWidth: 2, borderRadius: 3 }, emphasis: { itemStyle: { borderColor: original ? '#f1e4b5' : theme.accent, borderWidth: 1 } }, data: shownRows.map(row => ({ value: [xs.indexOf(label(row.x)), ys.indexOf(label(row.y)), finiteNumber(row.value)], name: `${label(row.x)} / ${label(row.y)}`, label: { color: (finiteNumber(row.value) - min) / (max - min) < .2 ? ink : fillInk }, code: row.code })) }];
   } else if (config.type === 'funnel') {
     rows.forEach((row, i) => { requiredLabel(row, 'name', i); numeric(row, 'value', i, true); });
     shownRows = rows.slice(0, count); pointCount = shownRows.length;
     const max = Math.max(...shownRows.map(row => finiteNumber(row.value)));
     if (max === 0) return { option: null, count: 0, renderCount: 0, description: '各阶段当前均为 0' };
-    option.series = [{ id: 'funnel', type: 'funnel', left: labels ? '5%' : '12%', right: labels ? '24%' : '12%', top: legend ? spacing(32) : 8, bottom: 7, min: 0, max, minSize: '0%', maxSize: '100%', sort: 'none', gap: 4, label: { show: true, position: labels ? 'right' : 'inside', color: labels ? ink : fillInk, fontSize: font, formatter: labels ? '{b}: {c}' : '{b}' }, labelLine: { length: 8, lineStyle: { color: muted } }, itemStyle: { borderColor: '#efe4c638', borderWidth: 1, opacity: .86 }, emphasis: { label: { fontWeight: 'bold' } }, data: shownRows.map((row, i) => ({ name: label(row.name), value: numeric(row, 'value', i), code: row.code })) }];
+    option.series = [{ id: 'funnel', type: 'funnel', left: labels ? '5%' : '12%', right: labels ? '24%' : '12%', top: legend ? spacing(32) : 8, bottom: 7, min: 0, max, minSize: '0%', maxSize: '100%', sort: 'none', gap: 4, label: { show: true, position: labels ? 'right' : 'inside', color: labels ? ink : fillInk, fontSize: font, formatter: labels ? '{b}: {c}' : '{b}' }, labelLine: { length: 8, lineStyle: { color: muted } }, itemStyle: { borderColor: original ? '#efe4c638' : `${theme.accent}38`, borderWidth: 1, opacity: .86 }, emphasis: { label: { fontWeight: 'bold' } }, data: shownRows.map((row, i) => ({ name: label(row.name), value: numeric(row, 'value', i), code: row.code })) }];
   } else if (config.type === 'treemap') {
     rows.forEach((row, i) => { requiredLabel(row, 'name', i); numeric(row, 'value', i, true); });
     shownRows = rows.slice(0, count); pointCount = shownRows.length;
@@ -155,7 +159,7 @@ export function buildProfessionalChart(config, data, size = {}) {
     });
     const tree = [...groups].flatMap(([name, children], i) => name ? [{ id: `group-${i}`, name, children }] : children);
     option.legend.show = false;
-    option.series = [{ id: 'treemap', type: 'treemap', top: 4, bottom: 5, left: 3, right: 3, roam: false, nodeClick: false, breadcrumb: { show: false }, label: { show: true, color: fillInk, fontSize: font, overflow: 'truncate', formatter: labels ? '{b}\n{c}' : '{b}' }, upperLabel: { show: true, height: spacing(23), color: ink, fontSize: font }, itemStyle: { borderColor: '#4e4651', borderWidth: 2, gapWidth: 3 }, levels: [{ itemStyle: { borderWidth: 0, gapWidth: 5 } }, { colorAlpha: [.76, .94], itemStyle: { borderWidth: 3, gapWidth: 3 } }, { itemStyle: { borderWidth: 2, gapWidth: 2 } }], data: tree }];
+    option.series = [{ id: 'treemap', type: 'treemap', top: 4, bottom: 5, left: 3, right: 3, roam: false, nodeClick: false, breadcrumb: { show: false }, label: { show: true, color: fillInk, fontSize: font, overflow: 'truncate', formatter: labels ? '{b}\n{c}' : '{b}' }, upperLabel: { show: true, height: spacing(23), color: ink, fontSize: font }, itemStyle: { borderColor: original ? '#4e4651' : theme.panel, borderWidth: 2, gapWidth: 3 }, levels: [{ itemStyle: { borderWidth: 0, gapWidth: 5 } }, { colorAlpha: [.76, .94], itemStyle: { borderWidth: 3, gapWidth: 3 } }, { itemStyle: { borderWidth: 2, gapWidth: 2 } }], data: tree }];
   }
   if (settings.zoom === true && ['multiLine', 'stacked', 'combo', 'scatter', 'heatmap'].includes(config.type)) option.dataZoom = [{ id: 'inside', type: 'inside', filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, preventDefaultMouseMove: false }];
   const sample = shownRows.slice(0, 5).map((row, i) => {

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CONFIG_FILE_LIMIT, DEFAULT_CONFIG, MODULE_TYPES, SOURCES, STORAGE_KEY, createModule, loadConfig, normalizeConfig, saveConfig } from '../src/dashboardConfig.js';
 import { parseTemplateFile, readTemplates, saveTemplate, serializeTemplate } from '../src/templateLibrary.js';
+import { DEFAULT_FONT, FONTS } from '../src/fonts.js';
 
 const draft = () => structuredClone(DEFAULT_CONFIG);
 const LEGACY_KEY = 'nexus.dashboard.config.v1';
@@ -20,6 +21,22 @@ function withStorage(storage, run) {
     if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else delete globalThis.localStorage;
   }
 }
+
+test('两套内置字体兼容旧画布并随保存和模板往返，保留业务布局与数据', () => {
+  const old = draft(); delete old.font;
+  assert.equal(normalizeConfig(old).font, DEFAULT_FONT.id);
+  assert.equal(normalizeConfig(legacyDraft()).font, DEFAULT_FONT.id);
+  for (const font of [null, undefined, {}, 'unknown', 'url(https://example.com/font)', 0]) assert.throws(() => normalizeConfig({ ...old, font }), /字体/);
+  let saved;
+  withStorage({ getItem: () => saved, setItem: (_, value) => { saved = value; } }, () => {
+    for (const { id } of FONTS) {
+      const config = { ...old, font: id, modules: [...old.modules].reverse(), dataSources: [source()] };
+      assert.deepEqual(saveConfig(config), config);
+      assert.deepEqual(loadConfig(), config);
+      assert.deepEqual(parseTemplateFile(serializeTemplate(config)), config);
+    }
+  });
+});
 
 test('v2 往返保存保留画布图层顺序，返回独立的配置数据', () => {
   const config = draft(); config.title = '  运行中心  '; config.modules.reverse();

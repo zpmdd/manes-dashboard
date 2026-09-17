@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>艺术字体候选 · MiSans 已保留</title>
+<style>
+@font-face{font-family:SampleMi;src:url('./fonts/MiSans-Regular.woff2');font-weight:400;font-display:swap}
+@font-face{font-family:SampleMi;src:url('./fonts/MiSans-Medium.woff2');font-weight:500;font-display:swap}
+@font-face{font-family:SampleSmiley;src:url('./fonts/SmileySans-Oblique.otf.woff2');font-weight:400;font-display:swap}
+@font-face{font-family:SampleHuangYou;src:url('./fonts/ZCOOLQingKeHuangYou-Regular.ttf');font-weight:400;font-display:swap}
+@font-face{font-family:SampleXiaoWei;src:url('./fonts/ZCOOLXiaoWei-Regular.ttf');font-weight:400;font-display:swap}
+@font-face{font-family:SampleWenKai;src:url('./fonts/LXGWWenKaiGBLite-Medium.ttf');font-weight:500;font-display:swap}
+@font-face{font-family:SampleKuaiLe;src:url('./fonts/ZCOOLKuaiLe-Regular.ttf');font-weight:400;font-display:swap}
+@font-face{font-family:SampleNumber;src:url('../../node_modules/@fontsource/michroma/files/michroma-latin-400-normal.woff2');font-weight:400;font-display:swap}
+@font-face{font-family:SampleLatin;src:url('../../node_modules/@fontsource/manrope/files/manrope-latin-400-normal.woff2');font-weight:400;font-display:swap}
+@font-face{font-family:SampleLatin;src:url('../../node_modules/@fontsource/manrope/files/manrope-latin-500-normal.woff2');font-weight:500;font-display:swap}
+*{box-sizing:border-box}body{margin:0;background:#19181d;color:#f3efe5;font:14px/1.6 'PingFang SC','Microsoft YaHei',sans-serif;font-synthesis:none}button,input,select{font:inherit}button,a{color:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,a:focus-visible,select:focus-visible{outline:2px solid #f0dba5;outline-offset:4px}h1,h2,h3,p{margin:0}main{max-width:1520px;margin:auto;padding:36px}.page-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:24px}.eyebrow{font:11px SampleLatin,sans-serif;color:#c6b692;letter-spacing:2px}.page-heading h1{font-size:27px;font-weight:500;margin:9px 0}.intro{color:#c7c0b8;font-size:13px;max-width:760px}.back-link{font-size:12px;color:#c7c0b8;white-space:nowrap;padding-top:12px;text-underline-offset:4px}.controls{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:17px}.controls label{display:flex;align-items:center;gap:12px;font-size:12px;min-width:0;max-width:100%}.controls select{min-width:0;padding:8px 34px 8px 12px;background:#302c33;color:#eee3cc;border:1px solid #b9a78966;border-radius:6px;max-width:100%}.controls p{color:#c7c0b8;font-size:12px}.choices{margin:0;padding:0;border:0;display:grid;grid-template-columns:1fr 1fr;gap:18px;min-width:0}.choice{min-width:0;padding:22px 25px 19px;border:1px solid #bbae963d;border-radius:13px;background:linear-gradient(125deg,#45404a90,#302c3390);box-shadow:inset 0 1px #fff5d90b}.choice:has(input:checked){border-color:#dfcca18c}.choice-head{display:flex;align-items:center;gap:11px;padding-bottom:14px;border-bottom:1px solid #e7dcc71f;margin-bottom:17px;min-height:39px}.choice-number{font:11px SampleNumber,sans-serif;color:#cbbfa7}.choice-head h2{font-size:15px;font-weight:500}.choice-head small{color:#d4c5a8;font-size:11px;margin-left:auto;white-space:nowrap}.sample{font-family:SampleLatin,var(--body-font),SampleMi,sans-serif;font-weight:400}.sample h3{font-family:var(--title-font),SampleMi,sans-serif;font-size:32px;font-weight:var(--title-weight);letter-spacing:.5px;line-height:1.45;margin:0 0 7px;padding-right:8px}.sample-nav{display:flex;flex-wrap:wrap;gap:12px 25px;color:#d9d1c5;font-size:13px}.sample-nav span:first-child{color:#f5e9c6;border-bottom:1px solid #d7c29b;padding-bottom:5px}.sample-metric{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:18px 0 16px}.metric-name{font:var(--title-weight) 20px/1.5 var(--title-font),SampleMi,sans-serif}.metric-caption{color:#c7bfb5;font-size:12px;margin-top:3px}.metric-number{font:400 28px/1.3 SampleNumber,sans-serif;letter-spacing:-1.2px;color:#f1e4bd}.metric-number small{font:400 13px SampleLatin,sans-serif;letter-spacing:0;margin-left:6px}.sample-table{display:grid;grid-template-columns:1fr 1fr auto;gap:7px 12px;font-size:13px;border-top:1px solid #e7dcc71f;padding-top:11px}.sample-table span:nth-child(3n){text-align:right}.sample-table .muted{font-size:12px;color:#c4bcb0}.map-text{display:flex;flex-wrap:wrap;gap:8px 19px;margin-top:15px;padding:9px 13px;border-radius:5px;background:#aaa6a0;color:#3c3331;font-size:13px;line-height:1.5}.choice-note{font-size:12px;color:#c7c0b8;margin-top:14px;min-height:20px}.choice-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.choice-actions label{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;min-height:34px}.choice-actions input{accent-color:#d7c39d;width:16px;height:16px;margin:0;flex-shrink:0}.choice-actions input:disabled{opacity:1}.preview-button,.copy-button,#original{padding:8px 13px;border:1px solid #b6a48370;border-radius:6px;background:transparent;color:#eee2c6;font-size:12px;white-space:nowrap}.preview-button[aria-pressed=true]{background:#e6d8b8;color:#302a2e}.shortlist{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:20px 0;border-bottom:1px solid #bbae963d;margin-bottom:29px}.shortlist h2{font-size:12px;font-weight:400;color:#bdb5a8}.shortlist p{font-size:14px;margin-top:4px;overflow-wrap:anywhere}.shortlist small{display:block;font-size:11px;color:#c7c0b8;margin-top:3px;min-height:18px}.preview-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:12px;flex-wrap:wrap}.preview-heading h2{font-size:17px;font-weight:500}.preview-heading small{display:block;font-size:12px;color:#bdb5a8;margin-top:4px}#original[aria-pressed=true]{background:#e6d8b8;color:#302a2e}.preview-box{aspect-ratio:16/9;overflow:hidden;border-radius:12px;border:1px solid #bbae963d;background:#302c35}.preview-box iframe{display:block;border:0;width:100%;height:100%;pointer-events:none}.status{font-size:12px;color:#c7c0b8;margin:10px 0 24px;min-height:20px}.status[data-error=true]{color:#ffc4b5}.config{border-top:1px solid #bbae9629;padding-top:22px;display:grid;grid-template-columns:1fr 1fr;gap:22px}.config h2{font-size:16px;font-weight:500;margin-bottom:10px}.config dl{display:grid;grid-template-columns:82px minmax(0,1fr);gap:6px 16px;margin:0;font-size:13px}.config dt{color:#bdb5a8}.config dd{margin:0;overflow-wrap:anywhere}.sources{font-size:12px;color:#c7c0b8;line-height:1.9}.sources a{text-underline-offset:3px}.sources p+p{margin-top:9px}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+@media(max-width:850px){main{padding:26px 20px}.choices{grid-template-columns:1fr}.sample h3{font-size:30px}.preview-box{aspect-ratio:4/3}.config{grid-template-columns:1fr}.back-link{display:none}.controls{align-items:flex-start}.controls label{flex-wrap:wrap;gap:6px 12px}.shortlist{align-items:flex-start;flex-wrap:wrap}}
+@media(max-width:420px){main{padding:22px 14px}.choice{padding:18px 17px}.sample h3{font-size:25px}.choice-head{gap:7px}.choice-head h2{font-size:14px}.choice-head small{font-size:10px}.sample-nav{gap:15px}.metric-number{font-size:23px}.sample-table{gap:7px}.page-heading h1{font-size:23px}.preview-box{aspect-ratio:1/1}.controls select{font-size:16px;width:100%}.preview-button,.choice-actions label,.copy-button{min-height:40px}}
+</style>
+<main>
+  <header class="page-heading"><div><p class="eyebrow">TYPE STUDY / ARTISTIC EDITION</p><h1>字体候选对照 · 已选 01 与 05</h1><p class="intro">MiSans 与⑤霞鹜文楷已内置。在大屏右上角齿轮 → 全局设置 → 中文字体中切换，再保存画布。下方保留各套字体的对比样本。</p></div><a class="back-link" href="../../" target="_blank" rel="noreferrer">打开当前大屏 ↗</a></header>
+  <div class="controls"><label for="scope">搭配方式<select id="scope"><option value="headings">艺术标题 + MiSans 正文</option><option value="all">整屏中文使用所选字体</option></select></label><p>固定相同内容与字号，数值仅作排版样本</p></div>
+  <fieldset class="choices" id="choices"><legend class="sr-only">可多选要内置的字体，MiSans 已保留</legend></fieldset>
+  <section class="shortlist" aria-label="已选内置候选"><div><h2>待内置名单 · 支持多选</h2><p id="selection" aria-live="polite">① MiSans（已保留）</p><small id="copy-status" role="status">勾选后可复制名单，发给我即可接入系统配置。</small></div><button class="copy-button" id="copy-selection" type="button">复制已选名单</button></section>
+  <section id="preview-section" aria-label="真实大屏临时预览"><div class="preview-heading"><div><h2 id="preview-name">① MiSans</h2><small id="preview-caption">标题与正文统一，当前浏览器的画布</small></div><button id="original" type="button" aria-pressed="false">对比当前系统字体</button></div><div class="preview-box"><iframe id="dashboard-preview" src="../../" title="所选字体在当前大屏中的临时预览" tabindex="-1"></iframe></div><p class="status" id="preview-status" role="status" aria-live="polite">正在载入本地字体与大屏…</p></section>
+  <section class="config"><div><h2>当前预览的字体搭配</h2><dl><dt>主 / 卡标题</dt><dd id="config-heading">MiSans · Medium 500</dd><dt>正文与地名</dt><dd id="config-body">MiSans · Regular 400</dd><dt>英文 / 数字</dt><dd>Manrope / Michroma，保留现有比例</dd><dt>系统配置</dt><dd>MiSans / 霞鹜文楷已内置，从齿轮 → 全局设置切换并保存</dd></dl></div><div class="sources"><h2>来源与内置方式</h2><p id="source-links"></p><p>新增字体采用原版文件并保留 OFL 许可，可随项目本地部署。本页只做临时对比，不写入画布；MiSans 与霞鹜文楷已可在系统全局设置中切换。</p></div></section>
+</main>
+<script>
+const presets = [
+  { id: 'mi', number: '①', name: 'MiSans', font: 'SampleMi', weight: 500, tag: '已保留', note: '清晰现代，作为日常整屏字体与艺术标题的正文搭配。', source: 'https://hyperos.mi.com/font/zh/download/' },
+  { id: 'smiley', number: '②', name: '得意黑', font: 'SampleSmiley', weight: 400, tag: '斜切 · 速度感', note: '窄身斜切和手绘细节，更适合科技、交通主题的醒目标题。', source: 'https://github.com/atelier-anchor/smiley-sans' },
+  { id: 'huangyou', number: '③', name: '站酷庆科黄油体', font: 'SampleHuangYou', weight: 400, tag: '几何 · 未来感', note: '圆角与几何切口，有显示仪表般的设计感，可优先试这套。', source: 'https://github.com/googlefonts/zcool-qingke-huangyou' },
+  { id: 'xiaowei', number: '④', name: '站酷小薇体', font: 'SampleXiaoWei', weight: 400, tag: '现代宋体 · 精致', note: '细节灵动、笔画对比鲜明，配烟灰玻璃更偏精致展陈风格。', source: 'https://github.com/googlefonts/zcool-xiaowei' },
+  { id: 'wenkai', number: '⑤', name: '霞鹜文楷', font: 'SampleWenKai', weight: 500, tag: '手写 · 人文感', note: '保留书写温度，适合文化、文旅或更亲和的专题大屏。', source: 'https://github.com/lxgw/LxgwWenkaiGB-Lite' },
+  { id: 'kuaile', number: '⑥', name: '站酷快乐体', font: 'SampleKuaiLe', weight: 400, tag: '手绘块面 · 个性', note: '不规则块面与活泼轮廓，适合创意展示、活动或品牌主题。', source: 'https://github.com/googlefonts/zcool-kuaile' },
+];
+const choices = document.getElementById('choices');
+const saved = new URLSearchParams(location.hash.slice(1)).get('keep')?.split(',') || [];
+choices.insertAdjacentHTML('beforeend', presets.map(p => `<article class="choice" data-id="${p.id}" style="--title-font:${p.font};--title-weight:${p.weight};--body-font:SampleMi"><div class="choice-head"><span class="choice-number">0${presets.indexOf(p) + 1}</span><h2>${p.name}</h2><small>${p.tag}</small></div><div class="sample"><h3>全域车辆运行监测</h3><div class="sample-nav"><span>运行总览</span><span>区域分析</span><span>车辆明细</span></div><div class="sample-metric"><div><p class="metric-name">车辆在线率</p><p class="metric-caption">当前区域 · 运行状态</p></div><p class="metric-number">98.6<small>%</small></p></div><div class="sample-table"><span class="muted">车辆编号</span><span class="muted">所属区域</span><span class="muted">运行状态</span><span>陕A·03261</span><span>西安市雁塔区</span><span>行驶中</span></div><div class="map-text"><span>陕西省</span><span>湖北省</span><span>内蒙古</span><span>新疆</span><span>重庆市</span></div></div><p class="choice-note">${p.note}</p><div class="choice-actions"><label><input type="checkbox" name="include" value="${p.id}" ${p.id === 'mi' ? 'checked disabled' : saved.includes(p.id) ? 'checked' : ''}>${p.id === 'mi' ? 'MiSans 已保留' : '加入内置候选'}</label><button type="button" class="preview-button" data-preview="${p.id}" aria-pressed="${p.id === 'mi'}" aria-label="预览${p.name}">预览整屏</button></div></article>`).join(''));
+document.getElementById('source-links').innerHTML = presets.map(p => `<a href="${p.source}" target="_blank" rel="noreferrer">${p.name}</a>`).join(' · ');
+const frame = document.getElementById('dashboard-preview'), status = document.getElementById('preview-status');
+const original = document.getElementById('original'), scope = document.getElementById('scope');
+let selected = 'mi', comparing = false, request = 0;
+function selectionText() {
+  const ids = new Set([...choices.querySelectorAll('input:checked')].map(input => input.value));
+  return presets.filter(p => ids.has(p.id)).map(p => `${p.number} ${p.name}${p.id === 'mi' ? '（已保留）' : ''}`).join('、');
+}
+function updateSelection() {
+  document.getElementById('selection').textContent = selectionText();
+  document.getElementById('copy-status').textContent = '名单已更新，选定后再内置到系统。';
+  const ids = [...choices.querySelectorAll('input:checked:not(:disabled)')].map(input => input.value);
+  history.replaceState(null, '', location.pathname + location.search + (ids.length ? '#keep=' + ids.join(',') : ''));
+}
+async function render() {
+  const ticket = ++request, preset = presets.find(p => p.id === selected), doc = frame.contentDocument;
+  const bodyFont = scope.value === 'all' ? preset.font : 'SampleMi';
+  presets.forEach(p => choices.querySelector(`[data-id=${p.id}]`).style.setProperty('--body-font', scope.value === 'all' ? p.font : 'SampleMi'));
+  choices.querySelectorAll('[data-preview]').forEach(button => button.setAttribute('aria-pressed', String(!comparing && button.dataset.preview === selected)));
+  document.getElementById('preview-name').textContent = comparing ? '当前系统字体 · 原始画布' : preset.number + ' ' + preset.name;
+  document.getElementById('preview-caption').textContent = scope.value === 'all' ? '整屏中文试用，英文与数字保持原样' : '主标题与卡片标题使用所选字体，正文与地图地名使用 MiSans';
+  document.getElementById('config-heading').textContent = preset.name + ' · 原生字重 ' + preset.weight;
+  document.getElementById('config-body').textContent = scope.value === 'all' ? preset.name : 'MiSans · Regular 400';
+  original.setAttribute('aria-pressed', String(comparing));
+  original.textContent = comparing ? '返回所选字体方案' : '对比当前系统字体';
+  if (!doc?.head || !frame.dataset.ready) return;
+  let style = doc.getElementById('typography-preview-style');
+  if (!style) {
+    style = doc.createElement('style'); style.id = 'typography-preview-style'; doc.head.append(style);
+    const faces = doc.createElement('style');
+    faces.textContent = [...document.styleSheets[0].cssRules].filter(rule => rule.type === CSSRule.FONT_FACE_RULE).map(rule => rule.cssText.replace(/url\(["']?([^)"']+)["']?\)/g, (_, url) => `url("${new URL(url, location.href).href}")`)).join('\n');
+    doc.head.append(faces);
+  }
+  status.dataset.error = 'false'; status.textContent = '正在载入所选字体…';
+  try {
+    if (!comparing) {
+      const loaded = await Promise.all([doc.fonts.load('400 16px ' + bodyFont, '全域车辆监测'), doc.fonts.load(preset.weight + ' 24px ' + preset.font, '全域车辆监测')]);
+      if (loaded.some(faces => faces.length === 0)) throw new Error('Font face unavailable');
+    }
+    if (ticket !== request) return;
+    style.textContent = comparing ? '' : `:root{font-family:Manrope,${bodyFont},SampleMi,'PingFang SC',sans-serif!important}.road-label{font-family:Manrope,${bodyFont},SampleMi,sans-serif!important}.screen-title h1,.widget-heading h2,.map-section-title{font-family:Manrope,${preset.font},SampleMi,sans-serif!important;font-weight:${preset.weight}!important}`;
+    frame.dataset.font = comparing ? 'original' : selected; frame.dataset.scope = scope.value;
+    // Resizing lets the map measure labels again after the selected font loads.
+    frame.style.width = 'calc(100% - 1px)'; requestAnimationFrame(() => { frame.style.width = '100%'; });
+    status.textContent = comparing ? '当前系统字体。可返回所选方案继续比较。' : preset.name + ' 已加载 · 仅临时预览，未写入系统配置。';
+  } catch {
+    if (ticket !== request) return;
+    status.dataset.error = 'true'; status.textContent = '字体加载失败，请确认通过项目本地预览地址打开本页。';
+  }
+}
+choices.addEventListener('change', updateSelection);
+choices.addEventListener('click', event => {
+  const button = event.target.closest('[data-preview]');
+  if (!button) return;
+  selected = button.dataset.preview; comparing = false; render();
+  document.getElementById('preview-section').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+});
+scope.addEventListener('change', () => { comparing = false; render(); });
+original.addEventListener('click', () => { comparing = !comparing; render(); });
+frame.addEventListener('load', () => { frame.dataset.ready = 'true'; render(); });
+document.getElementById('copy-selection').addEventListener('click', async () => {
+  const text = '请内置以下字体，并接入编辑大屏的配置切换：' + selectionText() + '。';
+  try { await navigator.clipboard.writeText(text); document.getElementById('copy-status').textContent = '已复制，可直接粘贴到对话中。'; }
+  catch { document.getElementById('copy-status').textContent = '未能写入剪贴板，可直接复制上方名单或回复编号。'; }
+});
+document.getElementById('selection').textContent = selectionText();
+render();
+</script>
+</html>

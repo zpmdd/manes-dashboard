@@ -1,0 +1,86 @@
+{
+  "fonts": [
+    {
+      "id": "mi",
+      "fonts": [
+        {
+          "familyName": "MiSans",
+          "postScriptName": "MiSans-Medium",
+          "isCustomFont": true,
+          "glyphCount": 8
+        }
+      ]
+    },
+    {
+      "id": "smiley",
+      "fonts": [
+        {
+          "familyName": "Smiley Sans Oblique",
+          "postScriptName": "SmileySans-Oblique",
+          "isCustomFont": true,
+          "glyphCount": 8
+        }
+      ]
+    },
+    {
+      "id": "huangyou",
+      "fonts": [
+        {
+          "familyName": "ZCOOL QingKe HuangYou",
+          "postScriptName": "ZCOOLQingKeHuangYou-Regular",
+          "isCustomFont": true,
+          "glyphCount": 8
+        }
+      ]
+    },
+    {
+      "id": "xiaowei",
+      "fonts": [
+        {
+          "familyName": "ZCOOL XiaoWei",
+          "postScriptName": "ZCOOLXiaoWei-Regular",
+          "isCustomFont": true,
+          "glyphCount": 8
+        }
+      ]
+    },
+    {
+      "id": "wenkai",
+      "fonts": [
+        {
+          "familyName": "LXGW WenKai GB Lite Medium",
+          "postScriptName": "LXGWWenKaiGBLite-Medium",
+          "isCustomFont": true,
+          "glyphCount": 8
+        }
+      ]
+    },
+    {
+      "id": "kuaile",
+      "fonts": [
+        {
+          "familyName": "ZCOOL KuaiLe",
+          "postScriptName": "ZCOOLKuaiLe-Regular",
+          "isCustomFont": true,
+          "glyphCount": 8
+        }
+      ]
+    }
+  ],
+  "scopes": [
+    "headings",
+    "all"
+  ],
+  "widths": [
+    1440,
+    768,
+    390,
+    320
+  ],
+  "multiSelect": true,
+  "copySelection": true,
+  "reloadRestoresSelection": true,
+  "storageUnchanged": true,
+  "errors": [],
+  "failed": []
+}

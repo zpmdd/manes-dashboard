@@ -8,6 +8,7 @@ import { extent, labelPoint, layoutLabels, NATIONAL, polygons, projection, short
 import { useRoadmap } from './useRoadmap';
 import { VEHICLES, linkedVehicles, groupVehiclePoints, vehicleCalloutPosition } from './vehicles';
 import { VehicleCallout } from './MapPanels';
+import { DEFAULT_THEME } from './themes';
 
 const CAMERA = [0, 22, 18];
 const TOP = 0.36;
@@ -96,11 +97,11 @@ export function vehicleDetailVisible(camera, project, size, previous = false) {
   return points[0].distanceTo(points[1]) >= (previous ? 1.6 : 2);
 }
 
-function MapLabelLayout({ model, labelPortal, viewport, onVehicleDetailChange }) {
+function MapLabelLayout({ model, labelPortal, viewport, onVehicleDetailChange, fontFamily }) {
   const { size, invalidate } = useThree();
   const detail = useRef(null);
   const regions = useMemo(() => new Map(model.regions.map(region => [String(region.feature.properties.adcode), region])), [model]);
-  useLayoutEffect(() => { invalidate(); }, [model, size, viewport, invalidate]);
+  useLayoutEffect(() => { invalidate(); }, [model, size, viewport, invalidate, fontFamily]);
   useFrame(({ camera }) => {
     const detailed = vehicleDetailVisible(camera, model.project, size, detail.current);
     if (labelPortal.current) labelPortal.current.dataset.vehicleDetail = String(detailed);
@@ -205,25 +206,26 @@ function Roads({ data, project, layers, detail, scale, labelPortal }) {
   </lineSegments>)}{labels.map(({ref, name, point}) => <Html key={ref} portal={labelPortal} position={[point[0],TOP+.065 * scale,-point[1]]} center zIndexRange={[8,0]} style={{pointerEvents:'none'}}><span className="road-label" title={name}>{ref}</span></Html>)}</>;
 }
 
-function Beacon({ position, height, scale }) {
+function Beacon({ position, height, scale, theme }) {
   return <group position={position} scale={scale}>
     <mesh position={[0, .035, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-      <ringGeometry args={[.11, .15, 32]} /><meshBasicMaterial color="#efe3bb" transparent opacity={.65} toneMapped={false} />
+      <ringGeometry args={[.11, .15, 32]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#efe3bb' : theme.accent} transparent opacity={.65} toneMapped={false} />
     </mesh>
-    <mesh position={[0, height / 2, 0]}><cylinderGeometry args={[.028, .028, height, 5]} /><meshBasicMaterial color="#fff0ce" toneMapped={false} /></mesh>
-    <mesh position={[0, height / 2, 0]}><cylinderGeometry args={[.07, .12, height, 8, 1, true]} /><meshBasicMaterial color="#ebd8a3" transparent opacity={.13} depthWrite={false} side={THREE.DoubleSide} /></mesh>
-    <mesh position={[0, height, 0]}><sphereGeometry args={[.068, 12, 8]} /><meshBasicMaterial color="#fff6db" toneMapped={false} /></mesh>
+    <mesh position={[0, height / 2, 0]}><cylinderGeometry args={[.028, .028, height, 5]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#fff0ce' : theme.accent} toneMapped={false} /></mesh>
+    <mesh position={[0, height / 2, 0]}><cylinderGeometry args={[.07, .12, height, 8, 1, true]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#ebd8a3' : theme.accent} transparent opacity={.13} depthWrite={false} side={THREE.DoubleSide} /></mesh>
+    <mesh position={[0, height, 0]}><sphereGeometry args={[.068, 12, 8]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#fff6db' : theme.accent} toneMapped={false} /></mesh>
   </group>;
 }
 
-export const RegionMesh = memo(function RegionMesh({ region, selected, onSelect, onHover, roadmap }) {
+export const RegionMesh = memo(function RegionMesh({ region, selected, onSelect, onHover, roadmap, theme = DEFAULT_THEME }) {
   const [hover, setHover] = useState(false);
   const { feature, geometry, color } = region;
   const active = selected || hover;
+  const surface = region.focused ? theme.map.focused : color === DEFAULT_THEME.map.land ? theme.map.land : theme.map.context;
   return <mesh geometry={geometry} castShadow receiveShadow onPointerOver={e => { e.stopPropagation(); setHover(true); onHover(feature.properties.name); }} onPointerOut={() => { setHover(false); onHover(''); }} onClick={e => { if (e.delta > 5 || !feature.properties.name) return; e.stopPropagation(); onSelect(feature); }}>
     {roadmap ? <meshBasicMaterial key={roadmap.key} attach="material-0" color={active ? '#ffedc5' : region.focused ? '#fff8e8' : color === '#464449' ? '#77736c' : '#ffffff'} toneMapped={false} fog={false} {...roadmap.props} />
-      : <meshStandardMaterial key="plain" attach="material-0" color={active ? '#e0d3a8' : color} roughness={.48} metalness={.28} fog={false} />}
-    <meshStandardMaterial attach="material-1" color={active ? '#ac9771' : '#6b6667'} roughness={.65} metalness={.22} fog={false} />
+      : <meshStandardMaterial key="plain" attach="material-0" color={active ? theme.map.active : surface} roughness={.48} metalness={.28} fog={false} />}
+    <meshStandardMaterial attach="material-1" color={active ? theme.map.activeSide : theme.map.side} roughness={.65} metalness={.22} fog={false} />
   </mesh>;
 });
 
@@ -356,7 +358,7 @@ function CameraControls({ command, code, onTelemetry, bounds, viewport, project 
   return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={.12} enablePan screenSpacePanning minDistance={.0001} maxDistance={90} minPolarAngle={.01} maxPolarAngle={Math.PI / 2.12} onStart={cancelFlight} onEnd={() => direction.current.copy(camera.position).sub(controls.current.target)} onChange={() => invalidate()} />;
 }
 
-function World({ data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, onVehicleClear, onVehicleDetails, vehicleHighlight = 'vehicle:all', command, quality, onTelemetry, viewport }) {
+function World({ data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, onVehicleClear, onVehicleDetails, vehicleHighlight = 'vehicle:all', command, quality, onTelemetry, viewport, theme = DEFAULT_THEME, fontFamily }) {
   const national = code === NATIONAL;
   const model = useMemo(() => modelFor(data, code, collections), [data, code, collections]);
   const { gl, invalidate } = useThree();
@@ -380,38 +382,38 @@ function World({ data, collections, roadData, labelPortal, code, layers, selecte
   useEffect(() => { gl.shadowMap.needsUpdate = true; invalidate(); }, [model, gl, invalidate, layers.beacons]);
   useEffect(() => () => { model.regions.forEach(r => r.geometry.dispose()); model.backdrops.forEach(g => g.dispose()); }, [model]);
   return <>
-    <color attach="background" args={['#6f6f75']} />
-    <fog attach="fog" args={['#6f6f75', 21, 42]} />
+    <color attach="background" args={[theme.bg]} />
+    <fog attach="fog" args={[theme.bg, 21, 42]} />
     <ambientLight intensity={.3} />
-    <hemisphereLight args={['#fffaea', '#55515a', 1.0]} />
-    <directionalLight position={[-6, 12, 5]} intensity={2.0} color="#fff1d4" castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-.0004} shadow-normalBias={.035} shadow-camera-left={-13} shadow-camera-right={13} shadow-camera-top={13} shadow-camera-bottom={-13} shadow-camera-near={.5} shadow-camera-far={40} />
-    <pointLight position={[-9, 2.2, 6]} color="#ffe0b0" intensity={13} distance={14} decay={2} />
-    <pointLight position={[-13, 1.4, 2]} color="#f8e1c4" intensity={11} distance={9} decay={2} />
-    <Environment frames={1} resolution={128}>
-      <Lightformer intensity={2.5} position={[0, 7, -4]} rotation={[Math.PI / 2, 0, 0]} scale={[20, 14, 1]} color="#fff7e7" />
+    <hemisphereLight args={[theme.map.sky, theme.map.ambient, 1.0]} />
+    <directionalLight position={[-6, 12, 5]} intensity={2.0} color={theme.map.light} castShadow shadow-mapSize={[1024, 1024]} shadow-bias={-.0004} shadow-normalBias={.035} shadow-camera-left={-13} shadow-camera-right={13} shadow-camera-top={13} shadow-camera-bottom={-13} shadow-camera-near={.5} shadow-camera-far={40} />
+    <pointLight position={[-9, 2.2, 6]} color={theme.map.glow} intensity={13} distance={14} decay={2} />
+    <pointLight position={[-13, 1.4, 2]} color={theme.map.glow2} intensity={11} distance={9} decay={2} />
+    <Environment key={theme.id} frames={1} resolution={128}>
+      <Lightformer intensity={2.5} position={[0, 7, -4]} rotation={[Math.PI / 2, 0, 0]} scale={[20, 14, 1]} color={theme.map.environment} />
       <Lightformer intensity={1.5} position={[-10, 4, 1]} rotation={[0, Math.PI / 2, 0]} scale={[8, 12, 1]} />
     </Environment>
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -.04, 0]} receiveShadow>
       <planeGeometry args={[180, 180]} />
-      {quality === 'high' ? <MeshReflectorMaterial resolution={512} blur={[140, 80]} mixBlur={1} mixStrength={1.9} mirror={.16} color="#57565f" metalness={.2} roughness={.85} depthScale={.8} minDepthThreshold={.4} maxDepthThreshold={1.4} /> : <meshStandardMaterial color="#57565f" roughness={.88} metalness={.1} />}
+      {quality === 'high' ? <MeshReflectorMaterial resolution={512} blur={[140, 80]} mixBlur={1} mixStrength={1.9} mirror={.16} color={theme.map.ground} metalness={.2} roughness={.85} depthScale={.8} minDepthThreshold={.4} maxDepthThreshold={1.4} /> : <meshStandardMaterial color={theme.map.ground} roughness={.88} metalness={.1} />}
     </mesh>
     <ContactShadows key={code} position={[0, -.02, 0]} scale={35} opacity={.4} blur={2.5} far={4} resolution={512} frames={1} color="#27222a" />
-    {model.backdrops.map((geometry, i) => <mesh key={i} geometry={geometry} receiveShadow><meshStandardMaterial color="#464449" roughness={.48} metalness={.28} fog={false} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={4} /></mesh>)}
-    {model.regions.map(region => <RegionMesh key={region.feature.properties.adcode} region={region} selected={String(region.feature.properties.adcode) === selected} onSelect={onSelect} onHover={onHover} roadmap={roadmap} />)}
+    {model.backdrops.map((geometry, i) => <mesh key={i} geometry={geometry} receiveShadow><meshStandardMaterial color={theme.map.context} roughness={.48} metalness={.28} fog={false} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={4} /></mesh>)}
+    {model.regions.map(region => <RegionMesh theme={theme} key={region.feature.properties.adcode} region={region} selected={String(region.feature.properties.adcode) === selected} onSelect={onSelect} onHover={onHover} roadmap={roadmap} />)}
     {roadmapStatus && <Html portal={labelPortal} position={model.bounds.getCenter(new THREE.Vector3()).toArray()} center style={{ pointerEvents: 'none' }}><span className="road-label" role="status">{roadmapStatus}</span></Html>}
-    <Line points={model.edges} segments color="#8f8578" lineWidth={.75} transparent opacity={.75} toneMapped={false} fog={false} depthWrite={false} renderOrder={3} />
-    {model.contextEdges.length > 0 && <Line points={model.contextEdges} segments color="#bfb6a7" lineWidth={.65} transparent opacity={.6} toneMapped={false} fog={false} depthWrite={false} renderOrder={2} />}
+    <Line points={model.edges} segments color={theme.map.edge} lineWidth={.75} transparent opacity={.75} toneMapped={false} fog={false} depthWrite={false} renderOrder={3} />
+    {model.contextEdges.length > 0 && <Line points={model.contextEdges} segments color={theme.map.contextEdge} lineWidth={.65} transparent opacity={.6} toneMapped={false} fog={false} depthWrite={false} renderOrder={2} />}
     {layers.roads && <Roads data={roadData} project={model.project} scale={model.scale} labelPortal={labelPortal} layers={layers} detail={code === '420381'} />}
-    {layers.arcs && arcs.map((p, i) => <Line key={i} points={p} color="#f5e3b9" transparent opacity={.55} lineWidth={1} depthWrite={false} />)}
-    {layers.beacons && hubs.map(h => <Beacon key={h.name} position={h.position} height={h.height} scale={model.scale} />)}
+    {layers.arcs && arcs.map((p, i) => <Line key={i} points={p} color={theme.id === DEFAULT_THEME.id ? '#f5e3b9' : theme.accent} transparent opacity={.55} lineWidth={1} depthWrite={false} />)}
+    {layers.beacons && hubs.map(h => <Beacon theme={theme} key={h.name} position={h.position} height={h.height} scale={model.scale} />)}
     {layers.vehicles && model.vehicles.map(({ vehicle, position }, i) => <Html key={vehicle.VEHICLENO} portal={labelPortal} position={position} center zIndexRange={[12, 9]} style={{ pointerEvents: 'none' }}><button ref={element => { if (element) invalidate(); }} className={`vehicle-marker${vehicle.GPS_SPEED > 0 ? ' is-moving' : ''}${highlightedVehicles.includes(vehicle) ? ' is-selected' : ''}`} data-vehicle={i} data-highlighted={highlightedVehicles.includes(vehicle)} aria-label={`查看车辆 ${vehicle.VEHICLENO}`} aria-pressed={highlightedVehicles.includes(vehicle)} aria-describedby="vehicle-hover-details" onPointerEnter={hoverVehicle} onPointerLeave={() => onVehicleHover?.(null)} onFocus={hoverVehicle} onBlur={() => onVehicleHover?.(null)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onVehicleHover?.(null); const detailed = labelPortal.current?.dataset.vehicleDetail === 'true'; onVehicleSelect(detailed ? vehicle : vehicleMembers(event.currentTarget), detailed); }}><i className="vehicle-dot" aria-hidden="true"/><span className="vehicle-symbol"><Car size={14} weight="fill"/><span>{vehicle.VEHICLENO}</span></span></button></Html>)}
     {layers.vehicles && selectedVehicle && <Html portal={labelPortal} position={selectedVehicle.position} zIndexRange={[15, 13]} style={{ pointerEvents: 'none' }}><VehicleCallout vehicle={selectedVehicle.vehicle} onClose={onVehicleClear} onDetails={onVehicleDetails}/></Html>}
-    {layers.labels && model.regions.filter(r => r.feature.properties.name).map(({ feature, anchor, focused }) => <Html key={feature.properties.adcode} portal={labelPortal} position={[anchor[0], TOP + .08 * model.scale, anchor[2]]} center zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}><span ref={element => { if (element) invalidate(); }} className={`map-region-label${focused ? ' is-focused' : ''}`} data-adcode={feature.properties.adcode} title={feature.properties.name}>{shortName(feature.properties.name)}</span></Html>)}
+    {layers.labels && model.regions.filter(r => r.feature.properties.name).map(({ feature, anchor, focused }) => <Html key={feature.properties.adcode} portal={labelPortal} position={[anchor[0], TOP + .08 * model.scale, anchor[2]]} center zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}><span ref={element => { if (element) invalidate(); }} className={`map-region-label${focused ? ' is-focused' : national ? '' : ' is-context'}`} data-adcode={feature.properties.adcode} title={feature.properties.name}>{shortName(feature.properties.name)}</span></Html>)}
     {layers.heat && hubs.map(h => <mesh key={h.name} rotation={[-Math.PI / 2, 0, 0]} position={[h.position[0], TOP + .025 * model.scale, h.position[2]]}>
       <planeGeometry args={[2.0 * model.scale, 2.0 * model.scale]} /><shaderMaterial vertexShader={heatVertex} fragmentShader={heatFragment} transparent depthWrite={false} />
     </mesh>)}
     <CameraControls command={command} code={code} onTelemetry={onTelemetry} bounds={model.bounds} viewport={viewport} project={model.project} />
-    {(layers.labels || layers.vehicles) && <MapLabelLayout model={model} labelPortal={labelPortal} viewport={viewport} onVehicleDetailChange={onVehicleDetailChange} />}
+    {(layers.labels || layers.vehicles) && <MapLabelLayout model={model} labelPortal={labelPortal} viewport={viewport} onVehicleDetailChange={onVehicleDetailChange} fontFamily={fontFamily} />}
   </>;
 }
 

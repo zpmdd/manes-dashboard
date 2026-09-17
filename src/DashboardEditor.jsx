@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { ArrowCounterClockwise, ArrowClockwise, Check, Copy, Database, Eye, FloppyDisk, GridFour, SlidersHorizontal, SquaresFour, X } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, ArrowClockwise, Check, Copy, Database, Eye, FloppyDisk, GridFour, Palette, SlidersHorizontal, SquaresFour, X } from '@phosphor-icons/react';
 import { createModule, loadConfig, saveConfig } from './dashboardConfig.js';
 import { arrangeLayouts, changeLayout, editHistory, layoutStyle, snapLayout } from './layout.js';
 import './editor.css';
@@ -35,6 +35,12 @@ export function useDashboardEditor(notify) {
     patchMany(Object.fromEntries(next.filter((item, i) => item !== items[i]).map(item => [item.id, { layout: item.layout }])));
   };
   const start = () => { dispatch({ type: 'reset', config: saved }); setEditing(true); setPreview(false); select(null); };
+  const setTheme = theme => {
+    if (config.theme === theme) return;
+    if (editing) { change(current => ({ ...current, theme })); return; }
+    try { const next = saveConfig({ ...saved, theme }); setSaved(next); dispatch({ type: 'reset', config: next }); }
+    catch (error) { notify(error.message); }
+  };
   const finish = () => {
     try { const next = saveConfig(history.present); setSaved(next); dispatch({ type: 'reset', config: next }); setEditing(false); setPreview(false); setGuides([]); notify('画布已保存'); }
     catch (error) { notify(error.message); }
@@ -93,14 +99,14 @@ export function useDashboardEditor(notify) {
     };
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [editing, preview, selectedIds, config, patchMany, undo, redo]);
-  return { config, items, editing, preview, selected, selectedIds: selection, select, guides, setGuides, start, finish, cancel, add, patch, patchMany, change, duplicate, remove, arrange, align, undo, redo, setPreview, canUndo: Boolean(history.past.length), canRedo: Boolean(history.future.length), dirty: history.present !== saved };
+  return { config, items, editing, preview, selected, selectedIds: selection, select, guides, setGuides, start, finish, cancel, add, patch, patchMany, change, setTheme, duplicate, remove, arrange, align, undo, redo, setPreview, canUndo: Boolean(history.past.length), canRedo: Boolean(history.future.length), dirty: history.present !== saved };
 }
 
 export function EditorToolbar({ editor, onDialog }) {
   return <div className="editor-toolbar" role="toolbar" aria-label="画布编辑工具">
     <div className="editor-title"><SquaresFour size={22}/><strong>画布编辑器</strong><span>{editor.dirty ? '未保存' : '已保存'}</span></div>
     <div className="editor-tool-group"><button onClick={editor.undo} disabled={!editor.canUndo} aria-label="撤销"><ArrowCounterClockwise/></button><button onClick={editor.redo} disabled={!editor.canRedo} aria-label="重做"><ArrowClockwise/></button><label><input type="checkbox" checked={editor.config.canvas.snap} onChange={e => editor.change({ ...editor.config, canvas: { ...editor.config.canvas, snap: e.target.checked } })}/><GridFour/>网格</label><label title="对齐组件边缘和中心，按住 Alt 临时关闭吸附"><input type="checkbox" checked={editor.config.canvas.magnet} onChange={e => editor.change({ ...editor.config, canvas: { ...editor.config.canvas, magnet: e.target.checked } })}/>磁吸</label></div>
-    <div className="editor-tool-group"><button onClick={() => onDialog('templates')}><Copy/><span>模板库</span></button><button onClick={() => onDialog('sources')}><Database/><span>数据源</span></button><button onClick={() => onDialog('config')}><SlidersHorizontal/><span>全局设置</span></button></div>
+    <div className="editor-tool-group"><button onClick={() => onDialog('templates')}><Copy/><span>模板库</span></button><button onClick={() => onDialog('sources')}><Database/><span>数据源</span></button><button onClick={() => onDialog('theme')}><Palette/><span>切换配色</span></button><button onClick={() => onDialog('config')}><SlidersHorizontal/><span>全局设置</span></button></div>
     <div className="editor-tool-group editor-save-group"><button onClick={() => editor.setPreview(value => !value)} aria-pressed={editor.preview}><Eye/><span>{editor.preview ? '返回编辑' : '预览'}</span></button><button onClick={editor.cancel}><X/><span>取消</span></button><button className="editor-primary" onClick={editor.finish}><FloppyDisk/><span>保存画布</span></button></div>
   </div>;
 }

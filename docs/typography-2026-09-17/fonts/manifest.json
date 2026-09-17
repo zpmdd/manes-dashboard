@@ -1,0 +1,107 @@
+[
+  {
+    "file": "HarmonyOS_Sans_SC_Medium.ttf",
+    "bytes": 8227312,
+    "sha256": "6ed1553edccddc48eb27ff25d134a4a715cf54211238d4840b3038576cba1944"
+  },
+  {
+    "file": "HarmonyOS_Sans_SC_Regular.ttf",
+    "bytes": 8261128,
+    "sha256": "297b088424be212207df2ce8b98e335468b782aa6b96832af0b8b773d711e2b1"
+  },
+  {
+    "file": "LICENSE-HarmonyOS-Sans.txt",
+    "bytes": 32768,
+    "sha256": "b2ffec0e6269ee41c3b5fc0345ab37600b46d66ebea6c9c58ff37f517bdfa164"
+  },
+  {
+    "file": "LICENSE-LXGWWenKaiGBLite.txt",
+    "bytes": 5178,
+    "sha256": "96b4e277f74412568e53ec799a1f3d1c839a23def5bba640af9243045756653e"
+  },
+  {
+    "file": "LICENSE-MiSans.pdf",
+    "bytes": 79535,
+    "sha256": "4a93a27cd2bd81b3b5ecfd0a853144a876fa26938a93a68443c67d74172fcb86"
+  },
+  {
+    "file": "LICENSE-SmileySans.txt",
+    "bytes": 4422,
+    "sha256": "9401f4050f1b66c26b6ccdc8b0e14a3c1cc37aac122eda84386f25854a9bec72"
+  },
+  {
+    "file": "LICENSE-SourceHanSans.txt",
+    "bytes": 4463,
+    "sha256": "fcac737e761ec63dbfbdce11030a1780161920d80315edba9c8beff1c2bac5a2"
+  },
+  {
+    "file": "LICENSE-SourceHanSerif.txt",
+    "bytes": 4463,
+    "sha256": "9ff5bb567e1b92c801fc1069e5fbf992ff8efccacb9db94e5959a5b3ba9bb903"
+  },
+  {
+    "file": "LICENSE-ZCOOLKuaiLe.txt",
+    "bytes": 4398,
+    "sha256": "538078469839b4a2e7ad22bef4ebe41681a4e53749bb2a072144024f1d6d703d"
+  },
+  {
+    "file": "LICENSE-ZCOOLQingKeHuangYou.txt",
+    "bytes": 4419,
+    "sha256": "f1bce31b817dee01c1e4ef8bc45d8ecb95f01f4abbf0a985007cb3cd0fd8123d"
+  },
+  {
+    "file": "LICENSE-ZCOOLXiaoWei.txt",
+    "bytes": 4400,
+    "sha256": "a094514ca57cf8f9c5e8d8d1adab5d8cd3a377297ff016f9df2c05b3ecd77f0a"
+  },
+  {
+    "file": "LXGWWenKaiGBLite-Medium.ttf",
+    "bytes": 14066276,
+    "sha256": "161b7cbfb3400e10e3825d93548ae09209cd4f666be652a5f49e4d792c5459c0"
+  },
+  {
+    "file": "MiSans-Medium.woff2",
+    "bytes": 4942368,
+    "sha256": "44e28ca6c2f0ca79829f192831ef87b5eec7c464f5cfb7a83467f57bb6e58114"
+  },
+  {
+    "file": "MiSans-Regular.woff2",
+    "bytes": 4858624,
+    "sha256": "d704c1a932c0bd7e8a071d276cd81c0ed0c9fecfa26ac234f4bed0559fe1cb2d"
+  },
+  {
+    "file": "SmileySans-Oblique.otf.woff2",
+    "bytes": 1361268,
+    "sha256": "4895e7a5b72753b7d4bf090581fbc4375e0ec53484944f369a584588f1eeaf08"
+  },
+  {
+    "file": "SourceHanSansCN-Medium.otf",
+    "bytes": 8406556,
+    "sha256": "a94e558a2fe972bee4f46bce0843abff37063fd68c33f1e7d9058f6f09432b01"
+  },
+  {
+    "file": "SourceHanSansCN-Regular.otf",
+    "bytes": 8429224,
+    "sha256": "e2bc8a2e7f37474b774fff8db758681ece40bb6947a90d571bce9dd60671a8e4"
+  },
+  {
+    "file": "SourceHanSerifCN-Medium.otf",
+    "bytes": 11734704,
+    "sha256": "f7906890686d17e122980efd2d6097d1caefed76312994baeaf220819e818f3a"
+  },
+  {
+    "file": "ZCOOLKuaiLe-Regular.ttf",
+    "bytes": 1514968,
+    "sha256": "812a6fc1fe54b6d73a419245c32dfeba8aa33104d5be90d1cf6af082007cb71d"
+  },
+  {
+    "file": "ZCOOLQingKeHuangYou-Regular.ttf",
+    "bytes": 8328684,
+    "sha256": "54f0c0df4308cd74cd0f2fd3494ae054dbc4a1fd6fa7d71f4807eb4cdd8b4136"
+  },
+  {
+    "file": "ZCOOLXiaoWei-Regular.ttf",
+    "bytes": 6313808,
+    "sha256": "a42b620140f493db42f741351dfbf343c0936d58588ee8004b8b2a218d997ff1"
+  }
+]

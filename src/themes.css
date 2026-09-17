@@ -1,0 +1,75 @@
+.theme-intro{font-size:12px;line-height:1.8;color:var(--theme-muted);margin:-8px 0 20px}
+.theme-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;border:0;padding:0;margin:0;min-width:0}
+.theme-option{min-width:0}.theme-card{position:relative;display:flex;flex-direction:column;gap:9px;padding:13px;border:1px solid #ffffff30;border-radius:12px;background:var(--swatch-bg);color:var(--swatch-text);cursor:pointer;overflow:hidden}
+.theme-card:hover{border-color:var(--swatch-accent)}.theme-card.is-selected{border-color:var(--swatch-accent);box-shadow:inset 0 0 0 1px var(--swatch-accent)}
+.theme-card input{position:absolute;opacity:0;width:1px;height:1px}.theme-card:focus-within{outline:2px solid var(--theme-accent);outline-offset:3px}
+.theme-swatches{display:flex;height:28px;overflow:hidden;border-radius:5px}.theme-swatches i{flex:1}
+.theme-card-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}.theme-card-title small{font-size:10px;font-weight:400}.theme-card-title svg{margin-left:auto;color:var(--swatch-accent)}
+.theme-description{font-size:10px;color:var(--swatch-text)}.theme-source{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--theme-muted);margin:7px 3px 0}.theme-source[href]:hover{text-decoration:underline;text-underline-offset:3px}
+.theme-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:22px;padding-top:16px;border-top:1px solid #ffffff25;font-size:11px;line-height:1.6}.theme-footer p{color:var(--theme-muted)}.theme-footer button{padding:8px 12px;border:1px solid #ffffff40;border-radius:7px;white-space:nowrap}.theme-footer button:disabled{cursor:default}
+@media(max-width:650px){.theme-grid{gap:12px}.theme-card{padding:10px}.theme-footer{align-items:flex-start;flex-direction:column;gap:8px}}
+
+/* Default styles remain untouched; alternatives share the same glass and layout. */
+:root[data-theme]:not([data-theme=champagne]){--ui-muted:var(--theme-muted);--cream:var(--theme-accent);--ink:var(--theme-bg);--line:color-mix(in srgb,var(--theme-muted) 28%,transparent);--chart-accent:var(--theme-accent);--chart-secondary:var(--theme-secondary);--chart-border:var(--theme-panel);--chart-track:color-mix(in srgb,var(--theme-muted) 9%,transparent);color:var(--theme-text);background:var(--theme-bg);color-scheme:dark}
+:root[data-theme]:not([data-theme=champagne]) body{background:var(--theme-bg)}
+:root[data-theme]:not([data-theme=champagne]) .dashboard{color:var(--theme-text);background:var(--theme-bg);border-color:color-mix(in srgb,var(--theme-panel),var(--theme-muted) 30%)}
+:root[data-theme]:not([data-theme=champagne]) .world-backdrop::after{background:color-mix(in srgb,var(--theme-bg) 88%,transparent)}
+:root[data-theme]:not([data-theme=champagne]) :is(.topbar nav button,.screen-title>span,.dashboard-clock span,.breadcrumb,.map-bottom,.vehicle-toolbar>span){color:var(--theme-muted)}
+:root[data-theme]:not([data-theme=champagne]) :is(.scope-select,.map-section-title,.map-tools .icon-button,.map-interaction .icon-button,.configure-button,.icon-button,.search-label){color:var(--theme-text)}
+:root[data-theme]:not([data-theme=champagne]) :is(.topbar nav .selected,.topbar nav button:hover,.vehicle-toolbar button,.back-region,.vehicle-metric-link,.text-button,.source-links a){color:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) :is(.free-dashboard .map-bottom,.vehicle-toolbar,.back-region){text-shadow:0 1px 2px var(--theme-bg),0 0 4px var(--theme-bg)}
+:root[data-theme]:not([data-theme=champagne]) :is(.free-dashboard .map-bottom,.vehicle-toolbar>span){color:var(--theme-text)}
+:root[data-theme]:not([data-theme=champagne]) :is(.widget-heading-mark,.widget-metric-scope>i,.legend-dot,.widget-clock-rule>i){background:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) :is(.configure-button,.header-tools>.icon-button,.map-section-title,.map-interaction,.back-region,.region-actions button,.region-grid button,.vehicle-tabs button){border-color:var(--line)}
+:root[data-theme]:not([data-theme=champagne]) .free-dashboard .map-interaction{background:color-mix(in srgb,var(--theme-panel) 55%,transparent)}
+:root[data-theme]:not([data-theme=champagne]) :is(.dialog,.config-dialog,.ep-template-dialog,.ds-dialog){color:var(--theme-text);background:linear-gradient(135deg,color-mix(in srgb,var(--theme-panel) 95%,transparent),color-mix(in srgb,var(--theme-bg) 97%,transparent));border-color:var(--line)}
+:root[data-theme]:not([data-theme=champagne]) :is(.dialog,.config-dialog,.ep-template-dialog,.ds-dialog)::backdrop{background:color-mix(in srgb,var(--theme-bg) 40%,transparent)}
+:root[data-theme]:not([data-theme=champagne]) :is(.icon-button,.segmented,.switch-track,.config-switch i){background:var(--theme-panel)}
+:root[data-theme]:not([data-theme=champagne]) :is(.header-tools>.icon-button,.map-tools .icon-button,.map-interaction .icon-button){background:none}
+:root[data-theme]:not([data-theme=champagne]) :is(.segmented button.active,.vehicle-tabs button[aria-pressed=true],.editor-toolbar .editor-primary,.config-footer .config-apply,.ep-primary,.ds-apply,.switch-list input:checked+.switch-track,.config-switch input:checked+i){background:var(--theme-accent);color:var(--theme-bg);border-color:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) :is(.search-label input,.config-field input,.config-field select,.config-column>input,.ep-field input,.ep-field select,.ep-field textarea,.ep-column>input,.ep-template-save>input,.ds-editor input,.ds-editor select,.ds-editor textarea){background:color-mix(in srgb,var(--theme-bg) 75%,transparent);border-color:var(--line);color:var(--theme-text)}
+:root[data-theme]:not([data-theme=champagne]) :is(input,textarea)::placeholder{color:var(--theme-muted);opacity:.8}
+:root[data-theme]:not([data-theme=champagne]) :is(select option,.config-field option){background:var(--theme-panel);color:var(--theme-text)}
+:root[data-theme]:not([data-theme=champagne]) :is(.fineprint,.switch-list small,.dialog-heading small,.region-grid small,.vehicle-details dt,.render-stats dt,.quality-heading span,.info-columns p,.config-field>span,.config-kicker,.config-note,.config-heading p,.ds-field>span,.ds-heading p,.ds-heading>div>span,.ds-help,.ds-nav-title,.ds-nav>button small,.ds-preview summary,.ds-preview th,.ds-preview td,.ds-field-profiles strong,.ds-field-profiles span,.ds-field-profiles small,.ds-widget-choices small,.ds-mapped-summary,.ds-field-browser>small,.ep-kicker,.ep-template-card>span,.ep-template-section-heading>span,.ep-template-section-heading h3>span,.ep-template-footer>p:first-child,.ep-template-empty){color:var(--theme-muted)}
+:root[data-theme]:not([data-theme=champagne]) :is(.hover-caption,.toast,.vehicle-tooltip,.vehicle-callout-card){background:color-mix(in srgb,var(--theme-panel) 94%,transparent);border-color:var(--line);color:var(--theme-text)}
+:root[data-theme]:not([data-theme=champagne]) :is(.vehicle-tooltip p,.vehicle-tooltip dt,.vehicle-tooltip time,.vehicle-tooltip small,.vehicle-callout-card header span,.vehicle-callout-card header button){color:var(--theme-muted)}
+:root[data-theme]:not([data-theme=champagne]) :is(.vehicle-tooltip-status,.vehicle-callout-card .vehicle-callout-details){color:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) .vehicle-callout-leader path{stroke:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) .vehicle-callout-leader circle{fill:var(--theme-accent);stroke:var(--theme-bg)}
+:root[data-theme]:not([data-theme=champagne]) .vehicle-marker.is-selected{background:var(--theme-accent);color:var(--theme-bg);border-color:var(--theme-text);outline-color:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) .map-region-label{color:var(--theme-map-label);text-shadow:0 1px 2px var(--theme-map-halo),0 0 4px var(--theme-map-halo)}
+:root[data-theme]:not([data-theme=champagne]) .map-region-label.is-context{color:var(--theme-text);text-shadow:0 1px 2px var(--theme-bg),0 0 4px var(--theme-bg)}
+:root[data-theme]:not([data-theme=champagne]) .map-region-label::before{background:color-mix(in srgb,var(--theme-bg) 65%,transparent)}
+:root[data-theme]:not([data-theme=champagne]) .south-sea svg path{fill:color-mix(in srgb,var(--theme-muted) 32%,transparent);stroke:var(--theme-muted)}
+:root[data-theme]:not([data-theme=champagne]) .dashboard-widget{color:var(--theme-text);border-color:var(--line)}
+:root[data-theme]:not([data-theme=champagne]) .widget-surface-glass{background:linear-gradient(125deg,color-mix(in srgb,var(--theme-panel) 42%,transparent),color-mix(in srgb,var(--theme-bg) 32%,transparent));backdrop-filter:blur(20px) brightness(.58) saturate(.8);-webkit-backdrop-filter:blur(20px) brightness(.58) saturate(.8)}
+:root[data-theme]:not([data-theme=champagne]) .widget-surface-soft{background:linear-gradient(115deg,color-mix(in srgb,var(--theme-muted) 12%,transparent),color-mix(in srgb,var(--theme-panel) 30%,transparent));backdrop-filter:blur(24px) brightness(.45) saturate(.7);-webkit-backdrop-filter:blur(24px) brightness(.45) saturate(.7)}
+:root[data-theme]:not([data-theme=champagne]) .widget-surface-solid{background:linear-gradient(125deg,color-mix(in srgb,var(--theme-panel) 96%,transparent),color-mix(in srgb,var(--theme-bg) 96%,transparent))}
+:root[data-theme]:not([data-theme=champagne]) :is(.widget-heading p,.widget-value>span,.widget-metric-scope,.widget-metric-details dt,.widget-line-chart figcaption,.widget-rank-number,.widget-rank-caption>span,.widget-rank-caption small,.widget-rank-arrow,.widget-donut-legend li>span,.widget-donut-legend button,.widget-table th,.widget-progress-caption small,.widget-progress-detail,.widget-clock time>span,.widget-empty,.widget-status-name,.widget-status-grid small,.widget-text){color:var(--theme-muted)}
+:root[data-theme]:not([data-theme=champagne]) :is(.widget-gauge-number,.widget-donut-total){fill:var(--theme-text)}
+:root[data-theme]:not([data-theme=champagne]) :is(.widget-gauge-label,.widget-chart-grid text,.widget-chart-label){fill:var(--theme-muted)}
+:root[data-theme]:not([data-theme=champagne]) :is(.widget-progress-caption>strong,.widget-ranking li:first-child .widget-rank-number,.widget-data-state,.widget-empty>button){color:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) :is(.widget-bar-track>span,.widget-progress-track>span){background:linear-gradient(90deg,color-mix(in srgb,var(--theme-secondary) 55%,transparent),var(--theme-accent))}
+:root[data-theme]:not([data-theme=champagne]) .widget-bar-track.is-negative>span{background:linear-gradient(90deg,#bfa9a54d,#e1b4ab)}
+:root[data-theme]:not([data-theme=champagne]) :is(.widget-metric-details,.widget-metric-details>div+div,.widget-table th,.widget-table td,.widget-status-grid>li){border-color:var(--line)}
+:root[data-theme]:not([data-theme=champagne]) .widget-table thead{background:var(--theme-panel)}
+:root[data-theme]:not([data-theme=champagne]) .widget-table td{color:var(--theme-text)}
+:root[data-theme]:not([data-theme=champagne]) .widget-chart-grid line{stroke:var(--line)}
+:root[data-theme]:not([data-theme=champagne]) .widget-zero-line{stroke:var(--theme-muted)}
+:root[data-theme]:not([data-theme=champagne]) :is(.widget-bar-track,.widget-progress-track,.widget-status-grid>li){background:color-mix(in srgb,var(--theme-muted) 9%,transparent)}
+:root[data-theme]:not([data-theme=champagne]) .widget-clock-rule{background:linear-gradient(90deg,var(--theme-accent),transparent)}
+:root[data-theme]:not([data-theme=champagne]) :is(.editor-toolbar,.editor-library-pane,.editor-inspector-pane,.editor-mobile-tabs){background:var(--theme-panel);color:var(--theme-text);border-color:var(--line)}
+:root[data-theme]:not([data-theme=champagne]) :is(.editor-shell.is-editing,.is-editing .dashboard-viewport){background:var(--theme-bg)}
+:root[data-theme]:not([data-theme=champagne]) :is(.ep-library,.ep-inspector,.ep-template-dialog){--ep-border:var(--line);--ep-muted:var(--theme-muted);--ep-accent:var(--theme-accent);color:var(--theme-text)}
+:root[data-theme]:not([data-theme=champagne]) :is(.ep-mini-chart,.editor-layer-list small,.editor-title span){color:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) .canvas-item.is-selected{outline-color:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) .canvas-resize{background:var(--theme-accent);border-color:var(--theme-bg)}
+:root[data-theme]:not([data-theme=champagne]) :is(.canvas-drag-handle:hover,.is-selected>.canvas-drag-handle){background:var(--theme-panel);color:var(--theme-text)}
+:root[data-theme]:not([data-theme=champagne]) .professional-chart-zoom-hint{color:var(--theme-muted);background:linear-gradient(90deg,transparent,var(--theme-panel))}
+:root[data-theme]:not([data-theme=champagne]) input{accent-color:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) :is(button,a,input,select,textarea,.widget-text,.widget-table-wrap):focus-visible{outline-color:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) :is(.widget-metric,.widget-ranking,.widget-table-wrap,.widget-donut-legend,.widget-progress-list,.widget-status-grid,.widget-text,.professional-chart-shell){scrollbar-color:color-mix(in srgb,var(--theme-muted) 35%,transparent) transparent}
+
+:root[data-theme]:not([data-theme=champagne]) .topbar nav .selected::after{background:var(--theme-accent)}
+:root[data-theme]:not([data-theme=champagne]) .switch-track::after,:root[data-theme]:not([data-theme=champagne]) .config-switch i::after{background:var(--theme-muted)}
+:root[data-theme]:not([data-theme=champagne]) .switch-list input:checked+.switch-track::after,:root[data-theme]:not([data-theme=champagne]) .config-switch input:checked+i::after{background:var(--theme-bg)}

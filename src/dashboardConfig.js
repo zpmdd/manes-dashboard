@@ -1,4 +1,6 @@
 import { DATA_FIELDS, normalizeDataSource, validateDataPath, parseSourceContent } from './dataSources.js';
+import { DEFAULT_THEME, THEMES } from './themes.js';
+import { DEFAULT_FONT, FONTS } from './fonts.js';
 
 export const STORAGE_KEY = 'nexus.dashboard.config.v2';
 const LEGACY_STORAGE_KEY = 'nexus.dashboard.config.v1';
@@ -127,7 +129,7 @@ const DEFAULT_LAYOUTS = [
 export const DEFAULT_CHART_OPTIONS = { legend: true, labels: false, zoom: false, smooth: true, palette: 'champagne', secondaryUnit: '', primaryName: '主指标', secondaryName: '辅助指标', xName: '', yName: '' };
 const defaultFields = () => Object.fromEntries(DATA_FIELDS.map(key => [key, key]));
 function upgrade(config) {
-  return { ...config, version: 2, canvas: { snap: true, grid: 1, magnet: true, threshold: 6 },
+  return { ...config, version: 2, theme: DEFAULT_THEME.id, font: DEFAULT_FONT.id, canvas: { snap: true, grid: 1, magnet: true, threshold: 6 },
     map: { layout: { x: 20, y: 0, w: 80, h: 74 }, visible: true, locked: false }, dataSources: [],
     modules: config.modules.map((item, i) => ({ ...item, layout: { ...DEFAULT_LAYOUTS[i] }, locked: false,
       surface: i === 2 ? 'solid' : 'glass', binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: '', target: 100, precision: 1, chartOptions: { ...DEFAULT_CHART_OPTIONS } })),
@@ -165,8 +167,12 @@ function normalizeChartOptions(input) {
 }
 export function normalizeConfig(raw) {
   if (raw?.version === 1) return upgrade(normalizeLegacy(raw));
-  object(raw, [...configKeys, 'canvas', 'map', 'dataSources'], '配置');
+  object(raw, [...configKeys, 'canvas', 'map', 'dataSources', ...['theme', 'font'].filter(key => Object.hasOwn(raw ?? {}, key))], '配置');
   if (raw.version !== 2) throw new Error('不支持此配置版本');
+  const theme = Object.hasOwn(raw, 'theme') ? raw.theme : DEFAULT_THEME.id;
+  if (!THEMES.some(item => item.id === theme)) throw new Error('不支持的大屏配色');
+  const font = Object.hasOwn(raw, 'font') ? raw.font : DEFAULT_FONT.id;
+  if (!FONTS.some(item => item.id === font)) throw new Error('不支持的中文字体');
   if (!Array.isArray(raw.navLabels) || raw.navLabels.length !== 4) throw new Error('需配置四个导航名称');
   const canvas = { magnet: true, threshold: 6, ...raw.canvas };
   object(raw.canvas, ['snap', 'grid', ...['magnet', 'threshold'].filter(key => Object.hasOwn(raw.canvas ?? {}, key))], '画布');
@@ -213,7 +219,7 @@ export function normalizeConfig(raw) {
       layout: layout(item.layout), locked: flag(item.locked, '锁定开关'), surface: item.surface,
       binding: { sourceId: item.binding.sourceId, fields: normalizedFields }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值'), precision, chartOptions };
   });
-  const config = { version: 2, brand: brand(raw.brand), title: text(raw.title, 36, '大屏标题'), mapTitle: text(raw.mapTitle, 24, '地图标题'),
+  const config = { version: 2, theme, font, brand: brand(raw.brand), title: text(raw.title, 36, '大屏标题'), mapTitle: text(raw.mapTitle, 24, '地图标题'),
     navLabels: raw.navLabels.map(label => text(label, 8, '导航名称')), showClock: flag(raw.showClock, '时钟开关'),
     canvas: { snap: flag(canvas.snap, '网格开关'), grid: range(canvas.grid, .5, 5, '网格步长'), magnet: flag(canvas.magnet, '磁吸开关'), threshold: range(canvas.threshold, 2, 16, '磁吸距离') },
     map: { layout: layout(raw.map.layout), visible: flag(raw.map.visible, '地图开关'), locked: flag(raw.map.locked, '地图锁定') }, modules, dataSources };

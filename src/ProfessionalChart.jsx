@@ -9,8 +9,8 @@ import './professional-charts.css';
 
 echarts.use([BarChart, FunnelChart, HeatmapChart, LineChart, RadarChart, ScatterChart, TreemapChart, AriaComponent, DataZoomInsideComponent, GridComponent, LegendComponent, RadarComponent, TooltipComponent, VisualMapContinuousComponent, LabelLayout, CanvasRenderer, SVGRenderer]);
 
-export function renderProfessionalSVG(config, data, size = { width: 480, height: 280 }) {
-  const result = buildProfessionalChart(config, data, { ...size, reducedMotion: true });
+export function renderProfessionalSVG(config, data, size = { width: 480, height: 280 }, theme) {
+  const result = buildProfessionalChart(config, data, { ...size, reducedMotion: true }, theme);
   if (!result.option) return '';
   const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, ...size });
   try { chart.setOption(result.option); return chart.renderToSVGString(); }
@@ -30,16 +30,16 @@ export function updateProfessionalChart(instance, option, size, notMerge = false
   }
 }
 
-export default function ProfessionalChart({ config, data, onNavigate }) {
+export default function ProfessionalChart({ config, data, onNavigate, theme, fontFamily }) {
   const host = useRef(null), chart = useRef(null), lastType = useRef(null), interaction = useRef(null), latestNavigate = useRef(onNavigate);
   const [size, setSize] = useState({ width: 0, height: 0 }), [runtimeError, setRuntimeError] = useState(''), [attempt, setAttempt] = useState(0);
   const [reducedMotion, setReducedMotion] = useState(() => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   latestNavigate.current = onNavigate;
   const settings = config.chartOptions || {};
   const result = useMemo(() => {
-    try { return buildProfessionalChart(config, data, { ...size, reducedMotion }); }
+    try { return buildProfessionalChart(config, data, { ...size, reducedMotion, fontFamily }, theme); }
     catch (error) { return { option: null, count: 0, renderCount: 0, description: error.message || '数据格式不适用于当前图表', error: true }; }
-  }, [config.type, config.title, config.unit, config.rowCount, config.target, settings.legend, settings.labels, settings.zoom, settings.smooth, settings.palette, settings.secondaryUnit, settings.primaryName, settings.secondaryName, settings.xName, settings.yName, data, size.width, size.height, reducedMotion]);
+  }, [config.type, config.title, config.unit, config.rowCount, config.target, settings.legend, settings.labels, settings.zoom, settings.smooth, settings.palette, settings.secondaryUnit, settings.primaryName, settings.secondaryName, settings.xName, settings.yName, data, size.width, size.height, reducedMotion, theme, fontFamily]);
   const hasOption = Boolean(result.option), hasSize = size.width > 0 && size.height > 0, renderer = result.renderCount > 1000 ? 'canvas' : 'svg';
   useEffect(() => {
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)'), sync = () => setReducedMotion(preference.matches);

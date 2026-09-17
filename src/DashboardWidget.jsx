@@ -1,9 +1,9 @@
 import { Component, lazy, memo, Suspense, useEffect, useId, useMemo, useState } from 'react';
 import { chartDomain, donutRows, formatWidgetNumber as number, formatAxisNumber, getWidgetData, normalizeWidgetData, PROFESSIONAL_TYPES, progressValues, sortTableRows, statusTone, visibleRowCount } from './widgetData.js';
 import { DATA_FIELDS } from './dataSources.js';
+import { DEFAULT_THEME } from './themes.js';
 import './widgets.css';
 
-const PALETTE = ['#f1e8c5', '#cbc8b0', '#afaeb0', '#938a97', '#726d7c', '#d2bda1', '#bfa7a8', '#b3bec1', '#9aab9c', '#848978'];
 const COLUMN_KEYS = new Set(DATA_FIELDS);
 const ProfessionalChart = lazy(() => import('./ProfessionalChart.jsx'));
 
@@ -32,12 +32,12 @@ function Gauge({ data, unit, title, target, precision }) {
   const id = useId(), progress = progressValues(data.value, target);
   return <div className="widget-gauge">
     <svg viewBox="0 0 220 186" role="img" aria-label={`${title} ${number(data.value, precision)}${unit}，量程 ${number(progress.target, precision)}${unit}`}>
-      <defs><linearGradient id={id} x1="0" x2="1" y1="0" y2="1"><stop stopColor="#fff2cd"/><stop offset="1" stopColor="#bfbca6" stopOpacity=".35"/></linearGradient></defs>
+      <defs><linearGradient id={id} x1="0" x2="1" y1="0" y2="1"><stop stopColor="var(--chart-accent, #fff2cd)"/><stop offset="1" stopColor="var(--chart-secondary, #bfbca6)" stopOpacity=".35"/></linearGradient></defs>
       {Array.from({ length: 37 }, (_, i) => {
         const angle = (135 + i * 7.5) * Math.PI / 180;
         return <line key={i} x1={110 + Math.cos(angle) * 89} y1={99 + Math.sin(angle) * 89} x2={110 + Math.cos(angle) * 93} y2={99 + Math.sin(angle) * 93} stroke="currentColor" opacity={i / 36 <= progress.fill / 100 ? .58 : .18} strokeWidth=".8"/>;
       })}
-      <circle cx="110" cy="99" r="72" fill="none" stroke="#eee7d816" strokeWidth="17" pathLength="100" strokeDasharray="75 100" transform="rotate(135 110 99)"/>
+      <circle cx="110" cy="99" r="72" fill="none" stroke="var(--chart-track, #eee7d816)" strokeWidth="17" pathLength="100" strokeDasharray="75 100" transform="rotate(135 110 99)"/>
       <circle className="widget-gauge-arc" cx="110" cy="99" r="72" fill="none" stroke={`url(#${id})`} strokeWidth="17" pathLength="100" strokeDasharray={`${progress.fill * .75} 100`} transform="rotate(135 110 99)"/>
       <text x="110" y="104" textAnchor="middle" className="widget-gauge-number" style={{ fontSize: number(data.value, precision).length > 7 ? 19 : undefined }}>{number(data.value, precision)}<tspan className="widget-gauge-unit">{unit}</tspan></text>
       <text x="110" y="124" textAnchor="middle" className="widget-gauge-label">{data.scope?.slice(0, 16)}</text>
@@ -58,18 +58,18 @@ function TrendChart({ rows, unit, title, type, precision }) {
   return <figure className={`widget-line-chart widget-chart-${type}`}>
     <figcaption><span>{unit}</span><span title={description}>{description}</span></figcaption>
     <svg viewBox="0 0 320 153" role="group" aria-label={`${title}，单位 ${unit}`}>
-      <defs><linearGradient id={id} x1="0" x2="0" y1="0" y2="1"><stop stopColor="#f1e5bc" stopOpacity={isColumn ? .94 : .5}/><stop offset="1" stopColor="#b7a89a" stopOpacity={isColumn ? .32 : .03}/></linearGradient></defs>
+      <defs><linearGradient id={id} x1="0" x2="0" y1="0" y2="1"><stop stopColor="var(--chart-accent, #f1e5bc)" stopOpacity={isColumn ? .94 : .5}/><stop offset="1" stopColor="var(--chart-secondary, #b7a89a)" stopOpacity={isColumn ? .32 : .03}/></linearGradient></defs>
       {[0, .5, 1].map(tick => <g key={tick} className="widget-chart-grid"><line x1="30" x2="308" y1={126 - tick * 96} y2={126 - tick * 96}/><text x="24" y={129 - tick * 96} textAnchor="end">{formatAxisNumber(min * (1 - tick) + max * tick)}</text></g>)}
       {min < 0 && <line className="widget-zero-line" x1="30" x2="308" y1={y(0)} y2={y(0)}/>}
       {type === 'area' && <path d={`${path} L${points.at(-1)[0]},${y(0)} L${points[0][0]},${y(0)} Z`} fill={`url(#${id})`}/>}
-      {!isColumn && <path className="widget-trend-line" d={path} fill="none" stroke="#f0e8c6" strokeWidth="2" strokeLinejoin="round"/>}
+      {!isColumn && <path className="widget-trend-line" d={path} fill="none" stroke="var(--chart-accent, #f0e8c6)" strokeWidth="2" strokeLinejoin="round"/>}
       {points.map(([x, pointY], i) => {
         const content = `${label(rows[i])} · ${number(rows[i].value, precision)} ${unit}`;
         const interaction = { tabIndex: 0, role: 'img', 'aria-label': content, onFocus: () => setActive(i), onBlur: () => setActive(null), onPointerEnter: () => setActive(i), onPointerLeave: () => setActive(null) };
         return <g key={`${label(rows[i])}-${i}`}>
           {(i % Math.max(1, Math.ceil(rows.length / 5)) === 0 || i === rows.length - 1) && <text className="widget-chart-label" x={x} y="148" textAnchor={i === 0 ? 'start' : i === rows.length - 1 ? 'end' : 'middle'}>{label(rows[i]).slice(0, 10)}</text>}
           {isColumn ? <rect className="widget-chart-point widget-column" x={x - step * .31} y={Math.min(y(0), pointY)} width={step * .62} height={Math.max(.7, Math.abs(y(0) - pointY))} rx="2" fill={`url(#${id})`} opacity={active === null || active === i ? 1 : .6} {...interaction}><title>{content}</title></rect> : <>
-            <circle cx={x} cy={pointY} r={active === i ? 4 : 2.3} fill="#f7edcc" stroke="#655d63" strokeWidth="1"/>
+            <circle cx={x} cy={pointY} r={active === i ? 4 : 2.3} fill="var(--chart-accent, #f7edcc)" stroke="var(--chart-border, #655d63)" strokeWidth="1"/>
             <circle className="widget-chart-point" cx={x} cy={pointY} r="10" fill="transparent" {...interaction}><title>{content}</title></circle>
           </>}
         </g>;
@@ -86,18 +86,18 @@ function BarChart({ rows, unit, rowCount, onNavigate, precision }) {
   })}</ol>;
 }
 
-function DonutChart({ rows, unit, rowCount, title, onNavigate, precision }) {
+function DonutChart({ rows, unit, rowCount, title, onNavigate, precision, theme }) {
   const segments = donutRows(rows, rowCount), total = segments.reduce((sum, row) => sum + row.value, 0);
   let offset = 0;
   if (!total) return <EmptyState message="暂无正值分布数据"/>;
   return <div className="widget-donut-layout"><svg viewBox="0 0 170 170" role="img" aria-label={`${title}，总计 ${number(total, precision)} ${unit}，${segments.map(row => `${row.name} ${number(row.value, precision)}`).join('，')}`}>
-    <circle cx="85" cy="85" r="62" fill="none" stroke="#eee7d816" strokeWidth="18"/>
+    <circle cx="85" cy="85" r="62" fill="none" stroke="var(--chart-track, #eee7d816)" strokeWidth="18"/>
     {segments.map((row, i) => {
       const share = row.value / total * 100, start = offset; offset += share;
-      return <circle key={`${row.name}-${i}`} cx="85" cy="85" r="62" fill="none" stroke={PALETTE[i % PALETTE.length]} strokeWidth="18" pathLength="100" strokeDasharray={`${Math.max(.05, share - .65)} ${100 - Math.max(.05, share - .65)}`} strokeDashoffset={-start} transform="rotate(-90 85 85)"><title>{`${row.name}：${number(row.value, precision)} ${unit}（${number(share, precision)}%）`}</title></circle>;
+      return <circle key={`${row.name}-${i}`} cx="85" cy="85" r="62" fill="none" stroke={theme.donut[i % theme.donut.length]} strokeWidth="18" pathLength="100" strokeDasharray={`${Math.max(.05, share - .65)} ${100 - Math.max(.05, share - .65)}`} strokeDashoffset={-start} transform="rotate(-90 85 85)"><title>{`${row.name}：${number(row.value, precision)} ${unit}（${number(share, precision)}%）`}</title></circle>;
     })}
     <text x="85" y="86" textAnchor="middle" className="widget-donut-total" style={{ fontSize: number(total, precision).length > 7 ? 14 : undefined }}>{number(total, precision)}</text><text x="85" y="105" textAnchor="middle" className="widget-gauge-label">合计{unit && ` / ${unit}`}</text>
-  </svg><ul className="widget-donut-legend">{segments.map((row, i) => <li key={`${row.name}-${i}`}><i style={{ background: PALETTE[i % PALETTE.length] }} aria-hidden="true"/>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} title={row.name}>{row.name}</button> : <span title={row.name}>{row.name}</span>}<strong title={`${number(row.value, precision)} ${unit}`}>{number(row.value / total * 100, precision)}%</strong></li>)}</ul></div>;
+  </svg><ul className="widget-donut-legend">{segments.map((row, i) => <li key={`${row.name}-${i}`}><i style={{ background: theme.donut[i % theme.donut.length] }} aria-hidden="true"/>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} title={row.name}>{row.name}</button> : <span title={row.name}>{row.name}</span>}<strong title={`${number(row.value, precision)} ${unit}`}>{number(row.value / total * 100, precision)}%</strong></li>)}</ul></div>;
 }
 
 function DataTable({ rows, columns, unit, rowCount, title, onNavigate, precision }) {
@@ -142,7 +142,7 @@ function Clock() {
   return <div className="widget-clock"><time dateTime={now.toISOString()}><strong>{now.toLocaleTimeString('zh-CN', { hour12: false })}</strong><span>{date}</span></time><div className="widget-clock-rule" aria-hidden="true"><i/></div></div>;
 }
 
-export const DashboardWidget = memo(function DashboardWidget({ config, code, index, onNavigate, data: externalData, dataState, onRefresh }) {
+export const DashboardWidget = memo(function DashboardWidget({ config, code, index, onNavigate, data: externalData, dataState, onRefresh, theme = DEFAULT_THEME, fontFamily }) {
   const hasExternalData = externalData !== undefined || Boolean(dataState);
   const data = useMemo(() => {
     if (config.type === 'text' || config.type === 'clock') return normalizeWidgetData(null);
@@ -163,12 +163,12 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
   if (config.type === 'text') body = config.text ? <div className="widget-text" tabIndex="0">{config.text}</div> : <EmptyState message="暂无公告"/>;
   else if (config.type === 'clock') body = <Clock/>;
   else if (!hasData) body = <EmptyState message={hasError ? '数据暂不可用' : loading ? '正在加载' : data.emptyMessage || '暂无数据'} detail={hasError ? errorMessage : undefined} onRefresh={hasError ? onRefresh : undefined}/>;
-  else if (professional) body = <ChartErrorBoundary key={config.type}><Suspense fallback={<EmptyState message="正在加载图表"/>}><ProfessionalChart config={config} data={data} onNavigate={onNavigate}/></Suspense></ChartErrorBoundary>;
+  else if (professional) body = <ChartErrorBoundary key={config.type}><Suspense fallback={<EmptyState message="正在加载图表"/>}><ProfessionalChart theme={theme} fontFamily={fontFamily} config={config} data={data} onNavigate={onNavigate}/></Suspense></ChartErrorBoundary>;
   else if (config.type === 'metric') body = <Metric data={data} unit={unit} precision={precision}/>;
   else if (config.type === 'gauge') body = <Gauge data={data} unit={unit} title={config.title} target={config.target} precision={precision}/>;
   else if (['line', 'area', 'column'].includes(config.type)) body = <TrendChart rows={config.type === 'column' ? numericRows.slice(0, rowCount) : numericRows.slice(-rowCount)} unit={unit} title={config.title} type={config.type} precision={precision}/>;
   else if (config.type === 'bar') body = <BarChart rows={numericRows} unit={unit} rowCount={rowCount} onNavigate={onNavigate} precision={precision}/>;
-  else if (config.type === 'donut') body = <DonutChart rows={numericRows} unit={unit} rowCount={rowCount} title={config.title} onNavigate={onNavigate} precision={precision}/>;
+  else if (config.type === 'donut') body = <DonutChart theme={theme} rows={numericRows} unit={unit} rowCount={rowCount} title={config.title} onNavigate={onNavigate} precision={precision}/>;
   else if (config.type === 'table') body = <DataTable rows={data.rows} columns={config.columns} unit={unit} rowCount={rowCount} title={config.title} onNavigate={onNavigate} precision={precision}/>;
   else if (config.type === 'progress') body = <Progress rows={numericRows.slice(0, rowCount)} unit={unit} target={config.target} precision={precision}/>;
   else if (config.type === 'status') body = <StatusGrid rows={data.rows.slice(0, rowCount)} unit={unit} precision={precision} onNavigate={onNavigate}/>;

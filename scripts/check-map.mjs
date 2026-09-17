@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { createServer, transformWithEsbuild } from 'vite';
 import { createDataSourceController, validateSourceUrl, getMappedData, parseSourceContent } from '../src/dataSources.js';
 import { normalizeConfig } from '../src/dashboardConfig.js';
+import { DEFAULT_THEME, THEMES } from '../src/themes.js';
 import { layoutLabels, lineage, shortName } from '../src/geo.js';
 import { VEHICLES, VEHICLE_FIELDS, linkedVehicles, groupVehiclePoints, vehicleDistrict, vehicleCalloutPosition } from '../src/vehicles.js';
 import { atlasGrid, roadmapMaterial, viewAtlas } from '../src/useRoadmap.js';
@@ -217,7 +218,7 @@ try {
   const backY = Math.max(...yanta.backdrops.map(g => { g.computeBoundingBox(); return g.boundingBox.max.y; }));
   const backdropExpression = mapSource.split('\n').find(line => line.includes('{model.backdrops.map')).trim().slice(1, -1);
   const { code: backdropCode } = await transformWithEsbuild(`model => (${backdropExpression})`, 'map-backdrops.jsx', { loader: 'jsx', jsx: 'transform', jsxFactory: 'createElement' });
-  const renderBackdrops = new Function('createElement', `return ${backdropCode}`)(createElement);
+  const renderBackdrops = new Function('createElement', 'theme', `return ${backdropCode}`)(createElement, DEFAULT_THEME);
   assert(renderBackdrops(yanta).every(el => el.props.children.props.polygonOffset && el.props.children.props.polygonOffsetFactor >= 1 && el.props.children.props.polygonOffsetUnits >= 4), 'Gap caps need a depth bias when distant surfaces share a depth-buffer value');
   for (const elevation of [89.37, 50.71, 5.1]) for (const distance of [.0191, .095, .5167, 5, 30, 90]) for (const zoom of [.6, 1, 4]) {
     camera.clearViewOffset(); camera.aspect = 2547 / 1192; camera.zoom = zoom;
@@ -263,9 +264,9 @@ try {
   const commits = [0, 0], picked = [], labels = [];
   const onSelect = feature => picked.push(feature), onHover = name => labels.push(name);
   let worldRenders = 0;
-  function WorldProbe({ selected = false, roadmap }) {
+  function WorldProbe({ selected = false, roadmap, theme = DEFAULT_THEME }) {
     worldRenders++;
-    return regions.map((region, i) => createElement(Profiler, { id: String(i), key: i, onRender: () => commits[i]++ }, createElement(RegionMesh, { region, selected: selected && i === 0, onSelect, onHover, roadmap })));
+    return regions.map((region, i) => createElement(Profiler, { id: String(i), key: i, onRender: () => commits[i]++ }, createElement(RegionMesh, { region, selected: selected && i === 0, onSelect, onHover, roadmap, theme })));
   }
   await act(async () => root.render(createElement(WorldProbe)));
   const [first, second] = scene.children;
@@ -305,6 +306,15 @@ try {
   assert(first.material[0].isMeshStandardMaterial && first.material[0].toneMapped, 'Turning off the raster layer must restore the original cap');
   baseAtlas.texture.dispose();
   console.log('PASS: unlit raster contrast, hover reuse, original 3D sides and material restoration after layer toggle.');
+  const themedCap = first.material[0], geometry = first.geometry;
+  for (const theme of THEMES) {
+    await act(async () => root.render(createElement(WorldProbe, { theme })));
+    assert.equal(first.material[0].color.getHexString(), theme.map.land.slice(1));
+    assert.equal(first.material[1].color.getHexString(), theme.map.side.slice(1));
+    assert.strictEqual(first.geometry, geometry); assert.strictEqual(first.material[0], themedCap);
+  }
+  await act(async () => root.render(createElement(WorldProbe)));
+  console.log('PASS: all eight themes update real R3F surfaces while reusing geometry and materials.');
 
   // Run the actual lazy loader, visibility guard and outer error boundary in R3F's React renderer.
   const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
@@ -449,8 +459,8 @@ try {
     ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
     : createElement(type, props, ...children);
   const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
-  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
-  const context = { sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { theme, fontFamily, loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
+  const context = { theme: DEFAULT_THEME, sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
   let loads = 0, received;
   const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
   preload(effect => effect(), context.config, loadedMap.loadMapScene);
@@ -484,9 +494,9 @@ try {
   const [widgetSource, React, widgetHelpers, { DATA_FIELDS }] = await Promise.all([
     readFile(new URL('../src/DashboardWidget.jsx', import.meta.url), 'utf8'), import('react'), import('../src/widgetData.js'), import('../src/dataSources.js'),
   ]);
-  const { code: widgetCode } = await transformWithEsbuild(widgetSource.slice(widgetSource.indexOf('const PALETTE = ')).replace("import('./ProfessionalChart.jsx')", 'load()').replace('export const DashboardWidget', 'const DashboardWidget'), 'DashboardWidget.jsx', { loader: 'jsx', jsxFactory: 'h', jsxFragment: 'Fragment', sourcemap: false });
+  const { code: widgetCode } = await transformWithEsbuild(widgetSource.slice(widgetSource.indexOf('const COLUMN_KEYS = ')).replace("import('./ProfessionalChart.jsx')", 'load()').replace('export const DashboardWidget', 'const DashboardWidget'), 'DashboardWidget.jsx', { loader: 'jsx', jsxFactory: 'h', jsxFragment: 'Fragment', sourcemap: false });
   const widgetH = (type, props, ...children) => h(type, typeof type === 'string' ? { key: props?.key, className: props?.className, role: props?.role, onClick: props?.onClick } : props, ...children);
-  const widgetRuntime = { ...widgetHelpers, DATA_FIELDS, number: widgetHelpers.formatWidgetNumber, Component, lazy, Suspense, h: widgetH, Fragment: React.Fragment, memo: React.memo, useEffect: React.useEffect, useId: React.useId, useMemo: React.useMemo, useState: React.useState };
+  const widgetRuntime = { ...widgetHelpers, DATA_FIELDS, DEFAULT_THEME, number: widgetHelpers.formatWidgetNumber, Component, lazy, Suspense, h: widgetH, Fragment: React.Fragment, memo: React.memo, useEffect: React.useEffect, useId: React.useId, useMemo: React.useMemo, useState: React.useState };
   let reloads = 0;
   const makeWidget = load => new Function(...Object.keys(widgetRuntime), 'load', 'location', `${widgetCode}; return DashboardWidget;`)(...Object.values(widgetRuntime), load, { reload: () => reloads++ });
   const chartData = { rows: [{ name: '真实点', value: 12 }], value: 12 }, metricData = { value: 42, rows: [] };
@@ -540,7 +550,7 @@ try {
   const editorRuntime = { ...layout, ...editorConfig, h: widgetH, useState: React.useState, useReducer: React.useReducer, useCallback: React.useCallback, useEffect: React.useEffect,
     loadConfig: () => structuredClone(editorConfig.DEFAULT_CONFIG), saveConfig: editorConfig.normalizeConfig,
     window: { addEventListener() {}, removeEventListener() {}, confirm: () => true }, document: { querySelector: () => null },
-    ...Object.fromEntries(['ArrowCounterClockwise', 'ArrowClockwise', 'Check', 'Copy', 'Database', 'Eye', 'FloppyDisk', 'GridFour', 'SlidersHorizontal', 'SquaresFour', 'X'].map(name => [name, () => null])),
+    ...Object.fromEntries(['ArrowCounterClockwise', 'ArrowClockwise', 'Check', 'Copy', 'Database', 'Eye', 'FloppyDisk', 'GridFour', 'Palette', 'SlidersHorizontal', 'SquaresFour', 'X'].map(name => [name, () => null])),
   };
   const { code: editorCode } = await transformWithEsbuild(editorSource.slice(editorSource.indexOf('export function useDashboardEditor('), editorSource.indexOf('export function CanvasItem(')).replaceAll('export function', 'function'), 'EditorState.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false });
   const { useDashboardEditor, EditorToolbar } = new Function(...Object.keys(editorRuntime), `${editorCode}; return { useDashboardEditor, EditorToolbar };`)(...Object.values(editorRuntime));

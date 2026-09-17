@@ -45,7 +45,7 @@ const configWith = (items, canvas = {}) => {
   return { ...structuredClone(DEFAULT_CONFIG), map: map ? { layout: map.layout, visible: map.visible, locked: map.locked } : { layout: { x: 10, y: 10, w: 40, h: 40 }, visible: false, locked: false }, modules: items.filter(item => item.id !== 'map'), canvas: { ...DEFAULT_CONFIG.canvas, snap: false, magnet: false, ...canvas } };
 };
 
-function editorHarness(saved = structuredClone(DEFAULT_CONFIG), selectedIds = []) {
+function editorHarness(saved = structuredClone(DEFAULT_CONFIG), selectedIds = [], persist = normalizeConfig) {
   const state = [], cleanups = [], listeners = new Map(), notices = [];
   let cursor = 0;
   const useState = initial => {
@@ -59,7 +59,7 @@ function editorHarness(saved = structuredClone(DEFAULT_CONFIG), selectedIds = []
     return [state[index], action => { state[index] = reducer(state[index], action); }];
   };
   const window = { addEventListener: (type, fn) => listeners.set(type, fn), removeEventListener: (type, fn) => { if (listeners.get(type) === fn) listeners.delete(type); }, confirm: () => true };
-  const hook = createHook(useState, useReducer, callback => callback, effect => cleanups.push(effect()), () => saved, normalizeConfig, createModule, changeLayout, arrangeLayouts, editHistory, window, { querySelector: () => null });
+  const hook = createHook(useState, useReducer, callback => callback, effect => cleanups.push(effect()), () => saved, persist, createModule, changeLayout, arrangeLayouts, editHistory, window, { querySelector: () => null });
   const render = () => { cleanups.splice(0).forEach(fn => fn?.()); cursor = 0; return hook(message => notices.push(message)); };
   const first = render(); first.start();
   for (const [index, id] of selectedIds.entries()) first.select(id, { toggle: index > 0 });
@@ -98,6 +98,26 @@ function canvas({ isMap = true, locked = false, harness, id = isMap ? 'map' : 't
     dispose: () => cleanup.forEach(fn => fn?.()),
   };
 }
+
+test('配色切换在草稿中可撤销和取消，浏览时只保存配色，写入失败保留当前画布', () => {
+  const saved = structuredClone(DEFAULT_CONFIG), writes = [];
+  const harness = editorHarness(saved, [], config => { writes.push(config); return normalizeConfig(config); });
+  harness.render().patch(saved.modules[0].id, { title: '未保存业务标题' });
+  harness.render().setTheme('nord');
+  assert.equal(harness.render().config.theme, 'nord'); assert.equal(writes.length, 0);
+  harness.render().undo(); assert.equal(harness.render().config.theme, 'champagne');
+  assert.equal(harness.render().config.modules[0].title, '未保存业务标题');
+  harness.render().redo(); harness.render().cancel();
+  assert.deepEqual(harness.render().config, saved);
+  harness.render().setTheme('forest');
+  assert.equal(writes.length, 1); assert.equal(harness.render().config.theme, 'forest');
+  assert.deepEqual(harness.render().config.modules, saved.modules);
+  assert.deepEqual(harness.render().config.map, saved.map);
+  harness.render().setTheme('forest'); assert.equal(writes.length, 1);
+  const failing = editorHarness(saved, [], () => { throw new Error('存储空间不足'); });
+  failing.render().cancel(); failing.render().setTheme('nord');
+  assert.deepEqual(failing.render().config, saved); assert.deepEqual(failing.notices, ['存储空间不足']);
+});
 
 test('同帧地图移动合并为一次预览，松手仅一次批量提交和历史', () => {
   const item = canvas(); item.begin(); item.move(100, 50); item.move(200, 100);

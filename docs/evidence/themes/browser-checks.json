@@ -1,0 +1,501 @@
+{
+  "date": "2026-09-17",
+  "checks": [
+    {
+      "alerts": [],
+      "labels": 34,
+      "overflow": false,
+      "theme": "champagne",
+      "view": "overview",
+      "widgets": 5
+    },
+    {
+      "alerts": [],
+      "labels": 34,
+      "overflow": false,
+      "theme": "nord",
+      "view": "overview",
+      "widgets": 5
+    },
+    {
+      "alerts": [],
+      "labels": 34,
+      "overflow": false,
+      "theme": "ocean",
+      "view": "overview",
+      "widgets": 5
+    },
+    {
+      "alerts": [],
+      "labels": 34,
+      "overflow": false,
+      "theme": "forest",
+      "view": "overview",
+      "widgets": 5
+    },
+    {
+      "alerts": [],
+      "labels": 34,
+      "overflow": false,
+      "theme": "iris",
+      "view": "overview",
+      "widgets": 5
+    },
+    {
+      "alerts": [],
+      "labels": 34,
+      "overflow": false,
+      "theme": "rose",
+      "view": "overview",
+      "widgets": 5
+    },
+    {
+      "alerts": [],
+      "labels": 34,
+      "overflow": false,
+      "theme": "sand",
+      "view": "overview",
+      "widgets": 5
+    },
+    {
+      "alerts": [],
+      "labels": 34,
+      "overflow": false,
+      "theme": "coral",
+      "view": "overview",
+      "widgets": 5
+    },
+    {
+      "alerts": [],
+      "focused": 1,
+      "scope": "丹江口市",
+      "theme": "champagne",
+      "view": "district"
+    },
+    {
+      "alerts": [],
+      "focused": 1,
+      "scope": "丹江口市",
+      "theme": "nord",
+      "view": "district"
+    },
+    {
+      "alerts": [],
+      "focused": 1,
+      "scope": "丹江口市",
+      "theme": "ocean",
+      "view": "district"
+    },
+    {
+      "alerts": [],
+      "focused": 1,
+      "scope": "丹江口市",
+      "theme": "forest",
+      "view": "district"
+    },
+    {
+      "alerts": [],
+      "focused": 1,
+      "scope": "丹江口市",
+      "theme": "iris",
+      "view": "district"
+    },
+    {
+      "alerts": [],
+      "focused": 1,
+      "scope": "丹江口市",
+      "theme": "rose",
+      "view": "district"
+    },
+    {
+      "alerts": [],
+      "focused": 1,
+      "scope": "丹江口市",
+      "theme": "sand",
+      "view": "district"
+    },
+    {
+      "alerts": [],
+      "focused": 1,
+      "scope": "丹江口市",
+      "theme": "coral",
+      "view": "district"
+    },
+    {
+      "alerts": [],
+      "legend": "离线道路底图道路网络",
+      "status": [],
+      "theme": "champagne",
+      "view": "roadmap"
+    },
+    {
+      "alerts": [],
+      "legend": "离线道路底图道路网络",
+      "status": [],
+      "theme": "nord",
+      "view": "roadmap"
+    },
+    {
+      "alerts": [],
+      "legend": "离线道路底图道路网络",
+      "status": [],
+      "theme": "ocean",
+      "view": "roadmap"
+    },
+    {
+      "alerts": [],
+      "legend": "离线道路底图道路网络",
+      "status": [],
+      "theme": "forest",
+      "view": "roadmap"
+    },
+    {
+      "alerts": [],
+      "legend": "离线道路底图道路网络",
+      "status": [],
+      "theme": "iris",
+      "view": "roadmap"
+    },
+    {
+      "alerts": [],
+      "legend": "离线道路底图道路网络",
+      "status": [],
+      "theme": "rose",
+      "view": "roadmap"
+    },
+    {
+      "alerts": [],
+      "legend": "离线道路底图道路网络",
+      "status": [],
+      "theme": "sand",
+      "view": "roadmap"
+    },
+    {
+      "alerts": [],
+      "legend": "离线道路底图道路网络",
+      "status": [],
+      "theme": "coral",
+      "view": "roadmap"
+    },
+    {
+      "alerts": [],
+      "empty": [],
+      "overflow": false,
+      "theme": "champagne",
+      "view": "basic",
+      "widgets": 12
+    },
+    {
+      "alerts": [],
+      "empty": [],
+      "overflow": false,
+      "theme": "nord",
+      "view": "basic",
+      "widgets": 12
+    },
+    {
+      "alerts": [],
+      "empty": [],
+      "overflow": false,
+      "theme": "ocean",
+      "view": "basic",
+      "widgets": 12
+    },
+    {
+      "alerts": [],
+      "empty": [],
+      "overflow": false,
+      "theme": "forest",
+      "view": "basic",
+      "widgets": 12
+    },
+    {
+      "alerts": [],
+      "empty": [],
+      "overflow": false,
+      "theme": "iris",
+      "view": "basic",
+      "widgets": 12
+    },
+    {
+      "alerts": [],
+      "empty": [],
+      "overflow": false,
+      "theme": "rose",
+      "view": "basic",
+      "widgets": 12
+    },
+    {
+      "alerts": [],
+      "empty": [],
+      "overflow": false,
+      "theme": "sand",
+      "view": "basic",
+      "widgets": 12
+    },
+    {
+      "alerts": [],
+      "empty": [],
+      "overflow": false,
+      "theme": "coral",
+      "view": "basic",
+      "widgets": 12
+    },
+    {
+      "alerts": [],
+      "charts": 8,
+      "empty": [],
+      "overflow": false,
+      "theme": "champagne",
+      "view": "professional"
+    },
+    {
+      "alerts": [],
+      "charts": 8,
+      "empty": [],
+      "overflow": false,
+      "theme": "nord",
+      "view": "professional"
+    },
+    {
+      "alerts": [],
+      "charts": 8,
+      "empty": [],
+      "overflow": false,
+      "theme": "ocean",
+      "view": "professional"
+    },
+    {
+      "alerts": [],
+      "charts": 8,
+      "empty": [],
+      "overflow": false,
+      "theme": "forest",
+      "view": "professional"
+    },
+    {
+      "alerts": [],
+      "charts": 8,
+      "empty": [],
+      "overflow": false,
+      "theme": "iris",
+      "view": "professional"
+    },
+    {
+      "alerts": [],
+      "charts": 8,
+      "empty": [],
+      "overflow": false,
+      "theme": "rose",
+      "view": "professional"
+    },
+    {
+      "alerts": [],
+      "charts": 8,
+      "empty": [],
+      "overflow": false,
+      "theme": "sand",
+      "view": "professional"
+    },
+    {
+      "alerts": [],
+      "charts": 8,
+      "empty": [],
+      "overflow": false,
+      "theme": "coral",
+      "view": "professional"
+    },
+    {
+      "theme": "champagne",
+      "title": "全域运行监测中心",
+      "view": "persistence",
+      "widgets": 5
+    },
+    {
+      "theme": "nord",
+      "title": "全域运行监测中心",
+      "view": "persistence",
+      "widgets": 5
+    },
+    {
+      "theme": "ocean",
+      "title": "全域运行监测中心",
+      "view": "persistence",
+      "widgets": 5
+    },
+    {
+      "theme": "forest",
+      "title": "全域运行监测中心",
+      "view": "persistence",
+      "widgets": 5
+    },
+    {
+      "theme": "iris",
+      "title": "全域运行监测中心",
+      "view": "persistence",
+      "widgets": 5
+    },
+    {
+      "theme": "rose",
+      "title": "全域运行监测中心",
+      "view": "persistence",
+      "widgets": 5
+    },
+    {
+      "theme": "sand",
+      "title": "全域运行监测中心",
+      "view": "persistence",
+      "widgets": 5
+    },
+    {
+      "theme": "coral",
+      "title": "全域运行监测中心",
+      "view": "persistence",
+      "widgets": 5
+    },
+    {
+      "choices": 8,
+      "dialogFits": true,
+      "dialogOverflow": false,
+      "overflow": false,
+      "theme": "champagne",
+      "view": "mobile",
+      "viewport": [
+        390,
+        844
+      ]
+    },
+    {
+      "choices": 8,
+      "dialogFits": true,
+      "dialogOverflow": false,
+      "overflow": false,
+      "theme": "nord",
+      "view": "mobile",
+      "viewport": [
+        390,
+        844
+      ]
+    },
+    {
+      "choices": 8,
+      "dialogFits": true,
+      "dialogOverflow": false,
+      "overflow": false,
+      "theme": "ocean",
+      "view": "mobile",
+      "viewport": [
+        390,
+        844
+      ]
+    },
+    {
+      "choices": 8,
+      "dialogFits": true,
+      "dialogOverflow": false,
+      "overflow": false,
+      "theme": "forest",
+      "view": "mobile",
+      "viewport": [
+        390,
+        844
+      ]
+    },
+    {
+      "choices": 8,
+      "dialogFits": true,
+      "dialogOverflow": false,
+      "overflow": false,
+      "theme": "iris",
+      "view": "mobile",
+      "viewport": [
+        390,
+        844
+      ]
+    },
+    {
+      "choices": 8,
+      "dialogFits": true,
+      "dialogOverflow": false,
+      "overflow": false,
+      "theme": "rose",
+      "view": "mobile",
+      "viewport": [
+        390,
+        844
+      ]
+    },
+    {
+      "choices": 8,
+      "dialogFits": true,
+      "dialogOverflow": false,
+      "overflow": false,
+      "theme": "sand",
+      "view": "mobile",
+      "viewport": [
+        390,
+        844
+      ]
+    },
+    {
+      "choices": 8,
+      "dialogFits": true,
+      "dialogOverflow": false,
+      "overflow": false,
+      "theme": "coral",
+      "view": "mobile",
+      "viewport": [
+        390,
+        844
+      ]
+    },
+    {
+      "alerts": [],
+      "theme": "champagne",
+      "toolbar": true,
+      "view": "editor"
+    },
+    {
+      "alerts": [],
+      "theme": "nord",
+      "toolbar": true,
+      "view": "editor"
+    },
+    {
+      "alerts": [],
+      "theme": "ocean",
+      "toolbar": true,
+      "view": "editor"
+    },
+    {
+      "alerts": [],
+      "theme": "forest",
+      "toolbar": true,
+      "view": "editor"
+    },
+    {
+      "alerts": [],
+      "theme": "iris",
+      "toolbar": true,
+      "view": "editor"
+    },
+    {
+      "alerts": [],
+      "theme": "rose",
+      "toolbar": true,
+      "view": "editor"
+    },
+    {
+      "alerts": [],
+      "theme": "sand",
+      "toolbar": true,
+      "view": "editor"
+    },
+    {
+      "alerts": [],
+      "theme": "coral",
+      "toolbar": true,
+      "view": "editor"
+    }
+  ]
+}

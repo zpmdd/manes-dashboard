@@ -103,7 +103,7 @@ function ChartControls({ item, onChange }) {
   const value = item.chartOptions, change = patch => onChange({ chartOptions: { ...value, ...patch } });
   const cartesian = ['multiLine', 'stacked', 'combo', 'scatter', 'heatmap'].includes(item.type);
   return <section className="ep-property-section"><h3>图表设置</h3>
-    <Select label="配色" value={value.palette} onChange={palette => change({ palette })}><option value="champagne">香槟暖色</option><option value="ocean">海洋蓝绿</option><option value="forest">森林青金</option></Select>
+    <Select label="配色" value={value.palette} onChange={palette => change({ palette })}><option value="champagne">跟随大屏配色</option><option value="ocean">固定 · 海洋蓝绿</option><option value="forest">固定 · 森林青金</option></Select>
     <div className="ep-field-grid">
       {item.type !== 'treemap' && <Toggle label={item.type === 'heatmap' ? '显示色标' : '显示图例'} value={value.legend} onChange={legend => change({ legend })}/>}
       <Toggle label="数值标签" value={value.labels} onChange={labels => change({ labels })}/>
