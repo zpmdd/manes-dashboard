@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { mergeGroups } from 'three/addons/utils/BufferGeometryUtils.js';
 import { extent, labelPoint, layoutLabels, NATIONAL, polygons, projection, shortName } from './geo';
 import { useRoadmap } from './useRoadmap';
-import { VEHICLES } from './vehicles';
+import { VEHICLES, linkedVehicles, groupVehiclePoints } from './vehicles';
 
 const CAMERA = [0, 22, 18];
 const TOP = 0.36;
@@ -69,7 +69,7 @@ export function modelFor(data, code, collections = [{ code, data }]) {
 
 export function vehicleBounds(project, vehicle, surfaceY = TOP) {
   const bounds = new THREE.Box3();
-  for (const item of vehicle ? [vehicle] : VEHICLES) {
+  for (const item of Array.isArray(vehicle) ? vehicle : vehicle ? [vehicle] : VEHICLES) {
     const [x, y] = project([item.GEO_LON, item.GEO_LAT]);
     bounds.expandByPoint(new THREE.Vector3(x, surfaceY, -y));
   }
@@ -78,11 +78,25 @@ export function vehicleBounds(project, vehicle, surfaceY = TOP) {
   return bounds.expandByVector(new THREE.Vector3(Math.abs(x1 - x0), 0, Math.abs(y1 - y0)));
 }
 
-function MapLabelLayout({ model, labelPortal, viewport }) {
+export function vehicleDetailVisible(camera, project, size, previous = false) {
+  const points = [[116.52, 39.86], [116.53, 39.86]].map(coords => {
+    const [x, y] = project(coords);
+    const p = new THREE.Vector3(x, TOP, -y).project(camera);
+    return new THREE.Vector2(p.x * size.width / 2, p.y * size.height / 2);
+  });
+  // Screen scale, rather than administrative code, also handles wheel zoom and camera focus.
+  return points[0].distanceTo(points[1]) >= (previous ? 1.6 : 2);
+}
+
+function MapLabelLayout({ model, labelPortal, viewport, onVehicleDetailChange }) {
   const { size, invalidate } = useThree();
+  const detail = useRef(null);
   const regions = useMemo(() => new Map(model.regions.map(region => [String(region.feature.properties.adcode), region])), [model]);
   useLayoutEffect(() => { invalidate(); }, [model, size, viewport, invalidate]);
   useFrame(({ camera }) => {
+    const detailed = vehicleDetailVisible(camera, model.project, size, detail.current);
+    if (labelPortal.current) labelPortal.current.dataset.vehicleDetail = String(detailed);
+    if (detail.current !== detailed) { detail.current = detailed; onVehicleDetailChange?.(detailed); }
     const elements = [...(labelPortal.current?.querySelectorAll('.vehicle-marker') || []), ...(labelPortal.current?.querySelectorAll('.map-region-label') || [])];
     const labels = elements.flatMap(element => {
       const region = regions.get(element.dataset.adcode);
@@ -91,11 +105,26 @@ function MapLabelLayout({ model, labelPortal, viewport }) {
       const position = vehicle?.position || [region.anchor[0], TOP + .08 * model.scale, region.anchor[2]];
       const point = new THREE.Vector3(...position).project(camera);
       const rect = element.getBoundingClientRect();
-      return [{ element, focused: !!vehicle || region.focused, x: (point.x + 1) * size.width / 2, y: (1 - point.y) * size.height / 2, width: rect.width, height: rect.height }];
+      return [{ element, vehicle, focused: !!vehicle || region.focused, x: (point.x + 1) * size.width / 2, y: (1 - point.y) * size.height / 2, width: rect.width, height: rect.height }];
     });
+    const groups = groupVehiclePoints(labels.filter(label => label.vehicle), detailed);
+    for (const group of groups) for (const [i, point] of group.entries()) {
+      point.element.dataset.members = group.map(p => p.element.dataset.vehicle).join(',');
+      point.element.dataset.count = group.length;
+      point.element.setAttribute('aria-label', detailed ? `查看车辆 ${point.vehicle.vehicle.VEHICLENO}` : `车辆点 · ${group.length} 辆 · 点击放大`);
+      point.element.style.visibility = i ? 'hidden' : 'visible';
+      point.element.tabIndex = i ? -1 : 0;
+    }
+    const placed = [...groups.map(group => group[0]), ...labels.filter(label => !label.vehicle)];
     const bounds = viewport ? { left: (viewport.x + viewport.width * .02) * size.width, right: (viewport.x + viewport.width * .98) * size.width, top: (viewport.y + viewport.height * .12) * size.height, bottom: (viewport.y + viewport.height * .98) * size.height } : { left: 0, right: size.width, top: 0, bottom: size.height };
-    for (const { element, dx = 0, dy = 0, width, height, hidden } of layoutLabels(labels, bounds)) {
+    for (const { element, vehicle, x, y, dx = 0, dy = 0, width, height, hidden } of layoutLabels(placed, bounds)) {
       const length = Math.hypot(dx, dy), edge = Math.min(dx ? width / 2 / Math.abs(dx) : Infinity, dy ? height / 2 / Math.abs(dy) : Infinity);
+      // Broad-view dots stay at their actual coordinates; only detailed labels are displaced.
+      if (vehicle && !detailed) {
+        element.style.visibility = x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom ? 'hidden' : 'visible';
+        element.style.setProperty('--label-x', '0px'); element.style.setProperty('--label-y', '0px'); element.style.setProperty('--leader-length', '0px');
+        continue;
+      }
       element.style.visibility = hidden ? 'hidden' : 'visible';
       element.style.setProperty('--label-x', `${dx}px`);
       element.style.setProperty('--label-y', `${dy}px`);
@@ -293,10 +322,13 @@ function CameraControls({ command, onTelemetry, bounds, viewport, project }) {
   return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={.12} enablePan screenSpacePanning minDistance={.0001} maxDistance={90} minPolarAngle={.01} maxPolarAngle={Math.PI / 2.12} onStart={cancelFlight} onEnd={() => direction.current.copy(camera.position).sub(controls.current.target)} onChange={() => invalidate()} />;
 }
 
-function World({ data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, command, quality, onTelemetry, viewport }) {
+function World({ data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, vehicleFilter = 'vehicle:all', command, quality, onTelemetry, viewport }) {
   const national = code === NATIONAL;
   const model = useMemo(() => modelFor(data, code, collections), [data, code, collections]);
   const { gl, invalidate } = useThree();
+  const shownVehicles = linkedVehicles(vehicleFilter) || VEHICLES;
+  const vehicleMembers = element => (element.dataset.members || element.dataset.vehicle).split(',').map(i => model.vehicles[Number(i)].vehicle);
+  const hoverVehicle = event => onVehicleHover?.({ vehicles: vehicleMembers(event.currentTarget), rect: event.currentTarget.getBoundingClientRect() });
   const { material: roadmap, status: roadmapStatus } = useRoadmap(layers.roadmap, model.project, viewport);
   const hubs = useMemo(() => national ? HUBS.map(h => {
     const [x, y] = model.project(h.point); return { ...h, position: [x, TOP + .035, -y] };
@@ -337,13 +369,13 @@ function World({ data, collections, roadData, labelPortal, code, layers, selecte
     {layers.roads && <Roads data={roadData} project={model.project} scale={model.scale} labelPortal={labelPortal} layers={layers} detail={code === '420381'} />}
     {layers.arcs && arcs.map((p, i) => <Line key={i} points={p} color="#f5e3b9" transparent opacity={.55} lineWidth={1} depthWrite={false} />)}
     {layers.beacons && hubs.map(h => <Beacon key={h.name} position={h.position} height={h.height} scale={model.scale} />)}
-    {layers.vehicles && model.vehicles.map(({ vehicle, position }, i) => <Html key={vehicle.VEHICLENO} portal={labelPortal} position={position} center zIndexRange={[12, 9]} style={{ pointerEvents: 'none' }}><button ref={element => { if (element) invalidate(); }} className={`vehicle-marker${vehicle.GPS_SPEED > 0 ? ' is-moving' : ''}`} data-vehicle={i} aria-label={`查看车辆 ${vehicle.VEHICLENO}`} title={`车辆 ${vehicle.VEHICLENO} · GPS速度 ${vehicle.GPS_SPEED}`} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onVehicleSelect(vehicle); }}><Car size={14} weight="fill"/><span>{vehicle.VEHICLENO}</span></button></Html>)}
+    {layers.vehicles && model.vehicles.map(({ vehicle, position }, i) => shownVehicles.includes(vehicle) && <Html key={vehicle.VEHICLENO} portal={labelPortal} position={position} center zIndexRange={[12, 9]} style={{ pointerEvents: 'none' }}><button ref={element => { if (element) invalidate(); }} className={`vehicle-marker${vehicle.GPS_SPEED > 0 ? ' is-moving' : ''}${vehicleFilter === `vehicle:${vehicle.VEHICLENO}` ? ' is-selected' : ''}`} data-vehicle={i} aria-label={`查看车辆 ${vehicle.VEHICLENO}`} aria-describedby="vehicle-hover-details" onPointerEnter={hoverVehicle} onPointerLeave={() => onVehicleHover?.(null)} onFocus={hoverVehicle} onBlur={() => onVehicleHover?.(null)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onVehicleHover?.(null); const detailed = labelPortal.current?.dataset.vehicleDetail === 'true'; onVehicleSelect(detailed ? vehicle : vehicleMembers(event.currentTarget), detailed); }}><i className="vehicle-dot" aria-hidden="true"/><span className="vehicle-symbol"><Car size={14} weight="fill"/><span>{vehicle.VEHICLENO}</span></span></button></Html>)}
     {layers.labels && model.regions.filter(r => r.feature.properties.name).map(({ feature, anchor, focused }) => <Html key={feature.properties.adcode} portal={labelPortal} position={[anchor[0], TOP + .08 * model.scale, anchor[2]]} center zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}><span ref={element => { if (element) invalidate(); }} className={`map-region-label${focused ? ' is-focused' : ''}`} data-adcode={feature.properties.adcode} title={feature.properties.name}>{shortName(feature.properties.name)}</span></Html>)}
     {layers.heat && hubs.map(h => <mesh key={h.name} rotation={[-Math.PI / 2, 0, 0]} position={[h.position[0], TOP + .025 * model.scale, h.position[2]]}>
       <planeGeometry args={[2.0 * model.scale, 2.0 * model.scale]} /><shaderMaterial vertexShader={heatVertex} fragmentShader={heatFragment} transparent depthWrite={false} />
     </mesh>)}
     <CameraControls command={command} onTelemetry={onTelemetry} bounds={model.bounds} viewport={viewport} project={model.project} />
-    {(layers.labels || layers.vehicles) && <MapLabelLayout model={model} labelPortal={labelPortal} viewport={viewport} />}
+    {(layers.labels || layers.vehicles) && <MapLabelLayout model={model} labelPortal={labelPortal} viewport={viewport} onVehicleDetailChange={onVehicleDetailChange} />}
   </>;
 }
 

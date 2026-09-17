@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowUpRight, CaretRight, Check, GlobeHemisphereEast, RoadHorizon, X } from '@phosphor-icons/react';
 import { NATIONAL } from './geo';
 import { VEHICLE_FIELDS, VEHICLES } from './vehicles';
@@ -47,4 +48,16 @@ export function VehiclePanel({ vehicle, onSelect, onFocus, onClose }) {
     <button className="vehicle-focus" onClick={() => onFocus(vehicle)}>定位此车<ArrowUpRight size={14}/></button>
     <p className="fineprint">按提供的经纬度展示。号牌颜色、报警、状态和加密标识保留原始编码；坐标系尚未确认。</p>
   </Dialog>;
+}
+
+export function VehicleTooltip({ value: { vehicles, rect }, detailed, ...events }) {
+  const item = vehicles[0], group = vehicles.length > 1;
+  const left = Math.max(12, Math.min(rect.right + 12, window.innerWidth - 272));
+  const top = Math.max(12, Math.min(rect.top - 12, window.innerHeight - 230));
+  return createPortal(<div id="vehicle-hover-details" className="vehicle-tooltip" role="tooltip" style={{ left, top }} {...events}>
+    <strong>{group ? `此处 ${vehicles.length} 辆车` : `车辆 ${item.VEHICLENO}`}</strong>
+    <span className="vehicle-tooltip-status">{group ? `行驶 ${vehicles.filter(row => row.GPS_SPEED > 0).length} · 静止 ${vehicles.filter(row => row.GPS_SPEED === 0).length}` : item.GPS_SPEED > 0 ? '行驶' : '静止'}</span>
+    {group ? <p>{vehicles.map(row => `车辆 ${row.VEHICLENO}`).join('、')}</p> : <dl><div><dt>GPS 速度</dt><dd>{item.GPS_SPEED}</dd></div><div><dt>行车定位速度</dt><dd>{item.RECORD_SPEED}</dd></div><div><dt>经纬度</dt><dd>{item.GEO_LON.toFixed(6)}, {item.GEO_LAT.toFixed(6)}</dd></div></dl>}
+    <time>GPS · {item.GPS_DATE}</time><small>{detailed ? '点击查看车辆详情' : '点击放大查看车辆'}</small>
+  </div>, document.body);
 }

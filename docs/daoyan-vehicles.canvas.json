@@ -1,0 +1,240 @@
+{
+  "version": 2,
+  "brand": "MANES",
+  "title": "全域运行监测中心",
+  "mapTitle": "区域运行态势",
+  "navLabels": [
+    "运行总览",
+    "数据监测",
+    "交通网络",
+    "区域管理"
+  ],
+  "showClock": true,
+  "canvas": {
+    "snap": true,
+    "grid": 1,
+    "magnet": true,
+    "threshold": 6
+  },
+  "map": {
+    "layout": {
+      "x": 20,
+      "y": 0,
+      "w": 80,
+      "h": 100
+    },
+    "visible": true,
+    "locked": false
+  },
+  "modules": [
+    {
+      "id": "devices",
+      "title": "车辆总数",
+      "subtitle": "GPS 快照 · 2026/09/13 00:00",
+      "type": "metric",
+      "source": "devices",
+      "visible": true,
+      "unit": "辆",
+      "rowCount": 5,
+      "columns": [
+        {
+          "key": "name",
+          "label": "区域"
+        },
+        {
+          "key": "value",
+          "label": "接入设备"
+        },
+        {
+          "key": "status",
+          "label": "状态"
+        }
+      ],
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 19,
+        "h": 32
+      },
+      "locked": false,
+      "surface": "glass",
+      "binding": {
+        "sourceId": "ds_8b34a2de-317b-4b63-bc0c-f991459e5fce",
+        "fields": {
+          "name": "name",
+          "value": "count",
+          "time": "GPS_DATE",
+          "status": "status",
+          "target": "target",
+          "series": "series",
+          "code": "code",
+          "x": "x",
+          "y": "y",
+          "value2": "value2"
+        }
+      },
+      "aggregate": "sum",
+      "text": "",
+      "target": 100,
+      "precision": 0,
+      "chartOptions": {
+        "legend": true,
+        "labels": false,
+        "zoom": false,
+        "smooth": true,
+        "palette": "champagne",
+        "secondaryUnit": "",
+        "primaryName": "主指标",
+        "secondaryName": "辅助指标",
+        "xName": "",
+        "yName": ""
+      }
+    },
+    {
+      "id": "online",
+      "title": "行驶与静止",
+      "subtitle": "按 GPS 速度划分 · 点击图例联动",
+      "type": "donut",
+      "source": "regions",
+      "visible": true,
+      "unit": "辆",
+      "rowCount": 5,
+      "columns": [
+        {
+          "key": "name",
+          "label": "区域"
+        },
+        {
+          "key": "value",
+          "label": "接入设备"
+        },
+        {
+          "key": "status",
+          "label": "状态"
+        }
+      ],
+      "layout": {
+        "x": 0,
+        "y": 34,
+        "w": 19,
+        "h": 32
+      },
+      "locked": false,
+      "surface": "glass",
+      "binding": {
+        "sourceId": "ds_596c6afe-bdd9-45b7-a209-2ab6ce05910b",
+        "fields": {
+          "name": "name",
+          "value": "value",
+          "time": "time",
+          "status": "status",
+          "target": "target",
+          "series": "series",
+          "code": "code",
+          "x": "x",
+          "y": "y",
+          "value2": "value2"
+        }
+      },
+      "aggregate": "sum",
+      "text": "",
+      "target": 100,
+      "precision": 0,
+      "chartOptions": {
+        "legend": true,
+        "labels": false,
+        "zoom": false,
+        "smooth": true,
+        "palette": "champagne",
+        "secondaryUnit": "",
+        "primaryName": "主指标",
+        "secondaryName": "辅助指标",
+        "xName": "",
+        "yName": ""
+      }
+    },
+    {
+      "id": "trend",
+      "title": "各车 GPS 速度",
+      "subtitle": "原始速度值 · 点击车辆定位",
+      "type": "bar",
+      "source": "regions",
+      "visible": true,
+      "unit": "",
+      "rowCount": 8,
+      "columns": [
+        {
+          "key": "name",
+          "label": "区域"
+        },
+        {
+          "key": "value",
+          "label": "接入设备"
+        },
+        {
+          "key": "status",
+          "label": "状态"
+        }
+      ],
+      "layout": {
+        "x": 0,
+        "y": 68,
+        "w": 19,
+        "h": 32
+      },
+      "locked": false,
+      "surface": "solid",
+      "binding": {
+        "sourceId": "ds_8b34a2de-317b-4b63-bc0c-f991459e5fce",
+        "fields": {
+          "name": "name",
+          "value": "GPS_SPEED",
+          "time": "GPS_DATE",
+          "status": "status",
+          "target": "target",
+          "series": "series",
+          "code": "code",
+          "x": "x",
+          "y": "y",
+          "value2": "value2"
+        }
+      },
+      "aggregate": "sum",
+      "text": "",
+      "target": 100,
+      "precision": 0,
+      "chartOptions": {
+        "legend": true,
+        "labels": false,
+        "zoom": false,
+        "smooth": true,
+        "palette": "champagne",
+        "secondaryUnit": "",
+        "primaryName": "主指标",
+        "secondaryName": "辅助指标",
+        "xName": "",
+        "yName": ""
+      }
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "ds_8b34a2de-317b-4b63-bc0c-f991459e5fce",
+      "name": "车辆定位快照 · 2026-09-13",
+      "type": "json",
+      "content": "[\n  {\n    \"VEHICLENO\": \"1\",\n    \"PALTE_COLOR\": \"1\",\n    \"GEO_LON\": 116.522857,\n    \"GEO_LAT\": 39.862656,\n    \"GEO_ANG\": 206,\n    \"GEO_ALT\": null,\n    \"GPS_SPEED\": 0,\n    \"RECORD_SPEED\": 0,\n    \"MILEAGE\": null,\n    \"GPS_DATE\": \"2026/9/13 00:00\",\n    \"SI_DT\": \"2026/9/15 00:00\",\n    \"ALARM_CODE\": \"00000000000000000000000000000011\",\n    \"STATE_CODE\": \"00000000000000000000000000000010\",\n    \"ENCRYPT\": \"1\",\n    \"OPERATOR_CODE\": \"10\",\n    \"name\": \"车辆 1\",\n    \"count\": 1,\n    \"code\": \"vehicle:1\"\n  },\n  {\n    \"VEHICLENO\": \"2\",\n    \"PALTE_COLOR\": \"1\",\n    \"GEO_LON\": 116.522857,\n    \"GEO_LAT\": 39.8627,\n    \"GEO_ANG\": 206,\n    \"GEO_ALT\": null,\n    \"GPS_SPEED\": 0,\n    \"RECORD_SPEED\": 0,\n    \"MILEAGE\": null,\n    \"GPS_DATE\": \"2026/9/13 00:00\",\n    \"SI_DT\": \"2026/9/15 00:00\",\n    \"ALARM_CODE\": \"00000000000000000000000000000011\",\n    \"STATE_CODE\": \"00000000000000000000000000000010\",\n    \"ENCRYPT\": \"1\",\n    \"OPERATOR_CODE\": \"10\",\n    \"name\": \"车辆 2\",\n    \"count\": 1,\n    \"code\": \"vehicle:2\"\n  },\n  {\n    \"VEHICLENO\": \"3\",\n    \"PALTE_COLOR\": \"1\",\n    \"GEO_LON\": 116.522857,\n    \"GEO_LAT\": 39.863,\n    \"GEO_ANG\": 206,\n    \"GEO_ALT\": null,\n    \"GPS_SPEED\": 10,\n    \"RECORD_SPEED\": 10,\n    \"MILEAGE\": null,\n    \"GPS_DATE\": \"2026/9/13 00:00\",\n    \"SI_DT\": \"2026/9/15 00:00\",\n    \"ALARM_CODE\": \"00000000000000000000000000000011\",\n    \"STATE_CODE\": \"00000000000000000000000000000010\",\n    \"ENCRYPT\": \"1\",\n    \"OPERATOR_CODE\": \"10\",\n    \"name\": \"车辆 3\",\n    \"count\": 1,\n    \"code\": \"vehicle:3\"\n  },\n  {\n    \"VEHICLENO\": \"4\",\n    \"PALTE_COLOR\": \"1\",\n    \"GEO_LON\": 116.522858,\n    \"GEO_LAT\": 39.862656,\n    \"GEO_ANG\": 206,\n    \"GEO_ALT\": null,\n    \"GPS_SPEED\": 0,\n    \"RECORD_SPEED\": 0,\n    \"MILEAGE\": null,\n    \"GPS_DATE\": \"2026/9/13 00:00\",\n    \"SI_DT\": \"2026/9/15 00:00\",\n    \"ALARM_CODE\": \"00000000000000000000000000000011\",\n    \"STATE_CODE\": \"00000000000000000000000000000010\",\n    \"ENCRYPT\": \"1\",\n    \"OPERATOR_CODE\": \"10\",\n    \"name\": \"车辆 4\",\n    \"count\": 1,\n    \"code\": \"vehicle:4\"\n  },\n  {\n    \"VEHICLENO\": \"5\",\n    \"PALTE_COLOR\": \"2\",\n    \"GEO_LON\": 117.522858,\n    \"GEO_LAT\": 40,\n    \"GEO_ANG\": 206,\n    \"GEO_ALT\": null,\n    \"GPS_SPEED\": 0,\n    \"RECORD_SPEED\": 0,\n    \"MILEAGE\": null,\n    \"GPS_DATE\": \"2026/9/13 00:00\",\n    \"SI_DT\": \"2026/9/15 00:00\",\n    \"ALARM_CODE\": \"00000000000000000000000000000011\",\n    \"STATE_CODE\": \"00000000000000000000000000000010\",\n    \"ENCRYPT\": \"1\",\n    \"OPERATOR_CODE\": \"10\",\n    \"name\": \"车辆 5\",\n    \"count\": 1,\n    \"code\": \"vehicle:5\"\n  }\n]",
+      "url": "",
+      "rowsPath": "",
+      "refreshSeconds": 0
+    },
+    {
+      "id": "ds_596c6afe-bdd9-45b7-a209-2ab6ce05910b",
+      "name": "车辆速度状态 · 2026-09-13",
+      "type": "json",
+      "content": "[\n  {\n    \"name\": \"行驶 · 1 辆\",\n    \"value\": 1,\n    \"code\": \"vehicle:moving\"\n  },\n  {\n    \"name\": \"静止 · 4 辆\",\n    \"value\": 4,\n    \"code\": \"vehicle:stopped\"\n  }\n]",
+      "url": "",
+      "rowsPath": "",
+      "refreshSeconds": 0
+    }
+  ]
+}

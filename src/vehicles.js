@@ -14,3 +14,22 @@ export const VEHICLES = [
   ['4', '1', 116.522858, 39.862656, 206, null, 0, 0, null, '2026/9/13 00:00', '2026/9/15 00:00', '00000000000000000000000000000011', '00000000000000000000000000000010', '1', '10'],
   ['5', '2', 117.522858, 40, 206, null, 0, 0, null, '2026/9/13 00:00', '2026/9/15 00:00', '00000000000000000000000000000011', '00000000000000000000000000000010', '1', '10'],
 ].map(values => Object.fromEntries(VEHICLE_FIELDS.map(([key], i) => [key, values[i]])));
+
+// Vehicle links are scoped to this branch; ordinary region links keep their behavior.
+export function linkedVehicles(code) {
+  if (code === 'vehicle:all') return VEHICLES;
+  if (code === 'vehicle:moving') return VEHICLES.filter(row => row.GPS_SPEED > 0);
+  if (code === 'vehicle:stopped') return VEHICLES.filter(row => row.GPS_SPEED === 0);
+  const vehicle = VEHICLES.find(row => code === `vehicle:${row.VEHICLENO}`);
+  return vehicle ? [vehicle] : null;
+}
+
+export function groupVehiclePoints(points, detailed) {
+  const groups = [];
+  // ponytail: linear scan is sufficient for this five-vehicle snapshot; use a spatial index for large fleets.
+  for (const point of points) {
+    const group = !detailed && groups.find(items => Math.hypot(items[0].x - point.x, items[0].y - point.y) < 22);
+    if (group) group.push(point); else groups.push([point]);
+  }
+  return groups;
+}

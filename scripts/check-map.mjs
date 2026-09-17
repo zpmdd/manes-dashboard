@@ -5,9 +5,10 @@ import { act, Component, createElement, lazy, Profiler, Suspense } from 'react';
 import { createRoot, extend, getRootState } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createServer, transformWithEsbuild } from 'vite';
-import { createDataSourceController, validateSourceUrl } from '../src/dataSources.js';
+import { createDataSourceController, validateSourceUrl, getMappedData, parseSourceContent } from '../src/dataSources.js';
+import { normalizeConfig } from '../src/dashboardConfig.js';
 import { layoutLabels, lineage, shortName } from '../src/geo.js';
-import { VEHICLES, VEHICLE_FIELDS } from '../src/vehicles.js';
+import { VEHICLES, VEHICLE_FIELDS, linkedVehicles, groupVehiclePoints } from '../src/vehicles.js';
 import { atlasGrid, roadmapMaterial, viewAtlas } from '../src/useRoadmap.js';
 
 // Exercise the real R3F components without a browser or a GPU render loop.
@@ -19,7 +20,7 @@ globalThis.reportError = error => reportedErrors.push(error);
 const root = createRoot({});
 if (previousReporter === undefined) delete globalThis.reportError; else globalThis.reportError = previousReporter;
 try {
-  const { RegionMesh, modelFor, vehicleBounds, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
+  const { RegionMesh, modelFor, vehicleBounds, vehicleDetailVisible, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
   const mapSource = await readFile(new URL('../src/MapScene.jsx', import.meta.url), 'utf8');
   const labelExpression = mapSource.split('\n').find(line => line.includes('{layers.labels && model.regions'))?.trim().slice(1, -1);
   assert(labelExpression, 'National labels must have an independent rendering path');
@@ -61,6 +62,19 @@ try {
   const camera = new THREE.PerspectiveCamera(34, 1, .1, 200);
   const vehicleModel = models[0], vehicleSize = { width: 1280, height: 720 }, vehicleViewport = { x: .21, y: .15, width: .78, height: .61 };
   assert.equal(VEHICLES.length, 5); assert.equal(VEHICLE_FIELDS.length, 15);
+  const vehicleCanvas = normalizeConfig(JSON.parse(await readFile(new URL('../docs/daoyan-vehicles.canvas.json', import.meta.url), 'utf8')));
+  const rawVehicleSource = vehicleCanvas.dataSources.find(source => source.id === vehicleCanvas.modules[0].binding.sourceId);
+  const rawVehicles = parseSourceContent(rawVehicleSource.content, rawVehicleSource.type, rawVehicleSource.rowsPath);
+  assert.deepEqual(rawVehicles.map(row => Object.fromEntries(VEHICLE_FIELDS.map(([key]) => [key, row[key]]))), VEHICLES, 'The page data and map use the same original fifteen-field snapshot');
+  const cardData = vehicleCanvas.modules.map(item => {
+    const source = vehicleCanvas.dataSources.find(source => source.id === item.binding.sourceId);
+    return getMappedData({ rows: parseSourceContent(source.content, source.type, source.rowsPath) }, item.binding, item);
+  });
+  assert.deepEqual(vehicleCanvas.modules.map(item => item.layout), [{ x: 0, y: 0, w: 19, h: 32 }, { x: 0, y: 34, w: 19, h: 32 }, { x: 0, y: 68, w: 19, h: 32 }], 'The exported page preserves the saved three-card layout');
+  assert.equal(cardData[0].value, VEHICLES.length);
+  assert.deepEqual(cardData[1].rows.map(row => row.value), [1, 4]);
+  assert.deepEqual(cardData[2].rows.map(row => row.value), VEHICLES.map(row => row.GPS_SPEED));
+  for (const row of cardData.flatMap(data => data.rows)) assert(linkedVehicles(row.code)?.length, 'Every configured chart link resolves to actual vehicles');
   assert.deepEqual(VEHICLES.map(row => [row.GEO_LON, row.GEO_LAT]), [[116.522857, 39.862656], [116.522857, 39.8627], [116.522857, 39.863], [116.522858, 39.862656], [117.522858, 40]]);
   assert.equal(VEHICLES[2].GPS_SPEED, 10); assert.equal(VEHICLES[4].PALTE_COLOR, '2');
   for (const row of VEHICLES) {
@@ -70,9 +84,25 @@ try {
     assert.equal(row.STATE_CODE, '00000000000000000000000000000010');
   }
   camera.aspect = vehicleSize.width / vehicleSize.height;
+  assert.deepEqual(linkedVehicles('vehicle:moving').map(v => v.VEHICLENO), ['3']);
+  assert.deepEqual(linkedVehicles('vehicle:stopped').map(v => v.VEHICLENO), ['1', '2', '4', '5']);
+  assert.equal(linkedVehicles('vehicle:all').length, 5);
+  assert.equal(linkedVehicles('110000'), null);
+  assert.equal(linkedVehicles('vehicle:99'), null);
+  assert.equal(linkedVehicles('vehicle:5')[0].GPS_SPEED, 0, 'Stationary vehicles remain selectable');
+  fitMapViewport(camera, vehicleModel.bounds, vehicleSize, vehicleViewport);
+  assert.equal(vehicleDetailVisible(camera, vehicleModel.project, vehicleSize), false, 'National view uses breathing points');
+  const points = vehicleModel.vehicles.map(({ position }, i) => {
+    const p = new THREE.Vector3(...position).project(camera);
+    return { i, x: (p.x + 1) * vehicleSize.width / 2, y: (1 - p.y) * vehicleSize.height / 2 };
+  });
+  assert.equal(groupVehiclePoints(points, false).flat().length, 5, 'Clustering preserves every vehicle');
+  assert(groupVehiclePoints(points, false).length < 5, 'Nearly identical coordinates share an overview point');
+  assert.equal(groupVehiclePoints(points, true).length, 5, 'Detail view separates all vehicle labels');
   for (const item of [null, ...VEHICLES]) {
     const bounds = vehicleBounds(vehicleModel.project, item, vehicleModel.bounds.max.y);
     const frame = fitMapViewport(camera, bounds, vehicleSize, vehicleViewport);
+    assert.equal(vehicleDetailVisible(camera, vehicleModel.project, vehicleSize), true, 'Fleet and individual focus reveal vehicle icons');
     assert(frame && camera.position.y > vehicleModel.bounds.max.y, 'Vehicle focus must remain above the map surface, including individual vehicles');
     const visible = item ? vehicleModel.vehicles.filter(point => point.vehicle.VEHICLENO === item.VEHICLENO) : vehicleModel.vehicles;
     const projected = visible.map(({ vehicle, position }) => {
@@ -361,7 +391,7 @@ try {
     ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
     : createElement(type, props, ...children);
   const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
-  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, pickVehicle, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleFilter, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
   const context = { sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
   let loads = 0, received;
   const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
