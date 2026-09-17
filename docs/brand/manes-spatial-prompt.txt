@@ -1,0 +1,23 @@
+MODE: Built-in image_gen tool. Final image is a one-pass refinement of the first generation.
+
+INITIAL GENERATION PROMPT
+
+Use case: logo-brand.
+Asset type: standalone symbol for MANES, an advanced technology and 3D data visualization studio.
+Primary request: create ONE polished original identity mark, direction SPATIAL CORE / constructed intelligence. A compact isometric architectural emblem that communicates turning data into intelligible space. It must feel bespoke, precise, and intelligent.
+Subject and geometry: three substantial interlocking planar facets assemble into a near-hexagonal open spatial cell. The central void contains a subtle angular M formed by the exact way the facets meet. A single open gap at the upper right makes the construction breathable and distinctive. Use consistent 30/60-degree isometric angles, three broad solid planes, refined negative-space relationships. Avoid a closed solid cube: think an open dimensional aperture, with a strong compact silhouette that survives icon-size reduction. The graphic should be approximately square with equal optical weight on all sides.
+Style/medium: exceptionally clean flat vector-like artwork; spatial effect achieved only by three flat solid colors: warm ivory #EEE8D1, restrained champagne #C8B693 and graphite-taupe #867B6A. No rendered bevel, no glossy light, no gradients, no 3D mockup.
+Composition: one single centered symbol on a square canvas, mark approximately 66% of canvas width, generous optical margins. Genuinely transparent background, preserved alpha, no painted checkerboard, no background square.
+Text: none; do not include a wordmark or caption.
+Avoid: generic wireframe cube, blockchain chain-link symbol, impossible Escher stairs, shield, extra floating polygons, map pins, atom rings, grid, circuit traces, glow, metallic texture, thin line details, shadows, photo rendering, trademark symbols, watermarks.
+
+FINAL EDIT PROMPT
+
+Use case: precise-object-edit.
+Input image: the existing MANES spatial-core symbol is the edit target.
+Primary request: clean this logo into immaculate flat solid-color artwork. Change ONLY edge cleanliness, alpha cleanliness, and fill flatness.
+Invariants: preserve the exact overall interlocking isometric geometry, the central angular M-shaped void, upper-right opening, three facets, centered square composition, and current facet color assignment.
+Required cleanup: make every facet a completely uniform opaque flat solid color: warm ivory #EEE8D1, champagne #C8B693, and graphite-taupe #867B6A. Remove all gradients, shading, textures, tiny edge sparkles, speckles and stray pixels. All areas outside the three precise polygon silhouettes and in the central void must be fully transparent alpha=0. Clean antialiasing only at true polygon boundaries. Do not add any shapes or details. Preserve a genuinely transparent background with alpha, never a painted checkerboard. No text, no background, no shadow, no outline.
+
+Final source:
+/Users/manes/.codex/generated_images/01a0ad09-3a21-74a1-81e7-22c814b914ea/exec-3c4c8c01-c6ae-477b-bd47-f7507f0aa5ca.png
