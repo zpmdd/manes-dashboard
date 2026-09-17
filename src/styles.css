@@ -58,7 +58,7 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
 /* Continuous scene shading supports the HUD without framing every control. */
 :root{--ui-muted:#e0d8ca}
 .free-dashboard{--canvas-inset:clamp(14px,1.2vw,32px);--hud-inset:clamp(12px,1.15vw,24px)}
-.world-backdrop::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;--scene-mask:linear-gradient(#000 0% 18%,#0000 38%),linear-gradient(0deg,#000 0% 6%,#0000 18%);background:#292530de;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);mask-image:var(--scene-mask);-webkit-mask-image:var(--scene-mask)}
+.world-backdrop::after{content:"";position:absolute;inset:0;z-index:1;pointer-events:none;--scene-mask:linear-gradient(#000 0%,#000f 10%,#000d 18%,#0008 25%,#0003 31%,#0001 35%,#0000 38%),linear-gradient(0deg,#000 0%,#000f 1.5%,#000d 3%,#0009 4.5%,#0004 6%,#0001 7.2%,#0000 8%);background:#292530de;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);mask-image:var(--scene-mask);-webkit-mask-image:var(--scene-mask)}
 .free-dashboard .topbar{left:var(--canvas-inset);right:var(--canvas-inset);top:0;height:14%;padding:0;display:grid;grid-template-columns:20% minmax(0,1fr) auto;grid-template-rows:1fr;gap:0}
 .screen-title{display:flex;flex-direction:column;align-items:flex-start;gap:calc(7 * var(--u));padding-left:var(--hud-inset)}
 .screen-title h1{font-size:calc(20 * var(--u));letter-spacing:calc(.7 * var(--u));max-width:100%;text-shadow:0 1px 6px #211a2540}
@@ -82,7 +82,7 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
 .south-sea svg{filter:drop-shadow(0 0 .7px #211925) drop-shadow(0 1px .5px #211925)}.south-sea>span{text-shadow:0 1px 3px #211925}
 .vehicle-toolbar{position:static;gap:calc(16 * var(--u));max-width:none;font-size:max(11px,calc(9 * var(--u)));text-shadow:0 1px 4px #221b2770}
 .vehicle-toolbar button{border:0;border-radius:0;background:none;backdrop-filter:none;padding:6px 0;color:#f9ebc6}.vehicle-toolbar button:hover{text-decoration:underline;text-underline-offset:5px}.vehicle-toolbar>span{color:var(--ui-muted);font-size:max(10px,calc(7 * var(--u)))}
-.free-dashboard .map-bottom{left:var(--map-inset);right:var(--map-inset);bottom:var(--map-inset);gap:calc(24 * var(--u));justify-content:flex-start;color:var(--ui-muted);font-size:max(9px,calc(7 * var(--u)));text-shadow:0 1px 4px #221b2770}.map-legend{gap:calc(12 * var(--u))}.map-bottom>button{margin-left:auto}.map-legend:empty{display:none}
+.free-dashboard .map-bottom{left:var(--map-inset);right:var(--map-inset);bottom:6px;gap:calc(24 * var(--u));justify-content:flex-start;color:var(--ui-muted);font-size:max(9px,calc(7 * var(--u)));text-shadow:0 1px 4px #221b2770}.map-legend{gap:calc(12 * var(--u))}.map-bottom>button{margin-left:auto}.map-legend:empty{display:none}
 .back-region{left:var(--map-inset);top:calc(62 * var(--u));background:none;border:0;border-radius:0;padding:6px 0;color:#f9ebc6;text-shadow:0 1px 5px #211a2580}
 .widget-heading p,.widget-value>span,.widget-metric-scope,.widget-metric-details dt,.widget-line-chart figcaption,.widget-rank-number,.widget-rank-caption>span,.widget-rank-caption small,.widget-rank-arrow,.widget-donut-legend li>span,.widget-donut-legend button,.widget-table th,.widget-progress-caption small,.widget-progress-detail,.widget-clock time>span,.widget-empty{color:var(--ui-muted)}
 .widget-gauge-label,.widget-chart-grid text,.widget-chart-label{fill:var(--ui-muted)}
@@ -94,8 +94,8 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
  .topbar nav{grid-column:1/-1;grid-row:2;padding:0;height:36px;gap:24px;max-width:none}.topbar nav button{font-size:11px}
  .editor-shell:not(.is-editing) .free-dashboard .canvas-stage{inset:auto;padding:6px}.free-dashboard .world-backdrop{height:565px}
  .map-heading{left:12px;top:12px;max-width:calc(100% - 108px);gap:10px}.map-section-title{display:none}.scope-select{font-size:12px}.map-tools{top:12px;right:12px;gap:4px}.map-tools .icon-button{height:26px;width:26px}.map-tools .icon-button svg{width:16px;height:16px}
- .world-backdrop::after{--scene-mask:linear-gradient(#000 0% 26%,#0000 48%),linear-gradient(0deg,#000 0% 17%,#0000 36%)}
- .free-dashboard .map-interaction{right:12px;top:54px;flex-direction:row;gap:2px}.map-interaction>span{width:1px;height:14px;border-top:0;border-left:1px solid #d1c9c345}.map-interaction .icon-button{width:28px;height:28px}.map-interaction .icon-button svg{width:16px;height:16px}.free-dashboard .south-sea{right:12px;bottom:96px}.vehicle-toolbar{gap:0 16px;width:100%;max-width:none}.vehicle-toolbar>span{width:100%;font-size:9px}.free-dashboard .map-bottom{left:12px;right:12px;bottom:12px;gap:8px;align-items:center;flex-direction:row;flex-wrap:wrap}.map-bottom>button{margin-left:0}.map-legend{margin-right:auto}
+ .world-backdrop::after{--scene-mask:linear-gradient(#000 0%,#000f 16%,#000d 26%,#0008 34%,#0003 41%,#0001 45%,#0000 48%),linear-gradient(0deg,#000 0%,#000f 8%,#000d 13%,#0008 17%,#0003 21%,#0001 23%,#0000 24%)}
+ .free-dashboard .map-interaction{right:12px;top:54px;flex-direction:row;gap:2px}.map-interaction>span{width:1px;height:14px;border-top:0;border-left:1px solid #d1c9c345}.map-interaction .icon-button{width:28px;height:28px}.map-interaction .icon-button svg{width:16px;height:16px}.free-dashboard .south-sea{right:12px;bottom:96px}.vehicle-toolbar{gap:0 16px;width:100%;max-width:none}.vehicle-toolbar>span{width:100%;font-size:9px}.free-dashboard .map-bottom{left:12px;right:12px;bottom:6px;gap:8px;align-items:center;flex-direction:row;flex-wrap:wrap}.map-bottom>button{margin-left:0}.map-legend{margin-right:auto}
 }
 
 /* Vehicle snapshot interactions live here, outside the reusable chart/editor styles. */
