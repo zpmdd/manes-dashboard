@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { createServer, transformWithEsbuild } from 'vite';
 import { createDataSourceController, validateSourceUrl } from '../src/dataSources.js';
 import { lineage, shortName } from '../src/geo.js';
+import { atlasGrid, roadmapMaterial, viewAtlas } from '../src/useRoadmap.js';
 
 // Exercise the real R3F components without a browser or a GPU render loop.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -17,12 +18,13 @@ globalThis.reportError = error => reportedErrors.push(error);
 const root = createRoot({});
 if (previousReporter === undefined) delete globalThis.reportError; else globalThis.reportError = previousReporter;
 try {
-  const { RegionMesh, modelFor, fitMapViewport, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
+  const { RegionMesh, modelFor, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
   const mapSource = await readFile(new URL('../src/MapScene.jsx', import.meta.url), 'utf8');
   const labelExpression = mapSource.split('\n').find(line => line.includes('{layers.labels && model.regions'))?.trim().slice(1, -1);
   assert(labelExpression, 'National labels must have an independent rendering path');
   const { code: labelCode } = await transformWithEsbuild(`(national, layers, model) => (${labelExpression})`, 'province-labels.jsx', { loader: 'jsx', jsx: 'transform', jsxFactory: 'createElement' });
-  const renderLabels = new Function('createElement', 'Html', 'shortName', 'TOP', 'labelPortal', `return ${labelCode}`)(createElement, 'html', shortName, .36, { current: null });
+  let labelInvalidations = 0;
+  const renderLabels = new Function('createElement', 'Html', 'shortName', 'TOP', 'labelPortal', 'invalidate', `return ${labelCode}`)(createElement, 'html', shortName, .36, { current: null }, () => { labelInvalidations++; });
   const nationalData = JSON.parse(await readFile(new URL('../public/data/regions/100000.json', import.meta.url), 'utf8'));
   const labelModel = { scale: 1, regions: nationalData.features.map(feature => ({ feature, anchor: [0, .36, 0] })) };
   const provinceNames = nationalData.features.filter(f => f.properties.name).map(f => shortName(f.properties.name));
@@ -31,6 +33,8 @@ try {
     const provinceLabels = renderLabels(true, { labels: true, beacons }, labelModel);
     assert.deepEqual(provinceLabels.map(element => element.props.children.props.children), provinceNames, 'All 34 province-level names must remain visible regardless of beacons');
     assert(provinceLabels.every(element => element.props.style.pointerEvents === 'none'), 'Labels must allow map dragging and selection through them');
+    provinceLabels[0].props.children.props.ref({});
+    assert(labelInvalidations > 0, 'Labels mounted by the HTML portal must request a frame for initial collision layout');
     assert.equal(renderLabels(true, { labels: false, beacons }, labelModel), false, 'The labels switch must hide province names');
   }
   assert.equal(renderLabels(false, { labels: true }, labelModel).length, 34, 'Surrounding province labels remain available during drill-down');
@@ -87,6 +91,45 @@ try {
     assert.equal(fitMapViewport(camera, bounds, size, { ...viewport, width: 0 }), null);
     assert(camera.projectionMatrix.equals(previousProjection), 'An absent or empty viewport must not change the legacy camera');
   }
+  const tileIndex = JSON.parse(await readFile(new URL('../public/roadmap/index.json', import.meta.url), 'utf8'));
+  for (const [size, expected] of [[{ width: 977, height: 1255 }, [5, 8, 10, 10]], [{ width: 1920, height: 1080 }, [5, 9, 10, 10]]]) {
+    const viewport = { x: .206, y: .15, width: .784, height: .618 };
+    for (const [i, model] of models.entries()) {
+      fitMapViewport(camera, model.bounds, size, viewport);
+      const grid = viewAtlas(tileIndex, model.project, camera, size, viewport, 16384, 1.5);
+      assert(grid.zoom >= expected[i], `Level ${i} at ${size.width}×${size.height} needs z${expected[i]}, got z${grid.zoom}`);
+      if (i === 2 && size.width === 977) {
+        const [x, y] = model.project([108.2, 34.34]), visible = new THREE.Vector3(x, .36, -y).project(camera);
+        assert(visible.x > -1 && (visible.x + 1) / 2 < viewport.x, 'The regression point must be visible behind the left cards, outside the map panel');
+        assert(grid.tiles.some(([tx, ty]) => tx === 819 && ty === 407), 'Visible background must use detail tiles too, without an enlarged overview seam');
+      }
+      const standard = viewAtlas(tileIndex, model.project, camera, size, viewport, 16384, 1);
+      assert(grid.zoom >= standard.zoom, 'Renderer DPR must participate in tile level selection');
+    }
+  }
+  console.log('PASS: province/city/county tile levels match native pixel size in portrait and landscape, including renderer DPR.');
+  const xianCollections = [{ code: '100000', data: nationalData }];
+  for (const code of ['610000', '610100']) xianCollections.push({ code, data: JSON.parse(await readFile(new URL(`../public/data/regions/${code}.json`, import.meta.url), 'utf8')) });
+  const yantaData = { ...xianCollections.at(-1).data, features: xianCollections.at(-1).data.features.filter(f => String(f.properties.adcode) === '610113') };
+  const yanta = modelFor(yantaData, '610113', xianCollections), target = yanta.bounds.getCenter(new THREE.Vector3());
+  const backY = Math.max(...yanta.backdrops.map(g => { g.computeBoundingBox(); return g.boundingBox.max.y; }));
+  const backdropExpression = mapSource.split('\n').find(line => line.includes('{model.backdrops.map')).trim().slice(1, -1);
+  const { code: backdropCode } = await transformWithEsbuild(`model => (${backdropExpression})`, 'map-backdrops.jsx', { loader: 'jsx', jsx: 'transform', jsxFactory: 'createElement' });
+  const renderBackdrops = new Function('createElement', `return ${backdropCode}`)(createElement);
+  assert(renderBackdrops(yanta).every(el => el.props.children.props.polygonOffset && el.props.children.props.polygonOffsetFactor >= 1 && el.props.children.props.polygonOffsetUnits >= 4), 'Gap caps need a depth bias when distant surfaces share a depth-buffer value');
+  for (const elevation of [89.37, 50.71, 5.1]) for (const distance of [.0191, .095, .5167, 5, 30, 90]) for (const zoom of [.6, 1, 4]) {
+    camera.clearViewOffset(); camera.aspect = 2547 / 1192; camera.zoom = zoom;
+    camera.position.copy(target).add(new THREE.Vector3(0, Math.sin(elevation * Math.PI / 180) * distance, Math.cos(elevation * Math.PI / 180) * distance));
+    camera.lookAt(target); camera.updateMatrixWorld(); camera.near = .00009509142985802406;
+    updateMapClipping(camera, target, yanta.bounds.max.y);
+    assert(camera.near > distance * .04 && camera.near <= (camera.position.y - yanta.bounds.max.y) / 2, 'Clipping must track the live distance without clipping the nearby map surface');
+    const surface = new THREE.Vector3(target.x, .36, target.z).project(camera), backing = new THREE.Vector3(target.x, backY, target.z).project(camera);
+    assert(surface.z > -1 && surface.z < 1 && backing.z > surface.z);
+    if (distance <= .5167) assert((backing.z - surface.z) / 2 * (2 ** 24 - 1) > 16, 'The reported district zoom needs enough depth precision to separate surfaces');
+    assert.equal(camera.zoom, zoom, 'Clipping updates must preserve the user zoom');
+  }
+  yanta.regions.forEach(r => r.geometry.dispose()); yanta.backdrops.forEach(g => g.dispose());
+  console.log('PASS: Yanta district zoom/retreat at three elevations and three zoom factors preserves clipping, depth separation and biased gap caps.');
   models.forEach(model => { model.regions.forEach(region => region.geometry.dispose()); model.backdrops.forEach(geometry => geometry.dispose()); });
   console.log('PASS: 320 real Three projections cover four levels, both perspectives, five container sizes, prior zoom, complete fit and fill.');
   const scene = new THREE.Scene(), renderWrites = [];
@@ -118,9 +161,9 @@ try {
   const commits = [0, 0], picked = [], labels = [];
   const onSelect = feature => picked.push(feature), onHover = name => labels.push(name);
   let worldRenders = 0;
-  function WorldProbe({ selected = false }) {
+  function WorldProbe({ selected = false, roadmap }) {
     worldRenders++;
-    return regions.map((region, i) => createElement(Profiler, { id: String(i), key: i, onRender: () => commits[i]++ }, createElement(RegionMesh, { region, selected: selected && i === 0, onSelect, onHover })));
+    return regions.map((region, i) => createElement(Profiler, { id: String(i), key: i, onRender: () => commits[i]++ }, createElement(RegionMesh, { region, selected: selected && i === 0, onSelect, onHover, roadmap })));
   }
   await act(async () => root.render(createElement(WorldProbe)));
   const [first, second] = scene.children;
@@ -146,6 +189,20 @@ try {
   await act(async () => { first.__r3f.handlers.onPointerOver(event()); first.__r3f.handlers.onPointerOut(); });
   assert.equal(first.material[0].color.getHexString(), 'e0d3a8', 'Selected regions stay highlighted after pointer exit');
   console.log('PASS: hover isolation, material reuse, region selection, drag guard and selected highlighting.');
+  const baseAtlas = { ...atlasGrid(tileIndex, 5), texture: new THREE.Texture() };
+  const roadmap = roadmapMaterial(baseAtlas, null, models[0].project);
+  await act(async () => root.render(createElement(WorldProbe, { roadmap })));
+  const rasterCap = first.material[0];
+  assert(rasterCap.isMeshBasicMaterial && !rasterCap.toneMapped && !rasterCap.fog, 'Raster text must retain contrast without lighting or tone mapping');
+  assert.equal(rasterCap.color.getHexString(), 'ffffff');
+  assert.strictEqual(first.material[1], materials[1], 'The extruded side must retain its original 3D material');
+  await act(async () => first.__r3f.handlers.onPointerOver(event()));
+  assert.strictEqual(first.material[0], rasterCap);
+  assert.equal(rasterCap.color.getHexString(), 'ffedc5', 'Raster hover must remain visible');
+  await act(async () => { first.__r3f.handlers.onPointerOut(); root.render(createElement(WorldProbe)); });
+  assert(first.material[0].isMeshStandardMaterial && first.material[0].toneMapped, 'Turning off the raster layer must restore the original cap');
+  baseAtlas.texture.dispose();
+  console.log('PASS: unlit raster contrast, hover reuse, original 3D sides and material restoration after layer toggle.');
 
   // Run the actual lazy loader, visibility guard and outer error boundary in R3F's React renderer.
   const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');

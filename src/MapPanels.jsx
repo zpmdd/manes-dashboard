@@ -29,10 +29,11 @@ export function RegionPicker({ index, onNavigate, onClose, code }) {
 }
 
 export function LayerPanel({ layers, setLayers, quality, setQuality, detail, onClose }) {
-  const rows = [['roads', '道路网络', detail ? '高速、国道及主要干线' : '全国主要道路 · 概化数据'], ['beacons', '监测光柱', '演示节点，暂未关联业务数据'], ['arcs', '区域连线', '示意关联，不表示车辆轨迹'], ['heat', '态势热力', '演示数据的空间分布'], ['labels', '区域名称', '全国显示各省名称，下钻显示区域与道路标签']];
+  const rows = [['roadmap', '离线道路底图', '本地地图图片 · 最大 10 级，放大后细节有限'], ['roads', '道路网络', detail ? '高速、国道及主要干线' : '全国主要道路 · 概化数据'], ['beacons', '监测光柱', '演示节点，暂未关联业务数据'], ['arcs', '区域连线', '示意关联，不表示车辆轨迹'], ['heat', '态势热力', '演示数据的空间分布'], ['labels', '区域名称', '全国显示各省名称，下钻显示区域与道路标签']];
   return <Dialog title="调整地图图层" subtitle="MAP LAYERS" onClose={onClose}>
-    <div className="switch-list">{rows.map(([key, label, hint]) => <label key={key}><span>{label}<small>{hint}</small></span><input type="checkbox" checked={layers[key]} onChange={e => setLayers(s => ({ ...s, [key]: e.target.checked }))}/><span className="switch-track" aria-hidden="true"/></label>)}</div>
+    <div className="switch-list">{rows.map(([key, label, hint]) => <label key={key}><span>{label}<small>{hint}</small></span><input type="checkbox" checked={Boolean(layers[key])} onChange={e => setLayers(s => ({ ...s, [key]: e.target.checked }))}/><span className="switch-track" aria-hidden="true"/></label>)}</div>
     {detail && <div className="road-filters">{[['highway', '高速公路'], ['nationalRoad', '国道 / 干线']].map(([key, label]) => <label key={key}><input type="checkbox" checked={layers[key]} onChange={e => setLayers(s => ({ ...s, [key]: e.target.checked }))}/>{label}</label>)}</div>}
+    {layers.roadmap && <p className="fineprint">底图内的地名与道路属于图片内容，不随“区域名称”或“道路网络”开关隐藏。</p>}
     <div className="quality-heading">渲染质量<span>可随时切换</span></div><div className="segmented">{[['high', '质感优先'], ['balanced', '流畅优先']].map(([v, label]) => <button key={v} className={quality === v ? 'active' : ''} onClick={() => setQuality(v)}>{label}{quality === v && <Check/>}</button>)}</div>
     <p className="fineprint">流畅模式降低像素密度并关闭地面反射。地图静止时停止连续绘制。</p>
   </Dialog>;

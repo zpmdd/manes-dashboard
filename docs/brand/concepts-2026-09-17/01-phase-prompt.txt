@@ -1,0 +1,24 @@
+Mode: built-in image_gen
+Selected output: 01-phase-mark.png
+
+INITIAL GENERATION PROMPT
+
+Use case: logo-brand.
+Asset type: standalone symbol for a premium Chinese technology and digital visualization studio named MANES.
+Primary request: create ONE meticulously designed original capital-M monogram, direction PHASE / folded precision. It should feel like a bespoke identity from a leading design studio, sophisticated and recognizable, much more authored than a typed M.
+Subject and geometry: a compact, upright, balanced M silhouette built from two broad folded planes that interlock at the central valley. The left upward stroke and right upward stroke form parallel architectural legs, the diagonal center creates a single distinctive narrow rhombus-shaped negative aperture. Use one purposeful diagonal seam to convey a front and back plane, not lots of decorative cuts. Equal visual weight, exact consistent 45-degree geometry, subtle radius only where optically needed. The silhouette must still unmistakably read as M at app-icon scale. No enclosing square.
+Style/medium: immaculate flat vector-like brand artwork, crisp smooth edges, graphic precision. Two solid values only: warm ivory #EEE8D1 and muted champagne #B5A487, with the overlap/negative aperture remaining transparent. Depth comes entirely from the planes, no physical 3D render, no lighting effects.
+Composition: one symbol only, centered in a square canvas, symbol occupies about 68% of width with generous consistent breathing room. Deliver genuinely transparent background with preserved alpha, no painted checkerboard, no colored background, no preview board.
+Text: none; no wordmark, no letters other than the M shape itself.
+Avoid: ordinary font M, mountain peaks, crown, shield, generic chevrons, esports style, thin circuit traces, dots, gradients, glow, bevel effects, shadows, photographic texture, extra objects, watermarks. Professional logo concept ready for precise typographic composition.
+
+TARGETED REFINEMENT PROMPT
+
+Use case: precise-object-edit.
+Asset type: transparent logo symbol for MANES.
+Input image 1: edit target; preserve its exact distinctive M silhouette, proportions, central diamond-shaped negative aperture, placement, dimensions, and two-plane folded geometry.
+Primary request: change ONLY the raster/color finish to a clean final flat logo. Make the two colored regions perfectly uniform solid fills: warm ivory #EEE8D1 and muted champagne #B5A487. Every interior colored pixel must be fully opaque. Remove any texture, gradient, lighting variation, stray speck, and white/yellow edge fringe. Crisp smooth antialiased contours. Depth comes ONLY from the two flat-color planes. Do not redesign, move, deform or add anything.
+Background: genuinely transparent alpha=0 everywhere outside the M and inside its negative spaces. No background color, no checkerboard drawing, no shadow.
+Text: none.
+Return one centered symbol on the same square canvas.
+

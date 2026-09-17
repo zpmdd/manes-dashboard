@@ -1,0 +1,50 @@
+{
+  "01-phase-mark.png": {
+    "width": 1254,
+    "height": 1254,
+    "box": [
+      215,
+      242,
+      1039,
+      1012
+    ],
+    "alpha_range": [
+      0,
+      255
+    ]
+  },
+  "03-space-mark.png": {
+    "width": 1254,
+    "height": 1254,
+    "box": [
+      194,
+      131,
+      1061,
+      1127
+    ],
+    "alpha_range": [
+      0,
+      255
+    ]
+  },
+  "02-signal-mark.png": {
+    "width": 1254,
+    "height": 1254,
+    "box": [
+      167,
+      225,
+      1087,
+      1027
+    ],
+    "alpha_range": [
+      255,
+      255
+    ],
+    "background": [
+      25,
+      26,
+      29,
+      255
+    ]
+  }
+}

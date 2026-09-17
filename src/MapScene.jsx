@@ -3,7 +3,8 @@ import { addAfterEffect, Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, Environment, Html, Lightformer, Line, MeshReflectorMaterial, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { mergeGroups } from 'three/addons/utils/BufferGeometryUtils.js';
-import { extent, labelPoint, NATIONAL, polygons, projection, shortName } from './geo';
+import { extent, labelPoint, layoutLabels, NATIONAL, polygons, projection, shortName } from './geo';
+import { useRoadmap } from './useRoadmap';
 
 const CAMERA = [0, 22, 18];
 const TOP = 0.36;
@@ -60,6 +61,31 @@ export function modelFor(data, code, collections = [{ code, data }]) {
   return { regions, project, edges, contextEdges, backdrops, bounds, scale };
 }
 
+function RegionLabelLayout({ model, labelPortal, viewport }) {
+  const { size, invalidate } = useThree();
+  const regions = useMemo(() => new Map(model.regions.map(region => [String(region.feature.properties.adcode), region])), [model]);
+  useLayoutEffect(() => { invalidate(); }, [model, size, viewport, invalidate]);
+  useFrame(({ camera }) => {
+    const labels = [...(labelPortal.current?.querySelectorAll('.map-region-label') || [])].flatMap(element => {
+      const region = regions.get(element.dataset.adcode);
+      if (!region) return [];
+      const point = new THREE.Vector3(region.anchor[0], TOP + .08 * model.scale, region.anchor[2]).project(camera);
+      const rect = element.getBoundingClientRect();
+      return [{ element, focused: region.focused, x: (point.x + 1) * size.width / 2, y: (1 - point.y) * size.height / 2, width: rect.width, height: rect.height }];
+    });
+    const bounds = viewport ? { left: (viewport.x + viewport.width * .02) * size.width, right: (viewport.x + viewport.width * .98) * size.width, top: (viewport.y + viewport.height * .12) * size.height, bottom: (viewport.y + viewport.height * .98) * size.height } : { left: 0, right: size.width, top: 0, bottom: size.height };
+    for (const { element, dx = 0, dy = 0, width, height, hidden } of layoutLabels(labels, bounds)) {
+      const length = Math.hypot(dx, dy), edge = Math.min(dx ? width / 2 / Math.abs(dx) : Infinity, dy ? height / 2 / Math.abs(dy) : Infinity);
+      element.style.visibility = hidden ? 'hidden' : 'visible';
+      element.style.setProperty('--label-x', `${dx}px`);
+      element.style.setProperty('--label-y', `${dy}px`);
+      element.style.setProperty('--leader-length', `${length ? Math.max(0, length * (1 - edge) - 2) : 0}px`);
+      element.style.setProperty('--leader-angle', `${Math.atan2(dy, dx)}rad`);
+    }
+  });
+  return null;
+}
+
 function Roads({ data, project, layers, detail, scale, labelPortal }) {
   const labels = useMemo(() => {
     if (!detail || !layers.labels) return [];
@@ -113,18 +139,28 @@ function Beacon({ position, height, scale }) {
   </group>;
 }
 
-export const RegionMesh = memo(function RegionMesh({ region, selected, onSelect, onHover }) {
+export const RegionMesh = memo(function RegionMesh({ region, selected, onSelect, onHover, roadmap }) {
   const [hover, setHover] = useState(false);
   const { feature, geometry, color } = region;
   const active = selected || hover;
   return <mesh geometry={geometry} castShadow receiveShadow onPointerOver={e => { e.stopPropagation(); setHover(true); onHover(feature.properties.name); }} onPointerOut={() => { setHover(false); onHover(''); }} onClick={e => { if (e.delta > 5 || !feature.properties.name) return; e.stopPropagation(); onSelect(feature); }}>
-    <meshStandardMaterial attach="material-0" color={active ? '#e0d3a8' : color} roughness={.48} metalness={.28} fog={false} />
+    {roadmap ? <meshBasicMaterial key={roadmap.key} attach="material-0" color={active ? '#ffedc5' : region.focused ? '#fff8e8' : color === '#464449' ? '#77736c' : '#ffffff'} toneMapped={false} fog={false} {...roadmap.props} />
+      : <meshStandardMaterial key="plain" attach="material-0" color={active ? '#e0d3a8' : color} roughness={.48} metalness={.28} fog={false} />}
     <meshStandardMaterial attach="material-1" color={active ? '#ac9771' : '#6b6667'} roughness={.65} metalness={.22} fog={false} />
   </mesh>;
 });
 
 const heatFragment = `varying vec2 vUv; void main(){float d=length(vUv-0.5)*2.0; float a=pow(max(0.0,1.0-d),2.0)*0.4; gl_FragColor=vec4(1.0,0.70,0.32,a);}`;
 const heatVertex = `varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`;
+
+export function updateMapClipping(camera, target, surfaceY = TOP) {
+  const distance = camera.position.distanceTo(target);
+  // A district-sized near plane loses depth precision when the camera pulls back.
+  // Keep it relative to the live camera, below the visible surface even at grazing angles.
+  camera.near = Math.max(.000001, Math.min(distance / 20, (camera.position.y - surfaceY) / 2));
+  camera.far = Math.max(200, distance * 2);
+  camera.updateProjectionMatrix();
+}
 
 export function fitMapViewport(camera, bounds, size, viewport, viewDirection = CAMERA) {
   if (!viewport || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(viewport[key])) || bounds.isEmpty() || size.width <= 0 || size.height <= 0) return null;
@@ -148,13 +184,12 @@ export function fitMapViewport(camera, bounds, size, viewport, viewDirection = C
   distance *= 1.015;
   if (!Number.isFinite(distance)) return null;
   camera.zoom = 1;
-  camera.near = Math.min(.1, distance / 1000);
-  camera.far = Math.max(200, distance + bounds.getSize(new THREE.Vector3()).length() + 10);
   // A full-canvas off-axis frustum places the map inside its editable DOM rectangle.
   camera.setViewOffset(size.width, size.height, size.width * (.5 - (usable.left + usable.right) / 2), size.height * (.5 - (usable.top + usable.bottom) / 2), size.width, size.height);
   camera.position.copy(target).addScaledVector(direction, distance);
   camera.lookAt(target);
   camera.updateMatrixWorld();
+  updateMapClipping(camera, target, bounds.max.y);
   return { target, distance, usable };
 }
 
@@ -172,7 +207,7 @@ function CameraControls({ command, onTelemetry, bounds, viewport }) {
     if (!framed) return;
     c.minDistance = Math.max(.0001, framed.distance * .2);
     c.maxDistance = Math.max(90, framed.distance * 1.2);
-    camera.near = destination.near; camera.far = destination.far; camera.view = { ...destination.view };
+    camera.view = { ...destination.view };
     if (animate && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
       flight.current = { start: performance.now(), from: camera.position.clone(), to: destination.position, fromTarget: c.target.clone(), toTarget: framed.target, zoom: camera.zoom };
       c.enableDamping = false;
@@ -204,12 +239,15 @@ function CameraControls({ command, onTelemetry, bounds, viewport }) {
   }, [command, camera, invalidate]);
   useFrame(() => {
     const f = flight.current, c = controls.current;
-    if (!f || !c) return;
-    const progress = Math.min(1, (performance.now() - f.start) / 720), eased = progress * progress * (3 - 2 * progress);
-    camera.position.lerpVectors(f.from, f.to, eased); c.target.lerpVectors(f.fromTarget, f.toTarget, eased);
-    camera.zoom = THREE.MathUtils.lerp(f.zoom, 1, eased);
-    camera.updateProjectionMatrix(); c.update();
-    if (progress === 1) cancelFlight(); else invalidate();
+    if (!c) return;
+    if (f) {
+      const progress = Math.min(1, (performance.now() - f.start) / 720), eased = progress * progress * (3 - 2 * progress);
+      camera.position.lerpVectors(f.from, f.to, eased); c.target.lerpVectors(f.fromTarget, f.toTarget, eased);
+      camera.zoom = THREE.MathUtils.lerp(f.zoom, 1, eased);
+      camera.updateProjectionMatrix(); c.update();
+      if (progress === 1) cancelFlight(); else invalidate();
+    }
+    updateMapClipping(camera, c.target, bounds.max.y);
   });
   // Count a whole displayed frame, including reflection and shadow passes.
   useFrame(() => { gl.info.reset(); rendered.current = true; frames.current++; }, -1000);
@@ -235,6 +273,7 @@ function World({ data, collections, roadData, labelPortal, code, layers, selecte
   const national = code === NATIONAL;
   const model = useMemo(() => modelFor(data, code, collections), [data, code, collections]);
   const { gl, invalidate } = useThree();
+  const { material: roadmap, status: roadmapStatus } = useRoadmap(layers.roadmap, model.project, viewport);
   const hubs = useMemo(() => national ? HUBS.map(h => {
     const [x, y] = model.project(h.point); return { ...h, position: [x, TOP + .035, -y] };
   }) : model.regions.filter(r => r.focused).slice(0, 8).map((r, i) => ({ name: shortName(r.feature.properties.name), position: r.anchor, height: .55 + (i % 3) * .27 })), [model, national]);
@@ -266,18 +305,20 @@ function World({ data, collections, roadData, labelPortal, code, layers, selecte
       {quality === 'high' ? <MeshReflectorMaterial resolution={512} blur={[140, 80]} mixBlur={1} mixStrength={1.9} mirror={.16} color="#57565f" metalness={.2} roughness={.85} depthScale={.8} minDepthThreshold={.4} maxDepthThreshold={1.4} /> : <meshStandardMaterial color="#57565f" roughness={.88} metalness={.1} />}
     </mesh>
     <ContactShadows key={code} position={[0, -.02, 0]} scale={35} opacity={.4} blur={2.5} far={4} resolution={512} frames={1} color="#27222a" />
-    {model.backdrops.map((geometry, i) => <mesh key={i} geometry={geometry} receiveShadow><meshStandardMaterial color="#464449" roughness={.48} metalness={.28} fog={false} /></mesh>)}
-    {model.regions.map(region => <RegionMesh key={region.feature.properties.adcode} region={region} selected={String(region.feature.properties.adcode) === selected} onSelect={onSelect} onHover={onHover} />)}
+    {model.backdrops.map((geometry, i) => <mesh key={i} geometry={geometry} receiveShadow><meshStandardMaterial color="#464449" roughness={.48} metalness={.28} fog={false} polygonOffset polygonOffsetFactor={1} polygonOffsetUnits={4} /></mesh>)}
+    {model.regions.map(region => <RegionMesh key={region.feature.properties.adcode} region={region} selected={String(region.feature.properties.adcode) === selected} onSelect={onSelect} onHover={onHover} roadmap={roadmap} />)}
+    {roadmapStatus && <Html portal={labelPortal} position={model.bounds.getCenter(new THREE.Vector3()).toArray()} center style={{ pointerEvents: 'none' }}><span className="road-label" role="status">{roadmapStatus}</span></Html>}
     <Line points={model.edges} segments color="#8f8578" lineWidth={.75} transparent opacity={.75} toneMapped={false} fog={false} depthWrite={false} renderOrder={3} />
     {model.contextEdges.length > 0 && <Line points={model.contextEdges} segments color="#bfb6a7" lineWidth={.65} transparent opacity={.6} toneMapped={false} fog={false} depthWrite={false} renderOrder={2} />}
     {layers.roads && <Roads data={roadData} project={model.project} scale={model.scale} labelPortal={labelPortal} layers={layers} detail={code === '420381'} />}
     {layers.arcs && arcs.map((p, i) => <Line key={i} points={p} color="#f5e3b9" transparent opacity={.55} lineWidth={1} depthWrite={false} />)}
     {layers.beacons && hubs.map(h => <Beacon key={h.name} position={h.position} height={h.height} scale={model.scale} />)}
-    {layers.labels && model.regions.filter(r => r.feature.properties.name).map(({ feature, anchor, focused }) => <Html key={feature.properties.adcode} portal={labelPortal} position={[anchor[0], TOP + .08 * model.scale, anchor[2]]} center zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}><span className={`map-region-label${focused ? ' is-focused' : ''}`} data-adcode={feature.properties.adcode} title={feature.properties.name}>{shortName(feature.properties.name)}</span></Html>)}
+    {layers.labels && model.regions.filter(r => r.feature.properties.name).map(({ feature, anchor, focused }) => <Html key={feature.properties.adcode} portal={labelPortal} position={[anchor[0], TOP + .08 * model.scale, anchor[2]]} center zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}><span ref={element => { if (element) invalidate(); }} className={`map-region-label${focused ? ' is-focused' : ''}`} data-adcode={feature.properties.adcode} title={feature.properties.name}>{shortName(feature.properties.name)}</span></Html>)}
     {layers.heat && hubs.map(h => <mesh key={h.name} rotation={[-Math.PI / 2, 0, 0]} position={[h.position[0], TOP + .025 * model.scale, h.position[2]]}>
       <planeGeometry args={[2.0 * model.scale, 2.0 * model.scale]} /><shaderMaterial vertexShader={heatVertex} fragmentShader={heatFragment} transparent depthWrite={false} />
     </mesh>)}
     <CameraControls command={command} onTelemetry={onTelemetry} bounds={model.bounds} viewport={viewport} />
+    {layers.labels && <RegionLabelLayout model={model} labelPortal={labelPortal} viewport={viewport} />}
   </>;
 }
 

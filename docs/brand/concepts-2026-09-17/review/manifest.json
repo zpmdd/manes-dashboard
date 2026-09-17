@@ -1,0 +1,29 @@
+[
+  {
+    "id": "phase",
+    "index": 1,
+    "title": "折相 · 折面与菱形负空间，精密、稳重",
+    "src": "../01-phase-presentation.png",
+    "href": "../01-phase-presentation.png",
+    "prompt": "../01-phase-prompt.txt",
+    "routeName": "内置 image_gen / logo-brand"
+  },
+  {
+    "id": "signal",
+    "index": 2,
+    "title": "光栅 · 三重信号通道，数字感与节律",
+    "src": "../02-signal-presentation.png",
+    "href": "../02-signal-presentation.png",
+    "prompt": "../02-signal-prompt.txt",
+    "routeName": "内置 image_gen / logo-brand"
+  },
+  {
+    "id": "space",
+    "index": 3,
+    "title": "构域 · 开放等轴空间，最贴合三维可视化",
+    "src": "../03-space-presentation.png",
+    "href": "../03-space-presentation.png",
+    "prompt": "../03-space-prompt.txt",
+    "routeName": "内置 image_gen / logo-brand"
+  }
+]

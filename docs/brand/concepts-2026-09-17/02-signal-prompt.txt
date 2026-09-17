@@ -1,0 +1,17 @@
+模式：内置 image_gen。Use case: logo-brand。
+
+第一轮：新方向生成。
+Use case: logo-brand.
+Asset type: a single original standalone logo symbol for MANES工作室, a premium technology and data visualization studio.
+Primary request: meticulously design a signature monogram with the direction SIGNAL / parametric intelligence. This must be an authored, memorable contemporary technology identity with fine geometric thinking, not a normal letter typed in a rounded font.
+Subject: an upright capital M formed by exactly THREE broad nested parallel channels. Each channel follows two strong ascending shoulders and a deep central valley; the three paths interlock visually into one compact emblem. Create controlled sweeping bends at the two shoulders, precise diagonal convergence in the middle and staggered clean terminals at the bottom. The parallel channels should produce an intelligent optical rhythm like a spatial signal field. Maintain even channel width, generous open gaps and a calm symmetrical outer silhouette. Use smooth transitions between diagonals and rounded shoulders. The entire silhouette unmistakably suggests M. Strong and stable at 32px; no thin hairlines and no extra smaller ribs. Make the silhouette about as tall as it is wide.
+Style/medium: immaculate flat vector-like graphic, ONE perfectly uniform warm ivory solid fill #EEE8D1 and transparent negative space. Absolutely clean edges and empty channels, no gradients or 3D effects. Its sense of precision comes from the design of the curves, spaces and terminals.
+Composition: only ONE symbol centered on a square image, about 68% of canvas width, ample margins. Genuinely transparent background with proper alpha. No background color, no checkerboard pixels or translucent debris. All negative spaces truly empty.
+Text: none. No wordmark or descriptive labels.
+Avoid: plain font glyph, lowercase rounded m, closed infinity loop, wifi symbol, fingerprints, literal circuits, atom rings, blockchain cube, hexagonal border, mountain peaks, three separate letter Ms, metallic surface, shadow, glow, 3D render, mockup, extra ornaments, watermarks.
+
+第二轮：保持结构，清理为深烟灰背景。
+Edit target: the attached generated MANES signal monogram.
+Preserve the exact three-channel M construction, all curves, proportions and staggered terminals.
+Make one focused production cleanup: replace the entire transparent background AND all spaces between the three channels with ONE perfectly uniform solid opaque charcoal #18181C. Remove every stray light speck, blotch, sliver and jagged fragment inside those spaces and around the contours. The three M channels themselves must be one perfectly smooth uniform warm ivory #EEE8D1, with crisp antialiased edges. No gradients or subtle shading whatsoever. No transparent pixels. Retain the existing centered scale and canvas dimensions. Add no text, no shadow, no material effects, no additional lines or objects. The result should look like an immaculate flat vector logo exported on a single flat charcoal background.
+
