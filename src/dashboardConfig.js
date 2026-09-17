@@ -1,9 +1,14 @@
 import { DATA_FIELDS, normalizeDataSource, validateDataPath, parseSourceContent } from './dataSources.js';
 import { DEFAULT_THEME, THEMES } from './themes.js';
 import { DEFAULT_FONT, FONTS } from './fonts.js';
+import baseProject from './projects/base.js';
 
-export const STORAGE_KEY = 'nexus.dashboard.config.v2';
-const LEGACY_STORAGE_KEY = 'nexus.dashboard.config.v1';
+export const STORAGE_KEY = 'manes.dashboard.base.config.v2';
+export const LEGACY_STORAGE_KEYS = ['nexus.dashboard.config.v2', 'nexus.dashboard.config.v1'];
+export const projectStorageKey = (project, type = 'config.v2') => {
+  if (!['base', 'daoyan'].includes(project.id)) throw new Error('未知项目');
+  return `manes.dashboard.${project.id}.${type}`;
+};
 export const CONFIG_FILE_LIMIT = 2 * 1024 * 1024;
 
 export const SOURCES = {
@@ -129,8 +134,8 @@ const DEFAULT_LAYOUTS = [
 export const DEFAULT_CHART_OPTIONS = { legend: true, labels: false, zoom: false, smooth: true, palette: 'champagne', secondaryUnit: '', primaryName: '主指标', secondaryName: '辅助指标', xName: '', yName: '' };
 const defaultFields = () => Object.fromEntries(DATA_FIELDS.map(key => [key, key]));
 function upgrade(config) {
-  return { ...config, version: 2, theme: DEFAULT_THEME.id, font: DEFAULT_FONT.id, canvas: { snap: true, grid: 1, magnet: true, threshold: 6 },
-    map: { layout: { x: 20, y: 0, w: 80, h: 74 }, visible: true, locked: false }, dataSources: [],
+  return { ...config, version: 2, projectId: 'base', theme: DEFAULT_THEME.id, font: DEFAULT_FONT.id, canvas: { snap: true, grid: 1, magnet: true, threshold: 6 },
+    map: { layout: { x: 20, y: 0, w: 80, h: 74 }, visible: true, locked: false, vehicleSourceId: '' }, dataSources: [],
     modules: config.modules.map((item, i) => ({ ...item, layout: { ...DEFAULT_LAYOUTS[i] }, locked: false,
       surface: i === 2 ? 'solid' : 'glass', binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: '', target: 100, precision: 1, chartOptions: { ...DEFAULT_CHART_OPTIONS } })),
   };
@@ -167,8 +172,10 @@ function normalizeChartOptions(input) {
 }
 export function normalizeConfig(raw) {
   if (raw?.version === 1) return upgrade(normalizeLegacy(raw));
-  object(raw, [...configKeys, 'canvas', 'map', 'dataSources', ...['theme', 'font'].filter(key => Object.hasOwn(raw ?? {}, key))], '配置');
+  object(raw, [...configKeys, 'canvas', 'map', 'dataSources', ...['theme', 'font', 'projectId'].filter(key => Object.hasOwn(raw ?? {}, key))], '配置');
   if (raw.version !== 2) throw new Error('不支持此配置版本');
+  const projectId = Object.hasOwn(raw, 'projectId') ? raw.projectId : 'base';
+  if (!['base', 'daoyan'].includes(projectId)) throw new Error('未知项目');
   const theme = Object.hasOwn(raw, 'theme') ? raw.theme : DEFAULT_THEME.id;
   if (!THEMES.some(item => item.id === theme)) throw new Error('不支持的大屏配色');
   const font = Object.hasOwn(raw, 'font') ? raw.font : DEFAULT_FONT.id;
@@ -176,7 +183,7 @@ export function normalizeConfig(raw) {
   if (!Array.isArray(raw.navLabels) || raw.navLabels.length !== 4) throw new Error('需配置四个导航名称');
   const canvas = { magnet: true, threshold: 6, ...raw.canvas };
   object(raw.canvas, ['snap', 'grid', ...['magnet', 'threshold'].filter(key => Object.hasOwn(raw.canvas ?? {}, key))], '画布');
-  object(raw.map, ['layout', 'visible', 'locked'], '地图');
+  object(raw.map, ['layout', 'visible', 'locked', ...(Object.hasOwn(raw.map ?? {}, 'vehicleSourceId') ? ['vehicleSourceId'] : [])], '地图');
   if (!Array.isArray(raw.dataSources) || raw.dataSources.length > 40) throw new Error('最多配置 40 个数据源');
   const sourceIds = new Set();
   const dataSources = raw.dataSources.map(input => {
@@ -186,6 +193,8 @@ export function normalizeConfig(raw) {
     if (source.type !== 'http') parseSourceContent(source.content, source.type, source.rowsPath);
     return source;
   });
+  const vehicleSourceId = raw.map.vehicleSourceId ?? '';
+  if (typeof vehicleSourceId !== 'string' || (vehicleSourceId && !sourceIds.has(vehicleSourceId))) throw new Error('车辆地图绑定的数据源不存在');
   if (!Array.isArray(raw.modules) || raw.modules.length > 40) throw new Error('最多配置 40 个组件');
   const seen = new Set();
   const modules = raw.modules.map(item => {
@@ -197,7 +206,8 @@ export function normalizeConfig(raw) {
     seen.add(item.id);
     const type = MODULE_TYPES.find(entry => entry.id === item.type);
     if (!type || !type.sources.includes(item.source)) throw new Error('图表类型与示例数据不兼容');
-    object(item.binding, ['sourceId', 'fields'], '数据绑定');
+    object(item.binding, ['sourceId', 'fields', ...(Object.hasOwn(item.binding ?? {}, 'groupBy') ? ['groupBy'] : [])], '数据绑定');
+    if (Object.hasOwn(item.binding, 'groupBy') && (item.binding.groupBy !== 'name' || !['bar', 'column', 'donut'].includes(item.type) || item.binding.sourceId === 'demo')) throw new Error('按名称合并仅适用于外部数据的条形图、柱状图和环形图');
     if (item.binding.sourceId !== 'demo' && !sourceIds.has(item.binding.sourceId)) throw new Error('组件绑定的数据源不存在');
     const fields = item.binding.fields;
     if (!fields || typeof fields !== 'object' || Array.isArray(fields) || Object.keys(fields).some(key => !DATA_FIELDS.includes(key))) throw new Error('字段映射格式不正确');
@@ -217,27 +227,72 @@ export function normalizeConfig(raw) {
     return { id: item.id, title: text(item.title, 20, '组件标题'), subtitle: text(item.subtitle, 40, '副标题', true),
       type: item.type, source: item.source, visible: flag(item.visible, '显示开关'), unit: text(item.unit, 8, '单位', true), rowCount: item.rowCount, columns,
       layout: layout(item.layout), locked: flag(item.locked, '锁定开关'), surface: item.surface,
-      binding: { sourceId: item.binding.sourceId, fields: normalizedFields }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值'), precision, chartOptions };
+      binding: { sourceId: item.binding.sourceId, fields: normalizedFields, ...(item.binding.groupBy ? { groupBy: item.binding.groupBy } : {}) }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值'), precision, chartOptions };
   });
-  const config = { version: 2, theme, font, brand: brand(raw.brand), title: text(raw.title, 36, '大屏标题'), mapTitle: text(raw.mapTitle, 24, '地图标题'),
+  const config = { version: 2, projectId, theme, font, brand: brand(raw.brand), title: text(raw.title, 36, '大屏标题'), mapTitle: text(raw.mapTitle, 24, '地图标题'),
     navLabels: raw.navLabels.map(label => text(label, 8, '导航名称')), showClock: flag(raw.showClock, '时钟开关'),
     canvas: { snap: flag(canvas.snap, '网格开关'), grid: range(canvas.grid, .5, 5, '网格步长'), magnet: flag(canvas.magnet, '磁吸开关'), threshold: range(canvas.threshold, 2, 16, '磁吸距离') },
-    map: { layout: layout(raw.map.layout), visible: flag(raw.map.visible, '地图开关'), locked: flag(raw.map.locked, '地图锁定') }, modules, dataSources };
+    map: { layout: layout(raw.map.layout), visible: flag(raw.map.visible, '地图开关'), locked: flag(raw.map.locked, '地图锁定'), vehicleSourceId }, modules, dataSources };
   if (new TextEncoder().encode(JSON.stringify(config)).byteLength > CONFIG_FILE_LIMIT) throw new Error('配置内容不能超过 2 MB');
   return config;
 }
 
-export function loadConfig() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (saved && saved.length <= CONFIG_FILE_LIMIT) return normalizeConfig(JSON.parse(saved));
-  } catch { /* Invalid saved data is preserved, never overwritten with defaults. */ }
-  return normalizeConfig(DEFAULT_CONFIG);
+// Only known legacy signatures are assigned automatically; unknown canvases stay recoverable.
+export function legacyProject(raw) {
+  if (raw?.projectId) return raw.projectId;
+  if (raw?.dataSources?.some(source => ['ds_8b34a2de-317b-4b63-bc0c-f991459e5fce', 'ds_596c6afe-bdd9-45b7-a209-2ab6ce05910b'].includes(source.id))) return 'daoyan';
+  if (raw?.version === 1 || (raw?.dataSources?.length === 0 && raw?.modules?.every(item => item.binding?.sourceId === 'demo'))) return 'base';
+  return null;
 }
 
-export function saveConfig(config) {
-  const next = normalizeConfig(config);
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); }
+export function configForProject(raw, project = baseProject) {
+  projectStorageKey(project);
+  const owner = raw?.projectId || legacyProject(raw);
+  if (owner && owner !== project.id) throw new Error(`此画布属于 ${owner === 'daoyan' ? '道研版' : '基线版'}，请在对应项目中导入`);
+  const config = normalizeConfig(raw);
+  config.projectId = project.id;
+  if (!project.vehicles && config.map.vehicleSourceId) throw new Error('当前项目未启用车辆功能');
+  // Upgrade the two former vehicle snapshots to one source, preserving the saved card layout.
+  if (project.vehicles && !Object.hasOwn(raw.map ?? {}, 'vehicleSourceId')) {
+    const oldSource = config.dataSources.find(source => source.id === 'ds_8b34a2de-317b-4b63-bc0c-f991459e5fce');
+    if (oldSource) {
+      config.map.vehicleSourceId = oldSource.id;
+      for (const item of config.modules) if (item.binding.sourceId === 'ds_596c6afe-bdd9-45b7-a209-2ab6ce05910b' && ['bar', 'column', 'donut'].includes(item.type)) {
+        item.binding = { sourceId: oldSource.id, fields: { name: 'status', value: 'count', code: 'stateCode' }, groupBy: 'name' };
+      }
+      if (!config.modules.some(item => item.binding.sourceId === 'ds_596c6afe-bdd9-45b7-a209-2ab6ce05910b')) config.dataSources = config.dataSources.filter(source => source.id !== 'ds_596c6afe-bdd9-45b7-a209-2ab6ce05910b');
+    }
+  }
+  return normalizeConfig(config);
+}
+
+export function defaultConfigForProject(project = baseProject) {
+  return configForProject(project.preset || DEFAULT_CONFIG, project);
+}
+
+export function readLegacyConfig(storage = globalThis.localStorage) {
+  const saved = LEGACY_STORAGE_KEYS.map(key => storage.getItem(key)).find(value => value !== null && value !== undefined);
+  if (saved === undefined) return null;
+  if (saved.length > CONFIG_FILE_LIMIT) throw new Error('旧画布超过大小限制');
+  return JSON.parse(saved);
+}
+
+export function loadConfig(project = baseProject) {
+  try {
+    const saved = localStorage.getItem(projectStorageKey(project));
+    if (saved !== null && saved !== undefined) {
+      if (saved.length > CONFIG_FILE_LIMIT) throw new Error('画布超过大小限制');
+      return configForProject(JSON.parse(saved), project);
+    }
+    const legacy = readLegacyConfig();
+    if (legacy && legacyProject(legacy) === project.id) return configForProject(legacy, project);
+  } catch { /* Preserve invalid saved bytes, including the original legacy keys. */ }
+  return defaultConfigForProject(project);
+}
+
+export function saveConfig(config, project = baseProject) {
+  const next = configForProject(config, project);
+  try { localStorage.setItem(projectStorageKey(project), JSON.stringify(next)); }
   catch { throw new Error('配置未保存：当前浏览器存储不可用或空间不足'); }
   return next;
 }

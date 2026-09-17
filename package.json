@@ -5,11 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/prepare-sites-build.mjs",
+    "build": "node scripts/build-project.mjs base",
     "preview": "vite preview",
     "test:sites": "node --test tests/sites-worker.test.mjs",
     "check": "node scripts/check.mjs",
-    "test": "node --test tests/dashboard-config.test.mjs tests/widget-data.test.mjs tests/data-sources.test.mjs tests/template-library.test.mjs tests/layout.test.mjs tests/editor-events.test.mjs tests/professional-charts.test.mjs tests/roadmap.test.mjs tests/themes.test.mjs && node scripts/check-map.mjs"
+    "test": "node --test tests/dashboard-config.test.mjs tests/widget-data.test.mjs tests/data-sources.test.mjs tests/template-library.test.mjs tests/layout.test.mjs tests/editor-events.test.mjs tests/professional-charts.test.mjs tests/roadmap.test.mjs tests/themes.test.mjs tests/projects.test.mjs && node scripts/check-map.mjs",
+    "dev:base": "vite --mode base",
+    "dev:daoyan": "vite --mode daoyan",
+    "build:base": "node scripts/build-project.mjs base",
+    "build:daoyan": "node scripts/build-project.mjs daoyan",
+    "build:all": "npm run build:base && npm run build:daoyan",
+    "test:projects": "node --test tests/projects.test.mjs",
+    "test:artifacts": "node scripts/check-project-builds.mjs",
+    "test:browser": "node scripts/check-project-browser.mjs",
+    "verify": "npm run check && npm test && npm run test:sites && npm run build:all && npm run test:artifacts"
   },
   "dependencies": {
     "@fontsource/manrope": "^5.3.0",

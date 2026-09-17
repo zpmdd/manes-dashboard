@@ -6,8 +6,8 @@ import * as THREE from 'three';
 import { mergeGroups } from 'three/addons/utils/BufferGeometryUtils.js';
 import { extent, labelPoint, layoutLabels, NATIONAL, polygons, projection, shortName } from './geo';
 import { useRoadmap } from './useRoadmap';
-import { VEHICLES, linkedVehicles, groupVehiclePoints, vehicleCalloutPosition } from './vehicles';
-import { VehicleCallout } from './MapPanels';
+import { EMPTY_VEHICLES, linkedVehicles, groupVehiclePoints, vehicleCalloutPosition } from './vehicles';
+import { VehicleCallout } from './VehiclePanels';
 import { DEFAULT_THEME } from './themes';
 
 const CAMERA = [0, 22, 18];
@@ -25,7 +25,7 @@ const HUBS = [
   { name: '西安', point: [108.94, 34.34], height: 0.65 },
 ];
 
-export function modelFor(data, code, collections = [{ code, data }]) {
+export function modelFor(data, code, collections = [{ code, data }], vehicleRows = EMPTY_VEHICLES) {
   const national = code === NATIONAL;
   const project = projection(extent(collections[0].data.features, true));
   const expanded = new Set(collections.slice(1).map(collection => collection.code));
@@ -62,16 +62,20 @@ export function modelFor(data, code, collections = [{ code, data }]) {
   const bounds = new THREE.Box3();
   regions.forEach(r => { r.geometry.computeBoundingBox(); if (national || r.focused) bounds.union(r.geometry.boundingBox); });
   if (!national) bounds.min.y = TOP;
-  const vehicles = VEHICLES.map(vehicle => {
+  const vehicles = projectVehicles(vehicleRows, project, bounds);
+  return { regions, project, edges, contextEdges, backdrops, bounds, scale, vehicles };
+}
+
+function projectVehicles(rows, project, bounds) {
+  return rows.map(vehicle => {
     const [x, y] = project([vehicle.GEO_LON, vehicle.GEO_LAT]);
     return { vehicle, position: [x, bounds.max.y + .000001, -y] };
   });
-  return { regions, project, edges, contextEdges, backdrops, bounds, scale, vehicles };
 }
 
 export function vehicleBounds(project, vehicle, surfaceY = TOP) {
   const bounds = new THREE.Box3();
-  for (const item of Array.isArray(vehicle) ? vehicle : vehicle ? [vehicle] : VEHICLES) {
+  for (const item of Array.isArray(vehicle) ? vehicle : vehicle ? [vehicle] : EMPTY_VEHICLES) {
     const [x, y] = project([item.GEO_LON, item.GEO_LAT]);
     bounds.expandByPoint(new THREE.Vector3(x, surfaceY, -y));
   }
@@ -358,14 +362,15 @@ function CameraControls({ command, code, onTelemetry, bounds, viewport, project 
   return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={.12} enablePan screenSpacePanning minDistance={.0001} maxDistance={90} minPolarAngle={.01} maxPolarAngle={Math.PI / 2.12} onStart={cancelFlight} onEnd={() => direction.current.copy(camera.position).sub(controls.current.target)} onChange={() => invalidate()} />;
 }
 
-function World({ data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, onVehicleClear, onVehicleDetails, vehicleHighlight = 'vehicle:all', command, quality, onTelemetry, viewport, theme = DEFAULT_THEME, fontFamily }) {
+function World({ vehicles = EMPTY_VEHICLES, data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, onVehicleClear, onVehicleDetails, vehicleHighlight = 'vehicle:all', command, quality, onTelemetry, viewport, theme = DEFAULT_THEME, fontFamily }) {
   const national = code === NATIONAL;
-  const model = useMemo(() => modelFor(data, code, collections), [data, code, collections]);
+  const geography = useMemo(() => modelFor(data, code, collections), [data, code, collections]);
+  const model = useMemo(() => ({ ...geography, vehicles: projectVehicles(vehicles, geography.project, geography.bounds) }), [geography, vehicles]);
   const { gl, invalidate } = useThree();
-  const highlightedVehicles = vehicleHighlight === 'vehicle:all' ? [] : linkedVehicles(vehicleHighlight) || [];
+  const highlightedVehicles = vehicleHighlight === 'vehicle:all' ? [] : linkedVehicles(vehicleHighlight, vehicles) || [];
   const selectedVehicle = highlightedVehicles.length === 1 ? model.vehicles.find(point => point.vehicle === highlightedVehicles[0]) : null;
   const vehicleMembers = element => (element.dataset.members || element.dataset.vehicle).split(',').map(i => model.vehicles[Number(i)].vehicle);
-  const hoverVehicle = event => { if (event.currentTarget.dataset.vehicle !== String(VEHICLES.indexOf(selectedVehicle?.vehicle))) onVehicleHover?.({ vehicles: vehicleMembers(event.currentTarget), rect: event.currentTarget.getBoundingClientRect() }); };
+  const hoverVehicle = event => { if (event.currentTarget.dataset.vehicle !== String(vehicles.indexOf(selectedVehicle?.vehicle))) onVehicleHover?.({ vehicles: vehicleMembers(event.currentTarget), rect: event.currentTarget.getBoundingClientRect() }); };
   const { material: roadmap, status: roadmapStatus } = useRoadmap(layers.roadmap, model.project, viewport);
   const hubs = useMemo(() => national ? HUBS.map(h => {
     const [x, y] = model.project(h.point); return { ...h, position: [x, TOP + .035, -y] };
@@ -379,8 +384,8 @@ function World({ data, collections, roadData, labelPortal, code, layers, selecte
       return new THREE.QuadraticBezierCurve3(from, mid, to).getPoints(40);
     });
   }, [hubs, national, model.scale]);
-  useEffect(() => { gl.shadowMap.needsUpdate = true; invalidate(); }, [model, gl, invalidate, layers.beacons]);
-  useEffect(() => () => { model.regions.forEach(r => r.geometry.dispose()); model.backdrops.forEach(g => g.dispose()); }, [model]);
+  useEffect(() => { gl.shadowMap.needsUpdate = true; invalidate(); }, [geography, gl, invalidate, layers.beacons]);
+  useEffect(() => () => { geography.regions.forEach(r => r.geometry.dispose()); geography.backdrops.forEach(g => g.dispose()); }, [geography]);
   return <>
     <color attach="background" args={[theme.bg]} />
     <fog attach="fog" args={[theme.bg, 21, 42]} />
@@ -407,7 +412,7 @@ function World({ data, collections, roadData, labelPortal, code, layers, selecte
     {layers.arcs && arcs.map((p, i) => <Line key={i} points={p} color={theme.id === DEFAULT_THEME.id ? '#f5e3b9' : theme.accent} transparent opacity={.55} lineWidth={1} depthWrite={false} />)}
     {layers.beacons && hubs.map(h => <Beacon theme={theme} key={h.name} position={h.position} height={h.height} scale={model.scale} />)}
     {layers.vehicles && model.vehicles.map(({ vehicle, position }, i) => <Html key={vehicle.VEHICLENO} portal={labelPortal} position={position} center zIndexRange={[12, 9]} style={{ pointerEvents: 'none' }}><button ref={element => { if (element) invalidate(); }} className={`vehicle-marker${vehicle.GPS_SPEED > 0 ? ' is-moving' : ''}${highlightedVehicles.includes(vehicle) ? ' is-selected' : ''}`} data-vehicle={i} data-highlighted={highlightedVehicles.includes(vehicle)} aria-label={`查看车辆 ${vehicle.VEHICLENO}`} aria-pressed={highlightedVehicles.includes(vehicle)} aria-describedby="vehicle-hover-details" onPointerEnter={hoverVehicle} onPointerLeave={() => onVehicleHover?.(null)} onFocus={hoverVehicle} onBlur={() => onVehicleHover?.(null)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onVehicleHover?.(null); const detailed = labelPortal.current?.dataset.vehicleDetail === 'true'; onVehicleSelect(detailed ? vehicle : vehicleMembers(event.currentTarget), detailed); }}><i className="vehicle-dot" aria-hidden="true"/><span className="vehicle-symbol"><Car size={14} weight="fill"/><span>{vehicle.VEHICLENO}</span></span></button></Html>)}
-    {layers.vehicles && selectedVehicle && <Html portal={labelPortal} position={selectedVehicle.position} zIndexRange={[15, 13]} style={{ pointerEvents: 'none' }}><VehicleCallout vehicle={selectedVehicle.vehicle} onClose={onVehicleClear} onDetails={onVehicleDetails}/></Html>}
+    {layers.vehicles && selectedVehicle && <Html portal={labelPortal} position={selectedVehicle.position} zIndexRange={[15, 13]} style={{ pointerEvents: 'none' }}><VehicleCallout index={model.vehicles.indexOf(selectedVehicle)} vehicle={selectedVehicle.vehicle} onClose={onVehicleClear} onDetails={onVehicleDetails}/></Html>}
     {layers.labels && model.regions.filter(r => r.feature.properties.name).map(({ feature, anchor, focused }) => <Html key={feature.properties.adcode} portal={labelPortal} position={[anchor[0], TOP + .08 * model.scale, anchor[2]]} center zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}><span ref={element => { if (element) invalidate(); }} className={`map-region-label${focused ? ' is-focused' : national ? '' : ' is-context'}`} data-adcode={feature.properties.adcode} title={feature.properties.name}>{shortName(feature.properties.name)}</span></Html>)}
     {layers.heat && hubs.map(h => <mesh key={h.name} rotation={[-Math.PI / 2, 0, 0]} position={[h.position[0], TOP + .025 * model.scale, h.position[2]]}>
       <planeGeometry args={[2.0 * model.scale, 2.0 * model.scale]} /><shaderMaterial vertexShader={heatVertex} fragmentShader={heatFragment} transparent depthWrite={false} />

@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Copy, DownloadSimple, LockKey, Plus, Trash, UploadSimple, X } from '@phosphor-icons/react';
-import { CONFIG_FILE_LIMIT, DEFAULT_CHART_OPTIONS, MODULE_TYPES, SOURCES, normalizeConfig } from './dashboardConfig.js';
-import { TEMPLATE_LIMIT, deleteTemplate, getBuiltinTemplates, parseTemplateFile, readTemplates, saveTemplate, serializeTemplate } from './templateLibrary.js';
+import { CONFIG_FILE_LIMIT, DEFAULT_CHART_OPTIONS, MODULE_TYPES, SOURCES, normalizeConfig, configForProject, defaultConfigForProject, readLegacyConfig, legacyProject } from './dashboardConfig.js';
+import { TEMPLATE_LIMIT, deleteTemplate, getBuiltinTemplates, parseTemplateFile, readTemplates, readLegacyTemplates, saveTemplate, serializeTemplate } from './templateLibrary.js';
 import { getMappedData } from './dataSources.js';
 import { profileDataFields, suggestDataFields } from './dataInference.js';
 import { PROFESSIONAL_TYPES as professionalTypes } from './widgetData.js';
@@ -115,7 +115,7 @@ function ChartControls({ item, onChange }) {
   </section>;
 }
 
-export function ComponentInspector({ item, isMap = false, dataSources = [], sourceResult, selectedCount = 1, onAlign, canvas, onCanvasChange, onChange, onDuplicate, onDelete, onArrange }) {
+export function ComponentInspector({ item, isMap = false, vehicleEnabled = false, dataSources = [], sourceResult, selectedCount = 1, onAlign, canvas, onCanvasChange, onChange, onDuplicate, onDelete, onArrange }) {
   if (!item) return <section className="ep-inspector ep-empty"><div className="ep-empty-shape" aria-hidden="true"/><h2>选择画布组件</h2><p>点击组件后，可编辑内容、位置与数据绑定。</p></section>;
   const alignment = <AlignmentControls count={selectedCount} onAlign={onAlign} canvas={canvas} onCanvasChange={onCanvasChange}/>;
   if (selectedCount > 1) return <section className="ep-inspector" aria-label="多选组件属性"><div className="ep-panel-heading"><h2>已选 {selectedCount} 个组件</h2></div>{alignment}<div className="ep-inspector-actions"><button onClick={onDuplicate}><Copy size={14}/>批量复制</button><button className="ep-delete" onClick={onDelete}><Trash size={14}/>删除未锁定组件</button></div></section>;
@@ -128,23 +128,26 @@ export function ComponentInspector({ item, isMap = false, dataSources = [], sour
   const availableColumns = custom ? Object.entries(fieldNames).map(([key, label]) => ({ key, label })) : source?.columns ?? [];
   const changeSource = (id, type = item.type) => onChange({ type, source: id, unit: SOURCES[id].unit, columns: structuredClone(SOURCES[id].columns) });
   const changeType = type => {
-    if (['text', 'clock'].includes(type)) { onChange({ type, source: 'devices', columns: structuredClone(SOURCES.devices.columns), binding: { ...binding, sourceId: 'demo' } }); return; }
+    const { groupBy, ...ungrouped } = binding;
+    const nextBinding = groupBy && !['bar', 'column', 'donut'].includes(type) ? { binding: ungrouped } : {};
+    if (['text', 'clock'].includes(type)) { onChange({ type, source: 'devices', columns: structuredClone(SOURCES.devices.columns), binding: { ...ungrouped, sourceId: 'demo' } }); return; }
     const sources = MODULE_TYPES.find(entry => entry.id === type)?.sources ?? [];
     const nextSource = sources.includes(item.source) ? item.source : sources[0] ?? item.source;
-    if (custom) onChange({ type, source: nextSource });
+    if (custom) onChange({ type, source: nextSource, ...nextBinding });
     else if (SOURCES[nextSource]) changeSource(nextSource, type);
     else onChange({ type });
   };
-  const changeBinding = sourceId => onChange({ binding: { ...binding, sourceId }, ...(sourceId === 'demo' ? { columns: structuredClone(source.columns), unit: source.unit } : !custom ? { unit: '', chartOptions: { ...DEFAULT_CHART_OPTIONS } } : {}) });
+  const changeBinding = sourceId => onChange({ binding: { ...(sourceId === 'demo' ? { fields: binding.fields } : binding), sourceId }, ...(sourceId === 'demo' ? { columns: structuredClone(source.columns), unit: source.unit } : !custom ? { unit: '', chartOptions: { ...DEFAULT_CHART_OPTIONS } } : {}) });
   return <section className="ep-inspector" aria-label="组件属性">
     <div className="ep-panel-heading"><h2>{isMap ? '三维地图' : '组件属性'}</h2><span>{isMap ? 'MAP' : MODULE_TYPES.find(type => type.id === item.type)?.label}</span></div>
     <div className="ep-state-controls"><Toggle label="显示" value={item.visible} onChange={visible => onChange({ visible })}/><Toggle label="锁定" value={item.locked} onChange={locked => onChange({ locked })}/></div>
     <section className="ep-property-section"><h3>位置与大小 <span>%</span></h3><div className="ep-field-grid"><NumberField label="X 位置" value={layout.x} max={100 - layout.w} onChange={x => onChange({ layout: { ...layout, x } })}/><NumberField label="Y 位置" value={layout.y} max={100 - layout.h} onChange={y => onChange({ layout: { ...layout, y } })}/><NumberField label="宽度" value={layout.w} min={10} max={100 - layout.x} onChange={w => onChange({ layout: { ...layout, w } })}/><NumberField label="高度" value={layout.h} min={10} max={100 - layout.y} onChange={h => onChange({ layout: { ...layout, h } })}/></div>{item.locked && <p className="ep-muted"><LockKey size={12}/> 画布拖动已锁定，仍可输入精确尺寸。</p>}{!isMap && <div className="ep-layer-actions"><button type="button" onClick={() => onArrange('front')}><ArrowUp size={13}/>置于顶层</button><button type="button" onClick={() => onArrange('back')}><ArrowDown size={13}/>置于底层</button></div>}</section>
     {alignment}
+    {isMap && vehicleEnabled && <section className="ep-property-section"><h3>车辆地图数据</h3><Select label="车辆数据源" value={item.vehicleSourceId || ''} onChange={vehicleSourceId => onChange({ vehicleSourceId })}><option value="">不接入车辆</option>{dataSources.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}</Select><p className="ep-muted">地图与绑定该数据源的图表共享车辆记录。字段使用 VEHICLENO、GEO_LON、GEO_LAT、GPS_SPEED。</p></section>}
     {!isMap && <>
       <section className="ep-property-section"><h3>内容与样式</h3><Field label="标题" value={item.title} maxLength={20} onChange={title => onChange({ title })}/><Field label="副标题" value={item.subtitle} onChange={subtitle => onChange({ subtitle })}/><div className="ep-field-grid"><Select label="组件类型" value={item.type} onChange={changeType}>{MODULE_TYPES.map(type => <option key={type.id} value={type.id}>{type.label}</option>)}</Select><Select label="面板材质" value={item.surface} onChange={surface => onChange({ surface })}><option value="glass">烟灰玻璃</option><option value="soft">轻透玻璃</option><option value="solid">深色面板</option></Select></div>{item.type === 'text' ? <label className="ep-field"><span>文本内容</span><textarea value={item.text} maxLength={1000} rows={5} onChange={event => onChange({ text: event.target.value })}/></label> : item.type !== 'clock' && <div className="ep-field-grid"><Field label="数值单位" value={item.unit} maxLength={8} onChange={unit => onChange({ unit })}/>{!professionalTypes.includes(item.type) && <Select label="最多小数位" value={item.precision ?? 1} onChange={value => onChange({ precision: Number(value) })}>{[0, 1, 2, 3].map(value => <option value={value} key={value}>{value} 位</option>)}</Select>}{!['metric', 'gauge'].includes(item.type) && <NumberField label={rowCountLabel} value={item.rowCount} min={item.type === 'radar' ? 3 : 1} max={100} step={1} onChange={rowCount => onChange({ rowCount: Math.round(rowCount) })}/>}</div>}{['gauge', 'progress', 'radar'].includes(item.type) && <NumberField label="目标值" value={item.target} min={.1} max={1e12} step={.001} onChange={target => onChange({ target })}/>}</section>
       {professionalTypes.includes(item.type) && <ChartControls item={item} onChange={onChange}/>}
-      {!['text', 'clock'].includes(item.type) && <section className="ep-property-section"><h3>数据绑定</h3><Select label="接入数据源" value={binding.sourceId} onChange={changeBinding}><option value="demo">内置示例数据</option>{custom && !boundSource && <option value={binding.sourceId}>数据源已移除</option>}{dataSources.map(entry => <option value={entry.id} key={entry.id}>{entry.name}</option>)}</Select>{custom ? <>{!boundSource && <p className="ep-error">请选择可用数据源，恢复此组件的数据连接。</p>}<div className="ep-field-grid">{['metric', 'gauge'].includes(item.type) && <Select label="数值汇总" value={item.aggregate} onChange={aggregate => onChange({ aggregate })}><option value="sum">求和</option><option value="average">平均值</option><option value="first">第一条</option></Select>}<div className="ep-bound-source"><span>来源</span><strong>{{ http: 'HTTP 接口', json: '静态 JSON', csv: 'CSV 表格' }[boundSource?.type] ?? '未连接'}</strong></div></div><DataMapping item={item} result={sourceResult} onChange={onChange}/></> : <Select label="示例内容" value={item.source} onChange={id => changeSource(id)}>{(MODULE_TYPES.find(type => type.id === item.type)?.sources ?? []).map(id => <option key={id} value={id}>{SOURCES[id].label}</option>)}</Select>}</section>}
+      {!['text', 'clock'].includes(item.type) && <section className="ep-property-section"><h3>数据绑定</h3><Select label="接入数据源" value={binding.sourceId} onChange={changeBinding}><option value="demo">内置示例数据</option>{custom && !boundSource && <option value={binding.sourceId}>数据源已移除</option>}{dataSources.map(entry => <option value={entry.id} key={entry.id}>{entry.name}</option>)}</Select>{custom ? <>{!boundSource && <p className="ep-error">请选择可用数据源，恢复此组件的数据连接。</p>}<div className="ep-field-grid">{['metric', 'gauge'].includes(item.type) && <Select label="数值汇总" value={item.aggregate} onChange={aggregate => onChange({ aggregate })}><option value="sum">求和</option><option value="average">平均值</option><option value="first">第一条</option></Select>}<div className="ep-bound-source"><span>来源</span><strong>{{ http: 'HTTP 接口', json: '静态 JSON', csv: 'CSV 表格' }[boundSource?.type] ?? '未连接'}</strong></div></div>{['bar', 'column', 'donut'].includes(item.type) && <Toggle label="按名称合并并求和" value={binding.groupBy === 'name'} onChange={enabled => { const { groupBy, ...rest } = binding; onChange({ binding: enabled ? { ...rest, groupBy: 'name' } : rest }); }}/>}<DataMapping item={item} result={sourceResult} onChange={onChange}/></> : <Select label="示例内容" value={item.source} onChange={id => changeSource(id)}>{(MODULE_TYPES.find(type => type.id === item.type)?.sources ?? []).map(id => <option key={id} value={id}>{SOURCES[id].label}</option>)}</Select>}</section>}
       {item.type === 'table' && <section className="ep-property-section"><h3>表格列</h3><div className="ep-columns">{availableColumns.map(column => {
         const current = item.columns.find(entry => entry.key === column.key);
         return <div className="ep-column" key={column.key}><label><input type="checkbox" checked={Boolean(current)} disabled={Boolean(current) && item.columns.length === 1} onChange={event => onChange({ columns: event.target.checked ? [...item.columns, { ...column }] : item.columns.filter(entry => entry.key !== column.key) })}/><span>{column.label}</span></label><input aria-label={`${column.label}列标题`} maxLength={12} value={current?.label ?? column.label} disabled={!current} onChange={event => onChange({ columns: item.columns.map(entry => entry.key === column.key ? { ...entry, label: event.target.value } : entry) })}/></div>;
@@ -158,23 +161,27 @@ function TemplateThumbnail({ config }) {
   return <div className="ep-template-thumbnail" aria-hidden="true">{config.map.visible && <div className="ep-template-map" style={{ left: `${config.map.layout.x}%`, top: `${config.map.layout.y}%`, width: `${config.map.layout.w}%`, height: `${config.map.layout.h}%` }}><MiniChart type="map"/></div>}{config.modules.filter(item => item.visible).map(item => <div key={item.id} className={`ep-template-module ep-template-module-${item.surface}`} style={{ left: `${item.layout.x}%`, top: `${item.layout.y}%`, width: `${item.layout.w}%`, height: `${item.layout.h}%` }}><MiniChart type={item.type}/></div>)}</div>;
 }
 
-export function TemplatePanel({ config, onLoad, onClose }) {
+export function TemplatePanel({ project = { id: 'base', name: '基线版', showBrand: true, vehicles: false }, config, onLoad, onClose }) {
   const [templates, setTemplates] = useState([]), [name, setName] = useState(''), [error, setError] = useState(''), [notice, setNotice] = useState('');
   const dialog = useRef(null), fileInput = useRef(null), opener = useRef(document.activeElement), importVersion = useRef(0);
-  const [builtins] = useState(getBuiltinTemplates);
+  const [builtins] = useState(() => getBuiltinTemplates(project));
+  const [legacyCanvas, setLegacyCanvas] = useState(null), [legacyTemplates, setLegacyTemplates] = useState([]);
   useEffect(() => {
     const element = dialog.current, previous = opener.current;
     if (!element.open) element.showModal();
-    try { setTemplates(readTemplates()); } catch (issue) { setError(issue.message); }
+    try { setTemplates(readTemplates(undefined, project));
+      const old = readLegacyConfig();
+      if (old && (!legacyProject(old) || legacyProject(old) === project.id)) setLegacyCanvas(old);
+      setLegacyTemplates(readLegacyTemplates().filter(item => !legacyProject(item.config))); } catch (issue) { setError(issue.message); }
     return () => { importVersion.current++; element.close(); if (previous?.isConnected) previous.focus(); };
   }, []);
   const run = action => { setError(''); setNotice(''); try { action(); } catch (issue) { setError(issue.message); } };
-  const load = next => { importVersion.current++; run(() => { if (onLoad(normalizeConfig(next)) === false) throw new Error('模板未载入，请检查画布配置'); onClose(); }); };
-  const save = event => { event.preventDefault(); run(() => { setTemplates(saveTemplate(name, config)); setName(''); setNotice('当前画布已存为模板'); }); };
+  const load = next => { importVersion.current++; run(() => { if (onLoad(configForProject(next, project)) === false) throw new Error('模板未载入，请检查画布配置'); onClose(); }); };
+  const save = event => { event.preventDefault(); run(() => { setTemplates(saveTemplate(name, config, undefined, project)); setName(''); setNotice('当前画布已存为模板'); }); };
   const download = () => run(() => {
-    const content = serializeTemplate(config);
+    const content = serializeTemplate(config, project);
     const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
-    const link = document.createElement('a'); link.href = url; link.download = 'manes-dashboard-template.json'; link.click();
+    const link = document.createElement('a'); link.href = url; link.download = `manes-${project.id}-template.json`; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000); setNotice('已导出当前画布配置');
   });
   const importFile = async event => {
@@ -186,14 +193,14 @@ export function TemplatePanel({ config, onLoad, onClose }) {
       if (!file.name.toLowerCase().endsWith('.json')) throw new Error('请选择 JSON 配置文件');
       if (file.size > CONFIG_FILE_LIMIT) throw new Error(`配置文件不能超过 ${Math.round(CONFIG_FILE_LIMIT / 1024)} KB`);
       const content = await file.text();
-      if (dialog.current?.open && importVersion.current === version) load(parseTemplateFile(content));
+      if (dialog.current?.open && importVersion.current === version) load(parseTemplateFile(content, project));
     } catch (issue) { if (dialog.current?.open && importVersion.current === version) setError(issue.message); }
   };
   return <dialog ref={dialog} className="ep-template-dialog" aria-labelledby="ep-template-title" onCancel={event => { event.preventDefault(); onClose(); }}>
-    <header className="ep-template-heading"><div><span className="ep-kicker">TEMPLATE LIBRARY</span><h2 id="ep-template-title">模板库</h2></div><button type="button" className="ep-icon-button" aria-label="关闭模板库" onClick={onClose}><X size={20}/></button></header>
-    <div className="ep-template-body"><div className="ep-template-section-heading"><h3>内置布局</h3><span>载入后可继续编辑与撤销</span></div><div className="ep-template-grid">{builtins.map(template => <button type="button" className="ep-template-card" key={template.id} onClick={() => load(template.config)}><TemplateThumbnail config={template.config}/><strong>{template.name}</strong><span>{template.description}</span></button>)}</div>
+    <header className="ep-template-heading"><div><span className="ep-kicker">TEMPLATE LIBRARY</span><h2 id="ep-template-title">{project.name} · 模板库</h2></div><button type="button" className="ep-icon-button" aria-label="关闭模板库" onClick={onClose}><X size={20}/></button></header>
+    <div className="ep-template-body"><div className="ep-template-section-heading"><h3>项目预设</h3><button type="button" onClick={() => load(defaultConfigForProject(project))}>恢复项目默认画布</button></div>{(legacyCanvas || legacyTemplates.length > 0) && <section className="ep-template-section-heading"><div><h3>旧版配置恢复</h3><p>载入当前项目后，保存才写入新的独立存储；旧记录继续保留。</p>{legacyCanvas && <button type="button" onClick={() => load(legacyCanvas)}>载入旧版画布到{project.name}</button>}{legacyTemplates.map((item, i) => <button key={i} type="button" onClick={() => load(item.config)}>载入旧模板：{item.name}</button>)}</div></section>}<div className="ep-template-section-heading"><h3>内置布局</h3><span>载入后可继续编辑与撤销</span></div><div className="ep-template-grid">{builtins.map(template => <button type="button" className="ep-template-card" key={template.id} onClick={() => load(template.config)}><TemplateThumbnail config={template.config}/><strong>{template.name}</strong><span>{template.description}</span></button>)}</div>
       <div className="ep-template-section-heading"><h3>我的模板 <span>{templates.length} / {TEMPLATE_LIMIT}</span></h3></div><form className="ep-template-save" onSubmit={save}><label className="ep-sr-only" htmlFor="ep-template-name">模板名称</label><input id="ep-template-name" placeholder="为当前画布命名" value={name} maxLength={40} required onChange={event => setName(event.target.value)}/><button type="submit" className="ep-primary" disabled={templates.length >= TEMPLATE_LIMIT}><Plus size={15}/>保存为模板</button></form>
-      {templates.length ? <div className="ep-template-grid ep-user-templates">{templates.map(template => <article className="ep-user-template" key={template.id}><button type="button" className="ep-template-card" onClick={() => load(template.config)}><TemplateThumbnail config={template.config}/><strong>{template.name}</strong><span>{new Date(template.createdAt).toLocaleDateString('zh-CN')} · {template.config.modules.length} 个组件</span></button><button type="button" className="ep-template-remove" aria-label={`删除模板 ${template.name}`} onClick={() => run(() => { setTemplates(deleteTemplate(template.id)); setNotice('模板已删除，当前画布保持不变'); })}><Trash size={14}/></button></article>)}</div> : <p className="ep-template-empty">保存常用布局，下次直接接入新数据。</p>}
+      {templates.length ? <div className="ep-template-grid ep-user-templates">{templates.map(template => <article className="ep-user-template" key={template.id}><button type="button" className="ep-template-card" onClick={() => load(template.config)}><TemplateThumbnail config={template.config}/><strong>{template.name}</strong><span>{new Date(template.createdAt).toLocaleDateString('zh-CN')} · {template.config.modules.length} 个组件</span></button><button type="button" className="ep-template-remove" aria-label={`删除模板 ${template.name}`} onClick={() => run(() => { setTemplates(deleteTemplate(template.id, undefined, project)); setNotice('模板已删除，当前画布保持不变'); })}><Trash size={14}/></button></article>)}</div> : <p className="ep-template-empty">保存常用布局，下次直接接入新数据。</p>}
     </div><footer className="ep-template-footer"><p>模板包含已配置的静态数据与接口地址，请勿放入密钥。</p><div className="ep-template-file-actions"><button type="button" onClick={() => fileInput.current.click()}><UploadSimple size={15}/>导入 JSON</button><button type="button" onClick={download}><DownloadSimple size={15}/>导出当前画布</button></div><input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={importFile}/>{error && <p className="ep-error" role="alert">{error}</p>}{notice && <p className="ep-notice" role="status">{notice}</p>}</footer>
   </dialog>;
 }

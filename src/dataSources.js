@@ -151,7 +151,7 @@ export function getMappedData(sourceResult, binding, config = {}) {
   const scalar = value => ['string', 'number', 'boolean'].includes(typeof value) ? String(value) : '';
   const category = value => (typeof value === 'string' && value.trim() !== '') || (typeof value === 'number' && Number.isFinite(value));
   const provided = value => value !== undefined && value !== null && value !== '';
-  const rows = (sourceResult?.rows || []).map((row, i) => {
+  let rows = (sourceResult?.rows || []).map((row, i) => {
     const mapped = Object.fromEntries(DATA_FIELDS.map(key => [key, fields[key] ? readDataPath(row, fields[key]) : undefined]));
     const value = strictDataNumber(mapped.value);
     if (numeric && value === null) throw new Error(`第 ${i + 1} 行的数值字段“${fields.value || '未设置'}”缺失或不是有效数字`);
@@ -173,6 +173,19 @@ export function getMappedData(sourceResult, binding, config = {}) {
     const name = scalar(mapped.name) || (['multiLine', 'stacked', 'combo'].includes(config.type) ? '' : `第 ${i + 1} 项`);
     return { name, value, time: scalar(mapped.time), status: scalar(mapped.status), target, series: scalar(mapped.series), code: scalar(mapped.code), x, y, value2 };
   });
+  if (binding?.groupBy) {
+    if (binding.groupBy !== 'name' || !['bar', 'column', 'donut'].includes(config.type)) throw new Error('不支持当前图表的分组合并');
+    const groups = new Map();
+    for (const row of rows) {
+      const previous = groups.get(row.name);
+      if (previous) {
+        if (previous.code !== row.code) throw new Error('同名分组的联动编码不一致');
+        previous.value += row.value;
+        if (!Number.isFinite(previous.value)) throw new Error('分组汇总超过有效数字范围');
+      } else groups.set(row.name, { ...row });
+    }
+    rows = [...groups.values()];
+  }
   const values = rows.map(row => row.value).filter(value => value !== null);
   const aggregate = config.aggregate || 'sum';
   if (!['sum', 'average', 'first'].includes(aggregate)) throw new Error('不支持的聚合方式');

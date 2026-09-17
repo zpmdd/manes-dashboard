@@ -1,4 +1,5 @@
 import { inFeature, NATIONAL } from './geo.js';
+import { strictDataNumber } from './dataSources.js';
 
 export const VEHICLE_FIELDS = [
   ['VEHICLENO', '号牌号码'], ['PALTE_COLOR', '号牌颜色'],
@@ -8,25 +9,42 @@ export const VEHICLE_FIELDS = [
   ['STATE_CODE', '状态信息'], ['ENCRYPT', '加密标识'], ['OPERATOR_CODE', '运营商编码'],
 ];
 
-// 用户提供的固定快照；保留原字段 PALTE_COLOR、空值及二进制字符串。
-export const VEHICLES = [
-  ['1', '1', 116.522857, 39.862656, 206, null, 0, 0, null, '2026/9/13 00:00', '2026/9/15 00:00', '00000000000000000000000000000011', '00000000000000000000000000000010', '1', '10'],
-  ['2', '1', 116.522857, 39.8627, 206, null, 0, 0, null, '2026/9/13 00:00', '2026/9/15 00:00', '00000000000000000000000000000011', '00000000000000000000000000000010', '1', '10'],
-  ['3', '1', 116.522857, 39.863, 206, null, 10, 10, null, '2026/9/13 00:00', '2026/9/15 00:00', '00000000000000000000000000000011', '00000000000000000000000000000010', '1', '10'],
-  ['4', '1', 116.522858, 39.862656, 206, null, 0, 0, null, '2026/9/13 00:00', '2026/9/15 00:00', '00000000000000000000000000000011', '00000000000000000000000000000010', '1', '10'],
-  ['5', '2', 117.522858, 40, 206, null, 0, 0, null, '2026/9/13 00:00', '2026/9/15 00:00', '00000000000000000000000000000011', '00000000000000000000000000000010', '1', '10'],
-].map(values => Object.fromEntries(VEHICLE_FIELDS.map(([key], i) => [key, values[i]])));
+export const EMPTY_VEHICLES = [];
 
-// Vehicle links are scoped to this branch; ordinary region links keep their behavior.
-export function linkedVehicles(code) {
-  if (code === 'vehicle:all') return VEHICLES;
-  if (code === 'vehicle:moving') return VEHICLES.filter(row => row.GPS_SPEED > 0);
-  if (code === 'vehicle:stopped') return VEHICLES.filter(row => row.GPS_SPEED === 0);
-  const vehicle = VEHICLES.find(row => code === `vehicle:${row.VEHICLENO}`);
+export function vehicleDataResult(result) {
+  if (!result) return { rows: EMPTY_VEHICLES, status: 'loading' };
+  try {
+    const ids = new Set();
+    const rows = (result.rows || []).map((row, i) => {
+      for (const [key] of VEHICLE_FIELDS) if (row[key] != null && !['string', 'number'].includes(typeof row[key])) throw new Error(`第 ${i + 1} 辆车的 ${key} 需为文字或数字`);
+      const id = String(row.VEHICLENO ?? '').trim();
+      const number = key => {
+        const value = row[key];
+        const parsed = strictDataNumber(value);
+        if (parsed === null) throw new Error(`第 ${i + 1} 辆车的 ${key} 无效`);
+        return parsed;
+      };
+      const lon = number('GEO_LON'), lat = number('GEO_LAT'), speed = number('GPS_SPEED');
+      if (!id || ids.has(id) || ['all', 'moving', 'stopped'].includes(id)) throw new Error('车辆号牌不能为空、重复或使用联动保留名称');
+      if (Math.abs(lon) > 180 || Math.abs(lat) > 90 || speed < 0) throw new Error(`第 ${i + 1} 辆车的坐标或速度超出范围`);
+      ids.add(id);
+      return { ...row, VEHICLENO: id, GEO_LON: lon, GEO_LAT: lat, GPS_SPEED: speed,
+        name: `车辆 ${id}`, count: 1, code: `vehicle:${id}`, status: speed > 0 ? '行驶' : '静止', stateCode: speed > 0 ? 'vehicle:moving' : 'vehicle:stopped' };
+    });
+    return { ...result, rows };
+  } catch (error) { return { ...result, rows: EMPTY_VEHICLES, status: 'error', error: error.message }; }
+}
+
+export function linkedVehicles(code, vehicles = EMPTY_VEHICLES) {
+  if (code === 'vehicle:all') return vehicles;
+  if (code === 'vehicle:moving') return vehicles.filter(row => row.GPS_SPEED > 0);
+  if (code === 'vehicle:stopped') return vehicles.filter(row => row.GPS_SPEED === 0);
+  const vehicle = vehicles.find(row => code === `vehicle:${row.VEHICLENO}`);
   return vehicle ? [vehicle] : null;
 }
 
 export async function vehicleDistrict(vehicles, index, readRegion) {
+  if (!vehicles.length) return null;
   let code = NATIONAL;
   const visited = new Set();
   while (index?.[code]?.hasChildren && !visited.has(code)) {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONFIG_FILE_LIMIT, DEFAULT_CONFIG, normalizeConfig } from '../src/dashboardConfig.js';
+import { CONFIG_FILE_LIMIT, DEFAULT_CONFIG, normalizeConfig, configForProject, defaultConfigForProject, legacyProject } from '../src/dashboardConfig.js';
 import { TEMPLATE_LIMIT, TEMPLATE_STORAGE_KEY, deleteTemplate, getBuiltinTemplates, parseTemplateFile, readTemplates, saveTemplate, serializeTemplate } from '../src/templateLibrary.js';
 
 function memoryStorage() {
@@ -15,7 +15,7 @@ test('模板文件只载入最后选择，关闭后不显示旧结果，当前�
   const setup = (onLoad = () => {}) => {
     const state = [], refs = [], effects = [], loaded = []; let stateIndex = 0, refIndex = 0, closes = 0;
     const element = { open: false, showModal() { this.open = true; }, close() { this.open = false; } };
-    const runtime = { config: DEFAULT_CONFIG, CONFIG_FILE_LIMIT, TEMPLATE_LIMIT, normalizeConfig, parseTemplateFile, getBuiltinTemplates: () => [], readTemplates: () => [],
+    const runtime = { config: DEFAULT_CONFIG, CONFIG_FILE_LIMIT, TEMPLATE_LIMIT, normalizeConfig, configForProject, defaultConfigForProject, legacyProject, readLegacyConfig: () => null, readLegacyTemplates: () => [], parseTemplateFile, getBuiltinTemplates: () => [], readTemplates: () => [],
       useState: initial => { const i = stateIndex++; state[i] = typeof initial === 'function' ? initial() : initial; return [state[i], value => { state[i] = value; }]; },
       useRef: initial => { const ref = { current: initial }; refs[refIndex++] = ref; return ref; }, useEffect: effect => effects.push(effect),
       document: { activeElement: null }, h: (type, props, ...children) => ({ type, props: props || {}, children }),

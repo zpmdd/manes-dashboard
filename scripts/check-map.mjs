@@ -9,8 +9,11 @@ import { createDataSourceController, validateSourceUrl, getMappedData, parseSour
 import { normalizeConfig } from '../src/dashboardConfig.js';
 import { DEFAULT_THEME, THEMES } from '../src/themes.js';
 import { layoutLabels, lineage, shortName } from '../src/geo.js';
-import { VEHICLES, VEHICLE_FIELDS, linkedVehicles, groupVehiclePoints, vehicleDistrict, vehicleCalloutPosition } from '../src/vehicles.js';
+import { VEHICLE_FIELDS, linkedVehicles as resolveVehicles, groupVehiclePoints, vehicleDistrict, vehicleCalloutPosition } from '../src/vehicles.js';
 import { atlasGrid, roadmapMaterial, viewAtlas } from '../src/useRoadmap.js';
+
+import VEHICLES from '../src/projects/daoyan-vehicles.json' with { type: 'json' };
+const linkedVehicles = code => resolveVehicles(code, VEHICLES);
 
 // Exercise the real R3F components without a browser or a GPU render loop.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -42,12 +45,12 @@ try {
   }
   assert.equal(renderLabels(false, { labels: true }, labelModel).length, 34, 'Surrounding province labels remain available during drill-down');
   console.log('PASS: all 34 province names, independent beacon and label switches, pointer passthrough and surrounding labels.');
-  const collections = [{ code: '100000', data: nationalData }], models = [modelFor(nationalData, '100000', collections)];
+  const collections = [{ code: '100000', data: nationalData }], models = [modelFor(nationalData, '100000', collections, VEHICLES)];
   for (const code of ['420000', '420300', '420381']) {
     let data;
     if (code === '420381') data = { ...collections.at(-1).data, features: collections.at(-1).data.features.filter(f => String(f.properties.adcode) === code) };
     else { data = JSON.parse(await readFile(new URL(`../public/data/regions/${code}.json`, import.meta.url), 'utf8')); collections.push({ code, data }); }
-    const model = modelFor(data, code, collections), parent = models.at(-1);
+    const model = modelFor(data, code, collections, VEHICLES), parent = models.at(-1);
     assert.deepEqual(model.project([111, 32]), models[0].project([111, 32]), 'Every level must keep the same coordinates for smooth camera zoom');
     assert(model.regions.some(r => String(r.feature.properties.adcode) === '610000' && !r.focused), 'Neighboring provinces must remain in the scene');
     assert.deepEqual(model.regions.filter(r => r.focused).map(r => r.feature.properties.adcode), data.features.map(f => f.properties.adcode), 'Only the current region or its children are highlighted');
@@ -60,6 +63,9 @@ try {
     models.push(model);
   }
   console.log('PASS: national → Hubei → Shiyan → Danjiangkou retain context, highlight the focus and share fixed coordinates.');
+  const baseModel = modelFor(nationalData, '100000', collections);
+  assert.equal(baseModel.vehicles.length, 0, 'The shared map never supplies project vehicles implicitly');
+  baseModel.regions.forEach(region => region.geometry.dispose()); baseModel.backdrops.forEach(geometry => geometry.dispose());
   const camera = new THREE.PerspectiveCamera(34, 1, .1, 200);
   const vehicleModel = models[0], vehicleSize = { width: 1280, height: 720 }, vehicleViewport = { x: .21, y: .15, width: .78, height: .61 };
   assert.equal(VEHICLES.length, 5); assert.equal(VEHICLE_FIELDS.length, 15);
@@ -109,11 +115,11 @@ try {
   assert.equal(await vehicleDistrict([{ GEO_LON: 0, GEO_LAT: 0 }], vehicleRegionIndex, readVehicleRegion), null);
   await assert.rejects(vehicleDistrict([VEHICLES[0]], vehicleRegionIndex, async () => { throw new DOMException('Cancelled', 'AbortError'); }), { name: 'AbortError' });
   for (const item of [null, ...VEHICLES]) {
-    let bounds = vehicleBounds(vehicleModel.project, null, vehicleModel.bounds.max.y), districtModel;
+    let bounds = vehicleBounds(vehicleModel.project, VEHICLES, vehicleModel.bounds.max.y), districtModel;
     if (item) {
       const district = districts[VEHICLES.indexOf(item)], parent = vehicleRegionIndex[district].parent;
       const data = await readVehicleRegion(parent);
-      districtModel = modelFor({ ...data, features: data.features.filter(f => String(f.properties.adcode) === district) }, district, [{ code: '100000', data: nationalData }, { code: parent, data }]);
+      districtModel = modelFor({ ...data, features: data.features.filter(f => String(f.properties.adcode) === district) }, district, [{ code: '100000', data: nationalData }, { code: parent, data }], VEHICLES);
       bounds = districtVehicleBounds(districtModel.bounds, districtModel.project, item);
       assert(bounds.containsBox(districtModel.bounds), 'Centering a vehicle must retain the full district boundary');
       assert.equal(districtModel.vehicles.length, 5, 'Drill-down retains all vehicles, including those outside the viewport');
@@ -318,9 +324,10 @@ try {
 
   // Run the actual lazy loader, visibility guard and outer error boundary in R3F's React renderer.
   const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  const focusSource = appSource.slice(appSource.indexOf('  const focusVehicles = '), appSource.indexOf('  const pickVehicle = '));
+  const vehicleHookSource = await readFile(new URL('../src/useVehicleLayer.js', import.meta.url), 'utf8');
+  const focusSource = vehicleHookSource.slice(vehicleHookSource.indexOf('  const focusVehicles = '), vehicleHookSource.indexOf('  const pickVehicle = '));
   const pendingVehicles = [], focusedVehicles = [], vehicleNotices = [], vehicleHighlights = [], vehicleRequest = { current: null };
-  const focusVehicle = new Function('context', 'useCallback', 'vehicleDistrict', 'fetchJson', 'VEHICLES', `const { index, vehicleRequest, navigate, sendCommand, setLayers, setDialog, setVehicleHover, setVehicleHighlight, setVehicle, setToast } = context; ${focusSource}; return focusVehicles;`)(
+  const focusVehicle = new Function('context', 'useCallback', 'vehicleDistrict', 'fetchJson', 'allVehicles', `const { index, vehicleRequest, navigate, sendCommand, setLayers, setDialog, setVehicleHover, setVehicleHighlight, setVehicle, setToast } = context; ${focusSource}; return focusVehicles;`)(
     { index: vehicleRegionIndex, vehicleRequest, navigate: (code, vehicle) => focusedVehicles.push([code, vehicle.VEHICLENO]), sendCommand: () => assert.fail('Single vehicles must never use point-radius zoom'), setLayers() {}, setDialog() {}, setVehicleHover() {}, setVehicleHighlight: code => vehicleHighlights.push(code), setVehicle() {}, setToast: message => vehicleNotices.push(message) },
     fn => fn, () => new Promise((resolve, reject) => pendingVehicles.push({ resolve, reject })), () => {}, VEHICLES,
   );
@@ -338,7 +345,7 @@ try {
   console.log('PASS: all single-vehicle entrypoints share district focus; rapid selection, cancellation and boundary failure preserve the latest intent.');
   const defaults = new Function(`${appSource.split('\n').find(line => line.startsWith('const DEFAULT_LAYERS = '))}; return DEFAULT_LAYERS;`)();
   let presetLayers = defaults;
-  const setView = new Function('DEFAULT_LAYERS', 'setMode', 'setLayers', 'setDialog', `${appSource.slice(appSource.indexOf('  const setView = '), appSource.indexOf('  const fullScreen = '))}; return setView;`)(defaults, () => {}, next => { presetLayers = typeof next === 'function' ? next(presetLayers) : next; }, () => {});
+  const setView = new Function('project', 'DEFAULT_LAYERS', 'setMode', 'setLayers', 'setDialog', `${appSource.slice(appSource.indexOf('  const setView = '), appSource.indexOf('  const fullScreen = '))}; return setView;`)({ vehicles: false }, defaults, () => {}, next => { presetLayers = typeof next === 'function' ? next(presetLayers) : next; }, () => {});
   assert.equal(defaults.beacons, false);
   for (const mode of ['overview', 'monitor', 'traffic', 'regions']) {
     presetLayers = { ...presetLayers, beacons: true }; setView(mode);
@@ -459,7 +466,7 @@ try {
     ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
     : createElement(type, props, ...children);
   const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
-  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { theme, fontFamily, loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { vehicles, theme, fontFamily, loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
   const context = { theme: DEFAULT_THEME, sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
   let loads = 0, received;
   const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
@@ -572,7 +579,7 @@ try {
     const branch = panelBranches.find(branch => branch.includes(`<${name} `));
     assert(branch, `${name} must be inside the boundary`);
     const { code: panelBranchCode } = await transformWithEsbuild(`const panel = ${branch};`, 'PanelBranch.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false });
-    const renderPanel = new Function('h', 'PanelErrorBoundary', 'Suspense', ...panelNames, 'editor', 'setDialog', `const config = editor.config, selection = config.modules[0], results = {}, activeCode = '100000'; const setSidePanel = () => {}, applySources = () => {}, createFromSource = () => {}, applyConfig = () => {}; ${panelBranchCode}; return panel;`);
+    const renderPanel = new Function('h', 'PanelErrorBoundary', 'Suspense', ...panelNames, 'editor', 'setDialog', `const project = { id: 'base', name: '基线版', vehicles: false, showBrand: true }, config = editor.config, selection = config.modules[0], results = {}, activeCode = '100000'; const setSidePanel = () => {}, applySources = () => {}, createFromSource = () => {}, applyConfig = () => {}; ${panelBranchCode}; return panel;`);
     function PanelProbe() {
       editorState = useDashboardEditor(() => {});
       const [opened, setOpened] = React.useState(false); openPanel = () => setOpened(true);

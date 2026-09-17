@@ -4,8 +4,11 @@ import '@fontsource/michroma/latin-400.css';
 import '@fontsource/manrope/latin-400.css';
 import '@fontsource/manrope/latin-500.css';
 import '@fontsource/manrope/latin-600.css';
-import { Dialog, IconButton, LayerPanel, RegionPicker, VehiclePanel, VehicleTooltip } from './MapPanels';
-import { VEHICLES, linkedVehicles, vehicleDistrict } from './vehicles';
+import { Dialog, IconButton, LayerPanel, RegionPicker } from './MapPanels';
+import { VehiclePanel, VehicleTooltip, VehicleToolbar, VehicleWidget } from './VehiclePanels';
+import { useVehicleLayer } from './useVehicleLayer';
+import project from '@project';
+import { vehicleDataResult, EMPTY_VEHICLES } from './vehicles';
 import { DashboardWidget } from './DashboardWidget';
 import { ThemePanel } from './ThemePanel';
 import { getTheme, themeVariables } from './themes';
@@ -27,7 +30,7 @@ const TemplatePanel = lazy(() => import('./EditorPanels').then(module => ({ defa
 const DataSourcePanel = lazy(() => import('./DataSourcePanel').then(module => ({ default: module.DataSourcePanel })));
 const ConfigPanel = lazy(() => import('./ConfigPanel').then(module => ({ default: module.ConfigPanel })));
 
-const DEFAULT_LAYERS = { vehicles: true, roadmap: false, roads: true, beacons: false, arcs: false, heat: false, labels: true, highway: true, nationalRoad: true };
+const DEFAULT_LAYERS = { vehicles: false, roadmap: false, roads: true, beacons: false, arcs: false, heat: false, labels: true, highway: true, nationalRoad: true };
 const fetchJson = async (path, signal) => {
   const response = await fetch(path, { signal, cache: 'force-cache' });
   if (!response.ok) throw new Error(`本地地图文件读取失败（${response.status}）`);
@@ -71,27 +74,26 @@ class PanelErrorBoundary extends Component {
   }
 }
 
-const BoundWidget = memo(function BoundWidget({ item, result, refresh, code, index, onNavigate, theme, fontFamily }) {
+const BoundWidget = memo(function BoundWidget({ item, result, refresh, code, index, onNavigate, theme, fontFamily, vehicleData = false }) {
   const external = item.binding.sourceId !== 'demo' && !['text', 'clock'].includes(item.type);
   const mapped = useMemo(() => {
     if (!external) return null;
     try {
       const data = getMappedData({ rows: result?.rows }, item.binding, item);
-      const vehicleData = data.rows.length > 0 && data.rows.every(row => row.code.startsWith('vehicle:'));
       if (vehicleData) data.scope = '车辆定位快照';
       return { data, vehicleData };
     }
     catch (error) { return { data: { rows: [] }, error: error.message }; }
-  }, [external, result?.rows, item.binding, item.aggregate, item.type, item.unit, item.columns]);
+  }, [external, result?.rows, item.binding, item.aggregate, item.type, item.unit, item.columns, item.binding.groupBy, vehicleData]);
   const state = mapped?.error ? { status: 'error', error: mapped.error } : result || { status: 'loading' };
   const reload = useCallback(() => refresh(item.binding.sourceId), [refresh, item.binding.sourceId]);
   const widget = <DashboardWidget theme={theme} fontFamily={fontFamily} config={item} code={code} index={index} onNavigate={onNavigate} data={mapped?.data} dataState={external ? state : undefined} onRefresh={external ? reload : undefined}/>;
-  return mapped?.vehicleData ? <div className="vehicle-widget">{widget}{item.type === 'metric' && state.status === 'ready' && <button className="vehicle-metric-link" onClick={() => onNavigate('vehicle:all')} aria-label={`显示全部车辆 · ${mapped.data.value} 辆`}>显示全部车辆<ArrowUpRight size={14}/></button>}</div> : widget;
+  return mapped?.vehicleData ? <VehicleWidget item={item} state={state} data={mapped.data} onNavigate={onNavigate}>{widget}</VehicleWidget> : widget;
 });
 
 export function App() {
   const [toast, setToast] = useState('');
-  const editor = useDashboardEditor(setToast), config = editor.config;
+  const editor = useDashboardEditor(setToast, project), config = editor.config;
   const theme = getTheme(config.theme);
   const selectedFont = getFont(config.font), [loadedFont, setLoadedFont] = useState(null);
   const fontFamily = loadedFont?.family || SYSTEM_FONT;
@@ -123,23 +125,16 @@ export function App() {
   const [code, setCode] = useState(/^#\d{6}$/.test(location.hash) ? location.hash.slice(1) : NATIONAL);
   const [loaded, setLoaded] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(''), [retry, setRetry] = useState(0);
   const activeCode = config.map.visible && loaded ? loaded.code : index?.[code] ? code : NATIONAL;
-  const [dialog, setDialog] = useState(null), [layers, setLayers] = useState(DEFAULT_LAYERS), [quality, setQuality] = useState('high'), [mode, setMode] = useState('overview');
+  const [dialog, setDialog] = useState(null), [layers, setLayers] = useState(() => ({ ...DEFAULT_LAYERS, vehicles: project.vehicles })), [quality, setQuality] = useState('high'), [mode, setMode] = useState('overview');
   const [hover, setHover] = useState(''), [command, setCommand] = useState({ type: 'reset', sequence: 0 }), [telemetry, setTelemetry] = useState({});
-  const [vehicle, setVehicle] = useState(VEHICLES[0]);
-  const [vehicleHighlight, setVehicleHighlight] = useState('vehicle:all'), [vehicleDetailed, setVehicleDetailed] = useState(false), [vehicleHover, setVehicleHover] = useState(null);
-  const hoverTimer = useRef(), vehicleRequest = useRef();
-  const hoverVehicle = useCallback(value => { clearTimeout(hoverTimer.current); if (value) setVehicleHover(value); else hoverTimer.current = setTimeout(() => setVehicleHover(null), 120); }, []);
-  useEffect(() => { setVehicleHover(null); return () => clearTimeout(hoverTimer.current); }, [command, vehicleHighlight, vehicleDetailed, code, layers.vehicles]);
-  useEffect(() => () => vehicleRequest.current?.abort(), [config.map.visible]);
-  useEffect(() => {
-    if (!vehicleHover && vehicleHighlight === 'vehicle:all') return;
-    const dismiss = event => { if (event.key === 'Escape' && !dialog) { setVehicleHover(null); setVehicleHighlight('vehicle:all'); vehicleRequest.current?.abort(); } };
-    window.addEventListener('keydown', dismiss); return () => window.removeEventListener('keydown', dismiss);
-  }, [vehicleHover, vehicleHighlight, dialog]);
   const main = useRef(), stage = useRef(), mapLabels = useRef(), measureRef = useRef(null), telemetryRef = useRef({});
   const previewMapLayout = useCallback(() => measureRef.current?.(), []);
-  const usedSources = useMemo(() => config.dataSources.filter(source => config.modules.some(item => (item.visible || editing) && !['text', 'clock'].includes(item.type) && item.binding.sourceId === source.id)), [config.dataSources, config.modules, editing]);
-  const { results, refresh } = useDataSources(usedSources, activeCode);
+  const navigationRequest = useRef();
+  const usedSources = useMemo(() => config.dataSources.filter(source => ((project.vehicles && config.map.visible && config.map.vehicleSourceId === source.id) || config.modules.some(item => (item.visible || editing) && !['text', 'clock'].includes(item.type) && item.binding.sourceId === source.id))), [config.dataSources, config.modules, editing, config.map.visible, config.map.vehicleSourceId]);
+  const { results: rawResults, refresh } = useDataSources(usedSources, activeCode);
+  const vehicleResult = useMemo(() => project.vehicles ? vehicleDataResult(rawResults[config.map.vehicleSourceId]) : { rows: EMPTY_VEHICLES }, [rawResults[config.map.vehicleSourceId]]);
+  const vehicles = vehicleResult.rows;
+  const results = project.vehicles && config.map.vehicleSourceId ? { ...rawResults, [config.map.vehicleSourceId]: vehicleResult } : rawResults;
   const selection = editor.selected === 'map' ? config.map : config.modules.find(item => item.id === editor.selected);
   const customCount = config.modules.filter(item => item.visible && !['text', 'clock'].includes(item.type) && item.binding.sourceId !== 'demo').length;
   const demoCount = config.modules.filter(item => item.visible && !['text', 'clock'].includes(item.type) && item.binding.sourceId === 'demo').length;
@@ -187,14 +182,15 @@ export function App() {
     }).catch(e => { if (!abort.signal.aborted && e.name !== 'AbortError') { setError(e.message); setLoading(false); } });
     return () => abort.abort();
   }, [index, code, retry, config.map.visible]);
-  useEffect(() => { const change = () => { vehicleRequest.current?.abort(); setCode(/^#\d{6}$/.test(location.hash) ? location.hash.slice(1) : NATIONAL); }; window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change); }, []);
+  useEffect(() => { const change = () => { navigationRequest.current?.abort(); setCode(/^#\d{6}$/.test(location.hash) ? location.hash.slice(1) : NATIONAL); }; window.addEventListener('hashchange', change); return () => window.removeEventListener('hashchange', change); }, []);
   useEffect(() => { if (toast) { const t = setTimeout(() => setToast(''), 3500); return () => clearTimeout(t); } }, [toast]);
-  useEffect(() => { document.title = config.title; }, [config.title]);
+  useEffect(() => { document.title = project.showBrand ? `${config.brand} · ${config.title}` : config.title; }, [config.brand, config.title]);
   const applyConfig = patch => {
     try { editor.change(normalizeConfig({ ...config, ...patch })); return true; }
     catch (error) { setToast(error.message); return false; }
   };
   const applySources = sources => {
+    if (config.map.vehicleSourceId && !sources.some(source => source.id === config.map.vehicleSourceId)) throw new Error('数据源仍被车辆地图使用，请先在地图属性中解除绑定');
     const missing = config.modules.find(item => !['text', 'clock'].includes(item.type) && item.binding.sourceId !== 'demo' && !sources.some(source => source.id === item.binding.sourceId));
     if (missing) throw new Error(`数据源仍被“${missing.title}”使用，请先更改该组件的数据绑定`);
     editor.change(normalizeConfig({ ...config, dataSources: sources, modules: config.modules.map(item => ['text', 'clock'].includes(item.type) ? { ...item, binding: { ...item.binding, sourceId: 'demo' } } : item) }));
@@ -207,37 +203,17 @@ export function App() {
     const next = normalizeConfig({ ...config, dataSources: sources, modules: [...config.modules, item] });
     editor.change(next); editor.select(item.id); setSidePanel('inspector');
   };
-  const navigate = useCallback((next, vehicle) => { vehicleRequest.current?.abort(); setCode(String(next)); location.hash = String(next); setDialog(null); sendCommand(vehicle ? 'vehicle' : 'region', vehicle || String(next), String(next)); }, [sendCommand]);
-  const clearVehicleSelection = useCallback(() => { vehicleRequest.current?.abort(); setVehicleHighlight('vehicle:all'); setVehicleHover(null); }, []);
-  const focusVehicles = useCallback(async (item, highlight) => {
-    vehicleRequest.current?.abort();
-    const abort = new AbortController(); vehicleRequest.current = abort;
-    const vehicles = Array.isArray(item) ? item : item ? [item] : VEHICLES;
-    const single = vehicles.length === 1 ? vehicles[0] : null;
-    setLayers(s => ({ ...s, vehicles: true })); setDialog(null); setVehicleHover(null);
-    setVehicleHighlight(highlight || (single ? `vehicle:${single.VEHICLENO}` : 'vehicle:all'));
-    if (single) setVehicle(single);
-    try {
-      const district = await vehicleDistrict(vehicles, index, region => fetchJson(`/data/regions/${region}.json`, abort.signal));
-      if (abort.signal.aborted) return;
-      if (district) navigate(district, single);
-      else if (single) setToast('当前离线边界未匹配到车辆所在区县');
-      else sendCommand('vehicles', vehicles);
-    } catch (error) { if (!abort.signal.aborted) setToast(`车辆定位失败：${error.message}`); }
-  }, [index, navigate, sendCommand]);
-  const pickVehicle = useCallback(item => { void focusVehicles(item); }, [focusVehicles]);
-  const showVehicleDetails = useCallback(item => { setVehicle(item); setDialog('vehicle'); setVehicleHover(null); }, []);
+  const navigate = useCallback((next, vehicle) => { navigationRequest.current?.abort(); setCode(String(next)); location.hash = String(next); setDialog(null); sendCommand(vehicle ? 'vehicle' : 'region', vehicle || String(next), String(next)); }, [sendCommand]);
+  const vehicleLayer = useVehicleLayer({ allVehicles: vehicles, index, mapVisible: config.map.visible, layers, setLayers, command, code, activeCode, dialog, setDialog, navigate, sendCommand, setToast, fetchJson, navigationRequest });
+  const { vehicle, setVehicle, vehicleHighlight, vehicleDetailed, setVehicleDetailed, vehicleHover, hoverVehicle, hoverTimer, focusVehicles, pickVehicle, clearVehicleSelection, showVehicleDetails } = vehicleLayer;
   const navigateWidget = useCallback(next => {
-    const vehicles = linkedVehicles(next);
-    if (vehicles) {
-      vehicleRequest.current?.abort(); setVehicleHighlight(next); setVehicle(vehicles[0]); setDialog(null); setLayers(s => ({ ...s, vehicles: true }));
-      if (!['vehicle:all', 'vehicle:moving', 'vehicle:stopped'].includes(next) || vehicleDetailed || activeCode !== NATIONAL) void focusVehicles(vehicles, next);
-    } else if (index?.[String(next)]) navigate(next); else setToast('数据中的区域编码不在当前地图范围内');
-  }, [index, navigate, focusVehicles, vehicleDetailed, activeCode]);
+    if (project.vehicles && vehicleLayer.navigateWidget(next)) return;
+    if (index?.[String(next)]) navigate(next); else setToast('数据中的区域编码不在当前地图范围内');
+  }, [index, navigate, vehicleLayer.navigateWidget]);
   const pickFeature = useCallback(feature => { const next = String(feature.properties.adcode); if (next === code) setToast('已到当前数据的最细层级'); else if (index?.[next]) navigate(next); }, [navigate, code, index]);
   const setView = next => {
     setMode(next);
-    if (next === 'overview') setLayers(DEFAULT_LAYERS);
+    if (next === 'overview') setLayers({ ...DEFAULT_LAYERS, vehicles: project.vehicles });
     if (next === 'monitor') setLayers(s => ({ ...s, heat: true, beacons: false, arcs: false }));
     if (next === 'traffic') setLayers(s => ({ ...s, roads: true, heat: false, arcs: false, beacons: false }));
     if (next === 'regions') { setLayers(s => ({ ...s, heat: false, beacons: false, arcs: false })); setDialog('regions'); }
@@ -249,9 +225,9 @@ export function App() {
     {editing && <div className="editor-mobile-tabs"><button onClick={() => setSidePanel('library')} aria-pressed={sidePanel === 'library'}>组件库</button><button onClick={() => setSidePanel('inspector')} aria-pressed={sidePanel === 'inspector'}>组件属性</button></div>}
     {editing && <aside className={`editor-library-pane ${sidePanel === 'library' ? 'is-open' : ''}`}><PanelErrorBoundary title="组件库"><Suspense fallback={<p role="status">正在加载组件库…</p>}><ComponentLibrary onAdd={type => { editor.add(type); setSidePanel('inspector'); }}/></Suspense></PanelErrorBoundary><section className="editor-layer-list" aria-label="图层列表"><h3>画布图层</h3>{[{ ...config.map, id: 'map', title: config.mapTitle }, ...config.modules].map(item => <button key={item.id} onClick={event => { editor.select(item.id, { toggle: event.shiftKey || event.metaKey || event.ctrlKey }); setSidePanel('inspector'); }} aria-pressed={editor.selectedIds.includes(item.id)}><span>{item.title || '未命名组件'}</span><small>{item.locked ? '锁定' : !item.visible ? '隐藏' : ''}</small></button>)}</section></aside>}
     <div className="dashboard-viewport"><main className="dashboard free-dashboard" ref={main}>
-    <div className={`world-backdrop ${loading && !loaded ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}><div ref={mapLabels} className="map-labels" style={viewport ? { clipPath: `inset(${100 * (viewport.y + viewport.height * .12)}% ${100 * (1 - viewport.x - viewport.width * .98)}% ${100 * (1 - viewport.y - viewport.height * .98)}% ${100 * (viewport.x + viewport.width * .02)}%)` } : undefined}/>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene theme={theme} fontFamily={fontFamily} data={loaded.data} collections={loaded.collections} roadData={loaded.roads} labelPortal={mapLabels} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} onVehicleSelect={pickVehicle} onVehicleHover={hoverVehicle} onVehicleDetailChange={setVehicleDetailed} vehicleHighlight={vehicleHighlight} onVehicleClear={clearVehicleSelection} onVehicleDetails={showVehicleDetails} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined} sceneSize={sceneSize}/></Suspense></MapErrorBoundary>}</div>
+    <div className={`world-backdrop ${loading && !loaded ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}><div ref={mapLabels} className="map-labels" style={viewport ? { clipPath: `inset(${100 * (viewport.y + viewport.height * .12)}% ${100 * (1 - viewport.x - viewport.width * .98)}% ${100 * (1 - viewport.y - viewport.height * .98)}% ${100 * (viewport.x + viewport.width * .02)}%)` } : undefined}/>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene vehicles={vehicles} theme={theme} fontFamily={fontFamily} data={loaded.data} collections={loaded.collections} roadData={loaded.roads} labelPortal={mapLabels} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} onVehicleSelect={pickVehicle} onVehicleHover={hoverVehicle} onVehicleDetailChange={setVehicleDetailed} vehicleHighlight={vehicleHighlight} onVehicleClear={clearVehicleSelection} onVehicleDetails={showVehicleDetails} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined} sceneSize={sceneSize}/></Suspense></MapErrorBoundary>}</div>
     <header className="topbar">
-      <div className="screen-title"><h1 title={config.title}>{config.title}</h1><span>{dataLabel}</span></div>
+      <div className={`screen-title${project.showBrand ? ' has-brand' : ''}`}>{project.showBrand && <div className="screen-brand"><img src="/brand/manes-icon.svg" alt=""/><strong>{config.brand}</strong></div>}<h1 title={config.title}>{config.title}</h1><span>{dataLabel}</span></div>
       <div className="header-tools">{config.showClock && <DashboardClock/>}<IconButton label="全屏显示" onClick={fullScreen}><ArrowsOut/></IconButton><IconButton label="设置大屏" className="configure-button" onClick={editor.start} disabled={editor.editing}><Gear/></IconButton></div>
       <nav aria-label="视图切换">{['overview', 'monitor', 'traffic', 'regions'].map((id, i) => <button key={id} className={mode === id ? 'selected' : ''} aria-pressed={mode === id} onClick={() => setView(id)}>{config.navLabels[i]}</button>)}</nav>
     </header>
@@ -265,22 +241,22 @@ export function App() {
       {hover && <div className="hover-caption" role="status">{hover}<span>点击查看区域</span><ArrowUpRight/></div>}
       {loading && <div className={`loading-state${loaded ? ' is-focusing' : ''}`} role="status"><CircleNotch className="spinner" size={24}/><span>正在展开地图</span></div>}
       {error && <div className="load-error" role="alert"><strong>{error}</strong><div><button onClick={() => setRetry(n => n + 1)}>重试</button><button onClick={() => navigate(NATIONAL)}>返回全国</button></div></div>}
-      <div className="map-bottom"><div className="vehicle-toolbar"><button onClick={() => focusVehicles()} disabled={!loaded || loading}>定位车辆 · {VEHICLES.length}</button>{vehicleDetailed && layers.vehicles && <button onClick={() => showVehicleDetails(vehicle)}>车辆详情</button>}{vehicleHighlight !== 'vehicle:all' && <button onClick={clearVehicleSelection}>取消高亮 · {linkedVehicles(vehicleHighlight)?.length} 辆</button>}<span>GPS · 2026/9/13 00:00</span><span className="vehicle-mode" aria-live="polite">{vehicleDetailed ? '车辆视图' : '点位概览 · 点击放大'}</span></div><div className="map-legend">{layers.roadmap && <span>离线道路底图</span>}{layers.roads && <span><i className="legend-line"/>道路网络</span>}{layers.beacons && <span><i className="legend-dot"/>监测节点</span>}{layers.heat && <span>态势热力</span>}</div><button onClick={showInfo}>{layers.roadmap ? '本地道路瓦片 · 1–10 级' : loaded?.code === '420381' ? '© OpenStreetMap contributors' : 'DataV.GeoAtlas · Natural Earth'}<Info size={11}/></button></div>
+      <div className="map-bottom">{project.vehicles && <VehicleToolbar vehicles={vehicles} result={vehicleResult} layer={vehicleLayer} loaded={loaded} loading={loading} visible={layers.vehicles}/>}<div className="map-legend">{layers.roadmap && <span>离线道路底图</span>}{layers.roads && <span><i className="legend-line"/>道路网络</span>}{layers.beacons && <span><i className="legend-dot"/>监测节点</span>}{layers.heat && <span>态势热力</span>}</div><button onClick={showInfo}>{layers.roadmap ? '本地道路瓦片 · 1–10 级' : loaded?.code === '420381' ? '© OpenStreetMap contributors' : 'DataV.GeoAtlas · Natural Earth'}<Info size={11}/></button></div>
     </section></CanvasItem>}
-    {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}><BoundWidget theme={theme} fontFamily={fontFamily} item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={activeCode} index={index} onNavigate={navigateWidget}/></CanvasItem>)}
+    {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}><BoundWidget vehicleData={project.vehicles && item.binding.sourceId === config.map.vehicleSourceId} theme={theme} fontFamily={fontFamily} item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={activeCode} index={index} onNavigate={navigateWidget}/></CanvasItem>)}
     {editing && <div className="canvas-guides" aria-hidden="true">{editor.guides.map(guide => <i key={guide.axis} className={`canvas-guide guide-${guide.axis}`} style={guide.axis === 'x' ? { left: `${guide.position}%`, top: `${guide.from}%`, height: `${guide.to - guide.from}%` } : { top: `${guide.position}%`, left: `${guide.from}%`, width: `${guide.to - guide.from}%` }}/>)}</div>}
     </div>
     {vehicleHover && layers.vehicles && !editing && <VehicleTooltip value={vehicleHover} detailed={vehicleDetailed} onPointerEnter={() => clearTimeout(hoverTimer.current)} onPointerLeave={() => hoverVehicle(null)}/>}
     {editor.editing && dialog === 'theme' && <ThemePanel theme={theme} editing={editor.editing} onChange={editor.setTheme} onClose={() => setDialog(null)}/>}
     {dialog === 'regions' && index && <RegionPicker index={index} code={activeCode} onNavigate={navigate} onClose={() => setDialog(null)}/>}
-    {dialog === 'layers' && <LayerPanel layers={layers} setLayers={setLayers} quality={quality} setQuality={setQuality} detail={loaded?.code === '420381'} onClose={() => setDialog(null)}/>}
-    {dialog === 'vehicle' && <VehiclePanel vehicle={vehicle} onSelect={setVehicle} onFocus={focusVehicles} onClose={() => setDialog(null)}/>}
-    {dialog === 'templates' && <PanelErrorBoundary title="模板库" onClose={() => setDialog(null)}><Suspense fallback={<div className="toast" role="status">正在加载模板库…</div>}><TemplatePanel config={config} onLoad={next => editor.change(next)} onClose={() => setDialog(null)}/></Suspense></PanelErrorBoundary>}
+    {dialog === 'layers' && <LayerPanel extraLayers={project.vehicles ? [['vehicles', '车辆信息', `${vehicles.length} 辆车 · 数据源可在地图属性中设置`]] : []} layers={layers} setLayers={setLayers} quality={quality} setQuality={setQuality} detail={loaded?.code === '420381'} onClose={() => setDialog(null)}/>}
+    {dialog === 'vehicle' && vehicle && <VehiclePanel vehicles={vehicles} vehicle={vehicle} onSelect={setVehicle} onFocus={focusVehicles} onClose={() => setDialog(null)}/>}
+    {dialog === 'templates' && <PanelErrorBoundary title="模板库" onClose={() => setDialog(null)}><Suspense fallback={<div className="toast" role="status">正在加载模板库…</div>}><TemplatePanel project={project} config={config} onLoad={next => editor.change(next)} onClose={() => setDialog(null)}/></Suspense></PanelErrorBoundary>}
     {dialog === 'sources' && <PanelErrorBoundary title="数据源管理" onClose={() => setDialog(null)}><Suspense fallback={<div className="toast" role="status">正在加载数据源管理…</div>}><DataSourcePanel sources={config.dataSources} code={activeCode} onChange={applySources} onCreateComponent={createFromSource} onClose={() => setDialog(null)}/></Suspense></PanelErrorBoundary>}
-    {dialog === 'config' && <PanelErrorBoundary title="全局设置" onClose={() => setDialog(null)}><Suspense fallback={<div className="toast" role="status">正在加载全局设置…</div>}><ConfigPanel config={config} onApply={applyConfig} onClose={() => setDialog(null)}/></Suspense></PanelErrorBoundary>}
+    {dialog === 'config' && <PanelErrorBoundary title="全局设置" onClose={() => setDialog(null)}><Suspense fallback={<div className="toast" role="status">正在加载全局设置…</div>}><ConfigPanel project={project} config={config} onApply={applyConfig} onClose={() => setDialog(null)}/></Suspense></PanelErrorBoundary>}
     {dialog === 'info' && <Dialog title="数据与性能" subtitle="DATA & RENDERING" onClose={() => setDialog(null)} wide><div className="info-columns"><section><h3>数据来源</h3><p>行政区边界复用 Daoyan 本地 GeoJSON，原始来源为 DataV.GeoAtlas。全国省界来自同源公开数据。</p><p>离线道路底图来自本地离线地图包，共 13,822 张图片，最高 10 级；包含道路与地名，放大到更细区域时沿用现有图片。</p><p>全国道路为 Natural Earth 1:10m 概化干线，不能据此判断完整高速、国道覆盖。丹江口样区使用已有 OSM 道路数据，保留 G70、G59、G209 等编号。</p><p>业务组件按配置使用示例、静态 JSON/CSV 或 HTTP 接口数据；自定义数据失败时显示错误或延迟状态。地图光柱、连线和热力仍为演示内容。边界源未声明坐标系，尚未完成与 WGS84 道路的精确坐标验收。</p><div className="source-links"><a href="https://datav.aliyun.com/portal/school/atlas/area_selector" target="_blank" rel="noreferrer">DataV.GeoAtlas<ArrowUpRight/></a><a href="https://www.naturalearthdata.com/downloads/10m-cultural-vectors/roads/" target="_blank" rel="noreferrer">Natural Earth<ArrowUpRight/></a><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors · ODbL<ArrowUpRight/></a></div></section><section><h3>渲染状态</h3><dl className="render-stats"><div><dt>渲染方式</dt><dd>按需绘制</dd></div><div><dt>当前质量</dt><dd>{quality === 'high' ? '质感优先' : '流畅优先'}</dd></div><div><dt>像素比</dt><dd>{telemetry.dpr || '—'}</dd></div><div><dt>每帧绘制调用</dt><dd>{telemetry.calls ?? '—'}</dd></div><div><dt>每帧提交三角面</dt><dd>{telemetry.triangles?.toLocaleString() ?? '—'}</dd></div><div><dt>已分配几何体</dt><dd>{telemetry.geometries ?? '—'}</dd></div><div><dt>绘制帧计数</dt><dd data-testid="render-frame">{telemetry.frames ?? '—'}</dd></div><div><dt>相机 / 缩放</dt><dd data-testid="camera-state">{telemetry.camera || '—'} / {telemetry.zoom || '—'}</dd></div></dl><p className="fineprint">读数为打开面板或刷新时的快照，包含反射等渲染通道；帧计数不变表示地图停止绘制。此处不代替目标设备帧率验收。</p><button className="text-button" onClick={() => setTelemetry(telemetryRef.current)}>刷新渲染读数<ArrowRight/></button><button className="text-button" onClick={() => setDialog('layers')}>调整渲染质量<ArrowRight/></button></section></div></Dialog>}
     {(toast || telemetry.error) && <div className="toast" role="status">{toast || telemetry.error}</div>}
   </main></div>
-    {editing && <aside className={`editor-inspector-pane ${sidePanel === 'inspector' ? 'is-open' : ''}`}><PanelErrorBoundary title="组件属性"><Suspense fallback={<p role="status">正在加载组件属性…</p>}><ComponentInspector item={selection} isMap={editor.selected === 'map'} dataSources={config.dataSources} sourceResult={results[selection?.binding?.sourceId]} selectedCount={editor.selectedIds.length} onAlign={editor.align} canvas={config.canvas} onCanvasChange={canvas => editor.change({ ...config, canvas })} onChange={values => editor.patch(editor.selected, values)} onDuplicate={editor.duplicate} onDelete={editor.remove} onArrange={editor.arrange}/></Suspense></PanelErrorBoundary></aside>}
+    {editing && <aside className={`editor-inspector-pane ${sidePanel === 'inspector' ? 'is-open' : ''}`}><PanelErrorBoundary title="组件属性"><Suspense fallback={<p role="status">正在加载组件属性…</p>}><ComponentInspector vehicleEnabled={project.vehicles} item={selection} isMap={editor.selected === 'map'} dataSources={config.dataSources} sourceResult={results[selection?.binding?.sourceId]} selectedCount={editor.selectedIds.length} onAlign={editor.align} canvas={config.canvas} onCanvasChange={canvas => editor.change({ ...config, canvas })} onChange={values => editor.patch(editor.selected, values)} onDuplicate={editor.duplicate} onDelete={editor.remove} onArrange={editor.arrange}/></Suspense></PanelErrorBoundary></aside>}
   </div>;
 }

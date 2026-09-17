@@ -4,8 +4,8 @@ import { createModule, loadConfig, saveConfig } from './dashboardConfig.js';
 import { arrangeLayouts, changeLayout, editHistory, layoutStyle, snapLayout } from './layout.js';
 import './editor.css';
 
-export function useDashboardEditor(notify) {
-  const [saved, setSaved] = useState(loadConfig);
+export function useDashboardEditor(notify, project) {
+  const [saved, setSaved] = useState(() => loadConfig(project));
   const [history, dispatch] = useReducer(editHistory, { past: [], present: saved, future: [] });
   const [editing, setEditing] = useState(false), [preview, setPreview] = useState(false), [selectedIds, setSelectedIds] = useState([]);
   const [guides, setGuides] = useState([]);
@@ -38,11 +38,11 @@ export function useDashboardEditor(notify) {
   const setTheme = theme => {
     if (config.theme === theme) return;
     if (editing) { change(current => ({ ...current, theme })); return; }
-    try { const next = saveConfig({ ...saved, theme }); setSaved(next); dispatch({ type: 'reset', config: next }); }
+    try { const next = saveConfig({ ...saved, theme }, project); setSaved(next); dispatch({ type: 'reset', config: next }); }
     catch (error) { notify(error.message); }
   };
   const finish = () => {
-    try { const next = saveConfig(history.present); setSaved(next); dispatch({ type: 'reset', config: next }); setEditing(false); setPreview(false); setGuides([]); notify('画布已保存'); }
+    try { const next = saveConfig(history.present, project); setSaved(next); dispatch({ type: 'reset', config: next }); setEditing(false); setPreview(false); setGuides([]); notify('画布已保存'); }
     catch (error) { notify(error.message); }
   };
   const cancel = () => {
