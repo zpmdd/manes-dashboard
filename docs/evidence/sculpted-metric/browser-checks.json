@@ -1,0 +1,144 @@
+{
+  "time": "2026-09-18T00:11:08.362Z",
+  "checks": [
+    {
+      "calloutRim": "\"\"",
+      "cardCount": 3,
+      "case": "daoyan-district",
+      "font": "Michroma, Manrope, MiSans, \"PingFang SC\", \"Microsoft YaHei\", sans-serif",
+      "overflow": false,
+      "selected": [
+        "03车辆 310✓"
+      ],
+      "url": "http://127.0.0.1:5189/#110105"
+    },
+    {
+      "case": "ocean-editor",
+      "count": "5",
+      "font": "Michroma, Manrope, MiSans, \"PingFang SC\", \"Microsoft YaHei\", sans-serif",
+      "rims": [
+        "radial-gradient(at 90% 0%, color(srgb 0.82 0.955294 0.962353), rgba(0, 0, 0, 0) 38%), radial-gradient(at 0% 100%, color(srgb 0.82 0.955294 0.962353), rgba(0, 0, 0, 0) 34%), linear-gradient(125deg, color(srgb 0.4 0.85098 0.87451 / 0.52), rgba(0, 0, 0, 0) 40%, color(srgb 0.4 0.85098 0.87451 / 0.52) 75%, rgba(0, 0, 0, 0))",
+        "radial-gradient(at 90% 0%, color(srgb 0.82 0.955294 0.962353), rgba(0, 0, 0, 0) 38%), radial-gradient(at 0% 100%, color(srgb 0.82 0.955294 0.962353), rgba(0, 0, 0, 0) 34%), linear-gradient(125deg, color(srgb 0.4 0.85098 0.87451 / 0.52), rgba(0, 0, 0, 0) 40%, color(srgb 0.4 0.85098 0.87451 / 0.52) 75%, rgba(0, 0, 0, 0))",
+        "radial-gradient(at 90% 0%, color(srgb 0.82 0.955294 0.962353), rgba(0, 0, 0, 0) 38%), radial-gradient(at 0% 100%, color(srgb 0.82 0.955294 0.962353), rgba(0, 0, 0, 0) 34%), linear-gradient(125deg, color(srgb 0.4 0.85098 0.87451 / 0.52), rgba(0, 0, 0, 0) 40%, color(srgb 0.4 0.85098 0.87451 / 0.52) 75%, rgba(0, 0, 0, 0))"
+      ],
+      "theme": "ocean"
+    },
+    {
+      "case": "daoyan-mobile",
+      "metric": [
+        {
+          "clientWidth": 327,
+          "rect": {
+            "bottom": 776.015625,
+            "height": 139.9609375,
+            "left": 24,
+            "right": 351,
+            "top": 636.0546875,
+            "width": 327,
+            "x": 24,
+            "y": 636.0546875
+          },
+          "scrollWidth": 327,
+          "text": "5辆"
+        },
+        {
+          "clientWidth": 118,
+          "rect": {
+            "bottom": 766.015625,
+            "height": 129.9609375,
+            "left": 112.4765625,
+            "right": 230.8984375,
+            "top": 636.0546875,
+            "width": 118.421875,
+            "x": 112.4765625,
+            "y": 636.0546875
+          },
+          "scrollWidth": 118,
+          "text": "5"
+        },
+        {
+          "clientWidth": 20,
+          "rect": {
+            "bottom": 762.609375,
+            "height": 22.5546875,
+            "left": 242.8984375,
+            "right": 262.5234375,
+            "top": 740.0546875,
+            "width": 19.625,
+            "x": 242.8984375,
+            "y": 740.0546875
+          },
+          "scrollWidth": 20,
+          "text": "辆"
+        }
+      ],
+      "overflow": false,
+      "theme": "champagne"
+    },
+    {
+      "case": "base-overview",
+      "font": "Michroma, Manrope, MiSans, \"PingFang SC\", \"Microsoft YaHei\", sans-serif",
+      "overflow": false,
+      "project": "base",
+      "vehicleSculpture": 0,
+      "widgets": [
+        {
+          "rim": "\"\"",
+          "surface": "dashboard-widget widget-type-metric widget-surface-glass"
+        },
+        {
+          "rim": "\"\"",
+          "surface": "dashboard-widget widget-type-gauge widget-surface-glass"
+        },
+        {
+          "rim": "\"\"",
+          "surface": "dashboard-widget widget-type-line widget-surface-solid"
+        },
+        {
+          "rim": "\"\"",
+          "surface": "dashboard-widget widget-type-bar widget-surface-glass"
+        },
+        {
+          "rim": "\"\"",
+          "surface": "dashboard-widget widget-type-table widget-surface-glass"
+        }
+      ]
+    },
+    {
+      "case": "base-mobile",
+      "overflow": false,
+      "rims": true,
+      "widgetCount": 5
+    },
+    {
+      "case": "temporary-number-layout",
+      "values": [
+        {
+          "fits": true,
+          "font": "129.96px",
+          "text": "0"
+        },
+        {
+          "fits": true,
+          "font": "129.96px",
+          "text": "12"
+        },
+        {
+          "fits": true,
+          "font": "56.244px",
+          "text": "1,234"
+        },
+        {
+          "fits": true,
+          "font": "40.1743px",
+          "text": "123,456"
+        }
+      ]
+    },
+    {
+      "case": "console",
+      "daoyan": [],
+      "base": []
+    }
+  ]
+}

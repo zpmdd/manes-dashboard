@@ -116,8 +116,8 @@ test('all twelve components render real supplied data and failed connections nev
     assert.doesNotMatch(render('bar', { data: vehicles, selectedCodes: [], onNavigate() {} }), /aria-pressed="true"|✓/, 'Clearing selection removes the check mark');
     assert.doesNotMatch(render('bar', { data: vehicles, onNavigate() {} }), /aria-pressed/, 'Unbound base rankings retain ordinary navigation semantics');
     const vehicleMetric = renderToStaticMarkup(createElement(VehicleWidget, { item: config, data: vehicles, state: { status: 'ready' }, onNavigate() {} }, createElement(DashboardWidget, { config, data: vehicles })));
-    assert.match(vehicleMetric, /vehicle-metric-visual/); assert.match(vehicleMetric, />2<\/strong>/);
-    assert.doesNotMatch(vehicleMetric, /行驶|静止/, 'The total uses a vehicle icon without duplicating the second chart');
+    assert.match(vehicleMetric, />2<\/strong>/);
+    assert.doesNotMatch(vehicleMetric, /vehicle-metric-visual|行驶|静止/, 'The sculpted total omits the vehicle visual and duplicate state counts');
     assert.match(render('metric'), />42<\/strong>/);
     assert.match(render('text'), /&lt;script&gt;alert\(1\)&lt;\/script&gt;\n第二行/);
     assert.doesNotMatch(render('text'), /<script>/);

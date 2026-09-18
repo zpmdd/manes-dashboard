@@ -1,6 +1,5 @@
-import { cloneElement } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUpRight, Car } from '@phosphor-icons/react';
+import { ArrowUpRight } from '@phosphor-icons/react';
 import { Dialog } from './MapPanels';
 import { VEHICLE_FIELDS, linkedVehicles } from './vehicles';
 
@@ -42,5 +41,5 @@ export function VehicleToolbar({ vehicles, result, layer, loaded, loading, visib
 }
 
 export function VehicleWidget({ children, item, state, data, onNavigate }) {
-  return <div className="vehicle-widget">{item.type === 'metric' ? cloneElement(children, { metricVisual: <div className="vehicle-metric-visual" aria-hidden="true"><Car weight="duotone"/></div> }) : children}{item.type === 'metric' && state.status === 'ready' && data.rows.length > 0 && <button className="vehicle-metric-link" onClick={() => onNavigate('vehicle:all')} aria-label={`显示全部车辆 · ${data.value} 辆`}>显示全部车辆<ArrowUpRight size={14}/></button>}</div>;
+  return <div className="vehicle-widget">{children}{item.type === 'metric' && state.status === 'ready' && data.rows.length > 0 && <button className="vehicle-metric-link" onClick={() => onNavigate('vehicle:all')} aria-label={`显示全部车辆 · ${data.value} 辆`}>显示全部车辆<ArrowUpRight size={14}/></button>}</div>;
 }

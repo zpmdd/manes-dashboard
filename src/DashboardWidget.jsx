@@ -20,10 +20,10 @@ function EmptyState({ message = '暂无数据', detail, onRefresh }) {
   return <div className="widget-empty" role="status"><span>{message}</span>{detail && <p className="widget-error-reason">{detail}</p>}{onRefresh && <button onClick={onRefresh}>重新加载</button>}</div>;
 }
 
-function Metric({ data, unit, precision, visual }) {
+function Metric({ data, unit, precision }) {
+  const value = number(data.value, precision);
   return <div className="widget-metric">
-    {visual}
-    <div className="widget-value"><strong title={number(data.value, precision)}>{number(data.value, precision)}</strong><span>{unit}</span></div>
+    <div className="widget-value" style={{ '--metric-length': value.length }}><strong title={value}>{value}</strong><span>{unit}</span></div>
     {data.scope && <div className="widget-metric-scope">{data.scope}</div>}
     {data.onlineCount !== null && data.offlineCount !== null && <dl className="widget-metric-details"><div><dt>在线设备</dt><dd>{number(data.onlineCount, precision)}</dd></div><div><dt>离线设备</dt><dd>{number(data.offlineCount, precision)}</dd></div></dl>}
   </div>;
@@ -144,7 +144,7 @@ function Clock() {
   return <div className="widget-clock"><time dateTime={now.toISOString()}><strong>{now.toLocaleTimeString('zh-CN', { hour12: false })}</strong><span>{date}</span></time><div className="widget-clock-rule" aria-hidden="true"><i/></div></div>;
 }
 
-export const DashboardWidget = memo(function DashboardWidget({ config, code, index, onNavigate, data: externalData, dataState, onRefresh, theme = DEFAULT_THEME, fontFamily, selectedCodes, metricVisual }) {
+export const DashboardWidget = memo(function DashboardWidget({ config, code, index, onNavigate, data: externalData, dataState, onRefresh, theme = DEFAULT_THEME, fontFamily, selectedCodes }) {
   const hasExternalData = externalData !== undefined || Boolean(dataState);
   const data = useMemo(() => {
     if (config.type === 'text' || config.type === 'clock') return normalizeWidgetData(null);
@@ -166,7 +166,7 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
   else if (config.type === 'clock') body = <Clock/>;
   else if (!hasData) body = <EmptyState message={hasError ? '数据暂不可用' : loading ? '正在加载' : data.emptyMessage || '暂无数据'} detail={hasError ? errorMessage : undefined} onRefresh={hasError ? onRefresh : undefined}/>;
   else if (professional) body = <ChartErrorBoundary key={config.type}><Suspense fallback={<EmptyState message="正在加载图表"/>}><ProfessionalChart theme={theme} fontFamily={fontFamily} config={config} data={data} onNavigate={onNavigate}/></Suspense></ChartErrorBoundary>;
-  else if (config.type === 'metric') body = <Metric data={data} unit={unit} precision={precision} visual={metricVisual}/>;
+  else if (config.type === 'metric') body = <Metric data={data} unit={unit} precision={precision}/>;
   else if (config.type === 'gauge') body = <Gauge data={data} unit={unit} title={config.title} target={config.target} precision={precision}/>;
   else if (['line', 'area', 'column'].includes(config.type)) body = <TrendChart rows={config.type === 'column' ? numericRows.slice(0, rowCount) : numericRows.slice(-rowCount)} unit={unit} title={config.title} type={config.type} precision={precision}/>;
   else if (config.type === 'bar') body = <BarChart rows={numericRows} unit={unit} rowCount={rowCount} onNavigate={onNavigate} precision={precision} selectedCodes={selectedCodes}/>;
