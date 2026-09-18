@@ -1,6 +1,6 @@
 import { DEFAULT_THEME } from './themes.js';
 import { DEFAULT_FONT } from './fonts.js';
-import { finiteNumber, formatAxisNumber, formatWidgetNumber, PROFESSIONAL_TYPES, visibleRowCount } from './widgetData.js';
+import { donutRows, finiteNumber, formatAxisNumber, formatWidgetNumber, PROFESSIONAL_TYPES, SERIES_TYPES, ZOOM_TYPES, visibleRowCount } from './widgetData.js';
 
 export { PROFESSIONAL_TYPES } from './widgetData.js';
 export const CHART_PALETTES = {
@@ -70,22 +70,81 @@ export function buildProfessionalChart(config, data, size = {}, theme = DEFAULT_
     dataZoom: [], series: [],
   };
   let pointCount = 0, renderCount, shownRows = rows;
-  if (config.type === 'multiLine' || config.type === 'stacked') {
-    const grouped = groupedRows(rows, count, config.type === 'multiLine');
-    shownRows = rows.filter((row, i) => grouped.categories.includes(rowCategory(row, i, config.type === 'multiLine')));
+  if (SERIES_TYPES.includes(config.type)) {
+    const trend = ['multiLine', 'stackedArea'].includes(config.type), percent = config.type === 'percentStacked';
+    const stacked = ['stacked', 'stackedArea', 'percentStacked'].includes(config.type);
+    const grouped = groupedRows(rows, count, trend);
+    if (percent) rows.forEach((row, i) => numeric(row, 'value', i, true));
+    const totals = grouped.categories.map(category => grouped.groups.reduce((sum, [, values]) => sum + (values.get(category)?.value ?? 0), 0));
+    if (stacked && totals.some(total => !Number.isFinite(total))) throw new Error('堆叠合计超出有效数字范围');
+    shownRows = rows.filter((row, i) => grouped.categories.includes(rowCategory(row, i, trend)));
     pointCount = shownRows.length;
     renderCount = grouped.categories.length * grouped.groups.length;
-    option.xAxis = categoryAxis(grouped.categories, settings.xName || ''); option.yAxis = axis(unit);
-    option.tooltip.trigger = 'axis'; option.tooltip.axisPointer = { type: config.type === 'stacked' ? 'shadow' : 'line', lineStyle: { color: original ? '#e1d1a77d' : `${theme.accent}7d` } };
+    option.xAxis = { ...categoryAxis(grouped.categories, settings.xName || ''), boundaryGap: !trend }; option.yAxis = axis(percent ? '%' : unit);
+    if (percent) {
+      option.yAxis.max = 100; option.yAxis.min = 0;
+      option.yAxis.axisLabel.formatter = value => `${formatAxisNumber(value)}%`;
+      option.tooltip.formatter = params => [params[0]?.name, ...params.map(item => `${item.seriesName}：${formatWidgetNumber(item.data.rawValue)} ${unit}（${formatWidgetNumber(item.value)}%）`)].join('\n');
+    }
+    option.tooltip.trigger = 'axis'; option.tooltip.axisPointer = { type: trend ? 'line' : 'shadow', lineStyle: { color: original ? '#e1d1a77d' : `${theme.accent}7d` } };
     option.series = grouped.groups.map(([name, values], i) => {
-      const hasIsolatedPoint = config.type === 'multiLine' && grouped.categories.some((category, position, categories) => values.has(category) && !values.has(categories[position - 1]) && !values.has(categories[position + 1]));
+      const hasIsolatedPoint = trend && grouped.categories.some((category, position, categories) => values.has(category) && !values.has(categories[position - 1]) && !values.has(categories[position + 1]));
       return {
-        id: `series-${name}`, name, type: config.type === 'stacked' ? 'bar' : 'line',
-        ...(config.type === 'stacked' ? { stack: 'total', barMaxWidth: 32, itemStyle: { borderRadius: [2, 2, 0, 0] } } : { smooth: settings.smooth !== false, showSymbol: grouped.categories.length <= 24 || hasIsolatedPoint, showAllSymbol: hasIsolatedPoint ? true : 'auto', symbolSize: 5, lineStyle: { width: 2, color: colors[i % colors.length] }, connectNulls: false }),
-        emphasis: { focus: 'series' }, label: { ...itemLabel, color: config.type === 'stacked' ? fillInk : ink, position: config.type === 'stacked' ? 'inside' : 'top' },
-        data: grouped.categories.map(category => values.has(category) ? { value: values.get(category).value, code: values.get(category).code, name: category } : null),
+        id: `series-${name}`, name, type: trend ? 'line' : 'bar', ...(stacked ? { stack: 'total' } : {}),
+        ...(!trend ? { barMaxWidth: 32, itemStyle: { borderRadius: [2, 2, 0, 0] } } : { smooth: settings.smooth !== false, showSymbol: grouped.categories.length <= 24 || hasIsolatedPoint, showAllSymbol: hasIsolatedPoint ? true : 'auto', symbolSize: 5, lineStyle: { width: 2, color: colors[i % colors.length] }, connectNulls: false }),
+        ...(config.type === 'stackedArea' ? { areaStyle: { opacity: .36 } } : {}),
+        emphasis: { focus: 'series' }, label: { ...itemLabel, color: !trend && stacked ? fillInk : ink, position: !trend && stacked ? 'inside' : 'top', ...(percent ? { formatter: item => `${formatWidgetNumber(item.value)}%` } : {}) },
+        data: grouped.categories.map((category, index) => {
+          const row = values.get(category);
+          return row ? { value: percent ? (totals[index] ? row.value / totals[index] * 100 : 0) : row.value, rawValue: row.value, code: row.code, name: category } : null;
+        }),
       };
     });
+  } else if (config.type === 'rose') {
+    rows.forEach((row, i) => { requiredLabel(row, 'name', i); numeric(row, 'value', i, true); });
+    shownRows = donutRows(rows.map(row => ({ ...row, value: finiteNumber(row.value) })), count); pointCount = shownRows.length;
+    if (!shownRows.length) return { option: null, count: 0, renderCount: 0, description: '暂无正值分布数据' };
+    if (!Number.isFinite(shownRows.reduce((sum, row) => sum + row.value, 0))) throw new Error('分布合计超出有效数字范围');
+    option.series = [{ id: 'rose', type: 'pie', roseType: 'radius', radius: ['10%', labels ? '56%' : '70%'], center: ['50%', legend ? '57%' : '50%'], minAngle: 0, padAngle: 2, label: { ...itemLabel, formatter: '{b}\n{d}%' }, labelLine: { length: spacing(9), length2: spacing(7), lineStyle: { color: muted } }, itemStyle: { borderColor: surface, borderWidth: 1, borderRadius: 3 }, data: shownRows }];
+  } else if (config.type === 'histogram') {
+    const values = rows.map((row, i) => numeric(row, 'value', i)), min = Math.min(...values), max = Math.max(...values);
+    const bins = min === max ? 1 : count, step = (max - min) / bins;
+    if (!Number.isFinite(step) || (min !== max && step === 0)) throw new Error('数值跨度超出可分箱范围');
+    const frequencies = Array(bins).fill(0);
+    // Keep decimal boundaries (for example 0.3 / 0.1) in the right-hand bin despite float roundoff.
+    values.forEach(value => { frequencies[min === max ? 0 : Math.min(bins - 1, Math.floor((value - min) / step + Number.EPSILON * bins * 2))]++; });
+    shownRows = frequencies.map((value, i) => ({ name: min === max ? formatAxisNumber(min) : `${formatAxisNumber(min + step * i)}–${formatAxisNumber(i === bins - 1 ? max : min + step * (i + 1))}`, value }));
+    pointCount = values.length; renderCount = bins;
+    option.legend.show = false; option.grid.top = spacing(19);
+    option.xAxis = categoryAxis(shownRows.map(row => row.name), settings.xName || unit); option.yAxis = { ...axis('频数'), minInterval: 1 };
+    option.series = [{ id: 'histogram', name: '频数', type: 'bar', barCategoryGap: '2%', label: { ...itemLabel, position: 'top' }, data: shownRows }];
+  } else if (config.type === 'boxplot') {
+    const groups = new Map();
+    rows.forEach((row, i) => { const name = requiredLabel(row, 'name', i), value = numeric(row, 'value', i); if (!groups.has(name)) groups.set(name, []); groups.get(name).push(value); });
+    const selected = [...groups].slice(0, count), names = selected.map(([name]) => name);
+    shownRows = rows.filter(row => names.includes(label(row.name))); pointCount = shownRows.length;
+    option.xAxis = categoryAxis(names, settings.xName || ''); option.yAxis = axis(unit);
+    option.dataset = [{ id: 'samples', source: selected.map(([, values]) => values), sourceHeader: false }, { id: 'boxes', fromDatasetId: 'samples', transform: { type: 'boxplot', config: { itemNameFormatter: ({ value }) => names[value] } } }, { id: 'outliers', fromDatasetId: 'boxes', fromTransformResult: 1 }];
+    option.series = [
+      { id: 'boxplot', name: '四分位分布', type: 'boxplot', datasetId: 'boxes', boxWidth: ['22%', '48%'], itemStyle: { color: `${colors[0]}66`, borderColor: colors[0], borderWidth: 2 }, label: { ...itemLabel, position: 'top', formatter: item => formatWidgetNumber(item.value[3]) }, tooltip: { formatter: item => `${item.name}\n下须：${formatWidgetNumber(item.value[1])}\n下四分位：${formatWidgetNumber(item.value[2])}\n中位数：${formatWidgetNumber(item.value[3])}\n上四分位：${formatWidgetNumber(item.value[4])}\n上须：${formatWidgetNumber(item.value[5])}${unit ? `\n单位：${unit}` : ''}` } },
+      { id: 'outliers', name: '离群值', type: 'scatter', datasetId: 'outliers', symbolSize: 6, label: { ...itemLabel, position: 'top', formatter: item => formatWidgetNumber(item.value[1]) } },
+    ];
+  } else if (config.type === 'waterfall') {
+    const names = rows.map((row, i) => rowCategory(row, i));
+    if (unique(names).length !== names.length) throw new Error('瀑布图同一项目存在多行，请先汇总');
+    rows.forEach((row, i) => numeric(row, 'value', i));
+    shownRows = rows.slice(0, count); let total = 0;
+    const changes = shownRows.map((row, i) => { const start = total, delta = numeric(row, 'value', i); total += delta; if (!Number.isFinite(total)) throw new Error('累计值超出有效数字范围'); return { name: names[i], value: [i, start, total, delta], code: row.code, itemStyle: { color: delta < 0 ? colors[2] : colors[0] } }; });
+    changes.push({ name: '累计', value: [shownRows.length, 0, total, total], itemStyle: { color: colors[1] } }); pointCount = changes.length;
+    option.xAxis = categoryAxis(changes.map(row => row.name), settings.xName || ''); option.yAxis = axis(unit);
+    option.legend.show = false; option.grid.top = spacing(19);
+    option.series = [{ id: 'waterfall', name: '变动', type: 'custom', clip: true, dimensions: ['项目', '起点', '累计', '变化'], encode: { x: 0, y: [1, 2], tooltip: [3, 2] }, data: changes,
+      renderItem: (params, api) => {
+        const start = api.coord([api.value(0), api.value(1)]), end = api.coord([api.value(0), api.value(2)]), barWidth = Math.min(42, api.size([1, 0])[0] * .58);
+        const rect = { type: 'rect', shape: { x: start[0] - barWidth / 2, y: Math.min(start[1], end[1]), width: barWidth, height: Math.max(1, Math.abs(end[1] - start[1])) }, style: { fill: api.visual('color') } };
+        return { type: 'group', children: [rect, ...(labels ? [{ type: 'text', silent: true, style: { x: start[0], y: Math.min(start[1], end[1]) - 5, text: formatWidgetNumber(api.value(3)), fill: ink, font: `${font}px ${size.fontFamily || DEFAULT_FONT.family}`, align: 'center', verticalAlign: 'bottom' } }] : [])] };
+      },
+    }];
   } else if (config.type === 'combo') {
     const categories = rows.map((row, i) => rowCategory(row, i, true));
     if (new Set(categories).size !== categories.length) throw new Error('双轴图同一类别存在多行，请先汇总为一行');
@@ -161,14 +220,15 @@ export function buildProfessionalChart(config, data, size = {}, theme = DEFAULT_
     option.legend.show = false;
     option.series = [{ id: 'treemap', type: 'treemap', top: 4, bottom: 5, left: 3, right: 3, roam: false, nodeClick: false, breadcrumb: { show: false }, label: { show: true, color: fillInk, fontSize: font, overflow: 'truncate', formatter: labels ? '{b}\n{c}' : '{b}' }, upperLabel: { show: true, height: spacing(23), color: ink, fontSize: font }, itemStyle: { borderColor: original ? '#4e4651' : theme.panel, borderWidth: 2, gapWidth: 3 }, levels: [{ itemStyle: { borderWidth: 0, gapWidth: 5 } }, { colorAlpha: [.76, .94], itemStyle: { borderWidth: 3, gapWidth: 3 } }, { itemStyle: { borderWidth: 2, gapWidth: 2 } }], data: tree }];
   }
-  if (settings.zoom === true && ['multiLine', 'stacked', 'combo', 'scatter', 'heatmap'].includes(config.type)) option.dataZoom = [{ id: 'inside', type: 'inside', filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, preventDefaultMouseMove: false }];
+  if (settings.zoom === true && ZOOM_TYPES.includes(config.type)) option.dataZoom = [{ id: 'inside', type: 'inside', filterMode: 'none', zoomOnMouseWheel: 'ctrl', moveOnMouseWheel: false, preventDefaultMouseMove: false }];
   const sample = shownRows.slice(0, 5).map((row, i) => {
+    if (config.type === 'histogram') return `${row.name}，频数 ${row.value}`;
     if (config.type === 'scatter') return `${rowName(row, i)}，${settings.xName || 'X'} ${formatWidgetNumber(row.x)}，${settings.yName || 'Y'} ${formatWidgetNumber(row.y)}${finiteNumber(row.value) === null ? '' : `，数值 ${formatWidgetNumber(row.value)}${unit ? ` ${unit}` : ''}`}`;
     if (config.type === 'heatmap') return `${label(row.x)} / ${label(row.y)} ${formatWidgetNumber(row.value)}`;
     if (config.type === 'combo') return `${rowCategory(row, i, true)}，${settings.primaryName || '主指标'} ${formatWidgetNumber(row.value)}，${settings.secondaryName || '辅助指标'} ${formatWidgetNumber(row.value2)}`;
     return `${label(row.series) ? `${label(row.series)} · ` : ''}${rowName(row, i)} ${formatWidgetNumber(row.value)}`;
   }).join('；');
-  const description = `${config.title}，${pointCount} 个数据点${unit ? `，单位 ${unit}` : ''}。${sample}`;
+  const description = `${config.title}，${pointCount} ${['histogram', 'boxplot'].includes(config.type) ? '条样本' : '个数据点'}${unit ? `，单位 ${unit}` : ''}。${sample}`;
   option.aria.label.description = description;
   return { option, count: pointCount, renderCount: renderCount ?? pointCount, description };
 }

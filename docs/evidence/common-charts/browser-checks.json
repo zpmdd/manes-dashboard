@@ -1,0 +1,79 @@
+{
+  "checkedAt": "2026-09-18T01:05:19.515Z",
+  "base": {
+    "errors": [],
+    "state": {
+      "legendRows": 8,
+      "pieInnerLabels": 0,
+      "theme": "ocean"
+    }
+  },
+  "daoyan": {
+    "errors": [],
+    "state": {
+      "cardCount": 3,
+      "labels": [
+        {
+          "height": 69.90426635742188,
+          "text": "静止4 辆80%",
+          "width": 88.10615539550781,
+          "x": 232.9480438232422,
+          "y": 462.5286560058594
+        },
+        {
+          "height": 60.1895751953125,
+          "text": "行驶1 辆20%",
+          "width": 88.10610961914062,
+          "x": 53.945831298828125,
+          "y": 381.6932373046875
+        }
+      ],
+      "scrollWidth": 375,
+      "scrollY": 520,
+      "width": 390
+    }
+  },
+  "interactions": {
+    "movingViaEnter": [
+      3
+    ],
+    "stoppedViaPointer": [
+      1,
+      2,
+      4,
+      5
+    ]
+  },
+  "original": {
+    "callouts": 2,
+    "charts": [
+      {
+        "id": "devices",
+        "type": "dashboard-widget widget-type-metric widget-surface-glass"
+      },
+      {
+        "id": "online",
+        "type": "dashboard-widget widget-type-pie widget-surface-glass"
+      },
+      {
+        "id": "trend",
+        "type": "dashboard-widget widget-type-bar widget-surface-solid"
+      }
+    ],
+    "faceBounds": [
+      {
+        "height": 185.82501220703125,
+        "width": 185.824951171875
+      },
+      {
+        "height": 92.9124755859375,
+        "width": 88.36505126953125
+      }
+    ],
+    "font": "Michroma, Manrope, MiSans, \"PingFang SC\", \"Microsoft YaHei\", sans-serif",
+    "height": 1267,
+    "pie": "行驶与静止按 GPS 速度划分 · 点击扇区联动静止：4 辆（80%）静止4 辆80%行驶：1 辆（20%）行驶1 辆20%",
+    "url": "http://localhost:5175/#100000",
+    "width": 2560
+  }
+}

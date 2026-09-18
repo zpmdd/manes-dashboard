@@ -107,9 +107,14 @@ export function suggestDataWidgets(analysis, currentFields = {}) {
   const definitions = [
     ['table', '查看数据明细', columns.length > 0], ['metric', '汇总数值', fields.value],
     ['line', '时间与数值趋势', fields.time && fields.value], ['bar', '分类数值对比', fields.name && fields.value],
-    ['donut', '正值占比分布', fields.name && fields.value], ['status', '名称与状态', fields.name && fields.status],
+    ['pie', '分类占比', fields.name && fields.value], ['donut', '正值占比分布', fields.name && fields.value], ['rose', '径向占比对比', fields.name && fields.value], ['status', '名称与状态', fields.name && fields.status],
     ['progress', '实际值与目标', fields.value && fields.target], ['multiLine', '按系列比较趋势', (fields.time || fields.name) && fields.series && fields.value],
     ['stacked', '分类与系列构成', (fields.name || fields.time) && fields.series && fields.value], ['combo', '双数值趋势', (fields.name || fields.time) && fields.value && fields.value2],
+    ['groupedColumn', '并列比较各系列', (fields.name || fields.time) && fields.series && fields.value],
+    ['stackedArea', '各系列趋势构成', (fields.time || fields.name) && fields.series && fields.value],
+    ['percentStacked', '类别内的系列占比', (fields.name || fields.time) && fields.series && fields.value],
+    ['histogram', '原始样本频数分布', fields.value], ['boxplot', '分组样本四分位分布', fields.name && fields.value],
+    ['waterfall', '增减量累计', fields.name && fields.value && analysis.rows.some(row => strictDataNumber(readDataPath(row, fields.value)) < 0)],
     ['scatter', '两个数值坐标', fields.x && fields.y], ['heatmap', '两维类别与数值', fields.x && fields.y && fields.value],
     ['radar', '多指标数值对比', fields.name && fields.value && analysis.rows.length >= 3],
     ['funnel', '阶段数值分布', fields.name && fields.value], ['treemap', '分类数值面积', fields.name && fields.value],
@@ -125,7 +130,7 @@ export function suggestDataWidgets(analysis, currentFields = {}) {
         if (type === 'line' && (seriesCount > 1 || repeated || categories.some(value => !value))) return [];
         if (type === 'bar' && seriesCount > 1 && repeated) return [];
       }
-      if (type === 'donut' && data.rows.some(row => row.value <= 0)) return [];
+      if (['pie', 'donut', 'rose'].includes(type) && data.rows.some(row => row.value <= 0)) return [];
       if (PROFESSIONAL_TYPES.includes(type)) {
         const chart = buildProfessionalChart({ type, title: reason }, data);
         if (chart.error || !chart.option) return [];

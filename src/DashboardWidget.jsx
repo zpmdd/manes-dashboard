@@ -88,18 +88,57 @@ function BarChart({ rows, unit, rowCount, onNavigate, precision, selectedCodes }
   })}</ol>;
 }
 
-function DonutChart({ rows, unit, rowCount, title, onNavigate, precision, theme }) {
-  const segments = donutRows(rows, rowCount), total = segments.reduce((sum, row) => sum + row.value, 0);
+function DonutChart({ rows, unit, rowCount, title, onNavigate, precision, theme, pie = false }) {
+  const id = useId(), segments = donutRows(rows, rowCount), total = segments.reduce((sum, row) => sum + row.value, 0);
+  // ponytail: 最多四分类且每侧不超过两项时使用外引读数；密集分类保留完整图例。
+  const colors = pie ? theme.colors : theme.donut;
   let offset = 0;
+  if (pie && rows.some(row => row.value < 0)) return <EmptyState message="饼图需使用非负数值"/>;
+  if (!Number.isFinite(total)) return <EmptyState message="分布合计超出有效数字范围"/>;
   if (!total) return <EmptyState message="暂无正值分布数据"/>;
-  return <div className="widget-donut-layout"><svg viewBox="0 0 170 170" role="img" aria-label={`${title}，总计 ${number(total, precision)} ${unit}，${segments.map(row => `${row.name} ${number(row.value, precision)}`).join('，')}`}>
-    <circle cx="85" cy="85" r="62" fill="none" stroke="var(--chart-track, #eee7d816)" strokeWidth="18"/>
+  const slices = segments.map(row => {
+    const start = offset, share = row.value / total * 100; offset += share;
+    const angle = segments.length === 1 ? 0 : ((start + share / 2) / 100 * 2 - .5) * Math.PI;
+    return { start, share, end: offset, dx: Math.cos(angle), dy: Math.sin(angle) };
+  });
+  const leftCount = slices.filter(slice => slice.dx < 0).length;
+  const callouts = pie && leftCount <= 2 && slices.length - leftCount <= 2;
+  if (callouts) for (const side of [-1, 1]) {
+    const labels = slices.filter(slice => (slice.dx < 0 ? -1 : 1) === side).sort((a, b) => a.dy - b.dy);
+    labels.forEach((slice, i) => { slice.labelY = labels.length === 1 ? Math.max(50, Math.min(142, 100 + slice.dy * 96)) : 46 + i / (labels.length - 1) * 106; });
+  }
+  return <div className={`widget-donut-layout${pie ? ' widget-pie-layout' : ''}${callouts ? ' widget-pie-callouts' : ''}`}><svg viewBox={callouts ? '0 0 320 210' : '0 0 170 170'} role={pie ? 'group' : 'img'} aria-label={`${title}，总计 ${number(total, precision)} ${unit}，${segments.map(row => `${row.name} ${number(row.value, precision)}`).join('，')}`}>
+    {!pie && <circle cx="85" cy="85" r="62" fill="none" stroke="var(--chart-track, #eee7d816)" strokeWidth="18"/>}
     {segments.map((row, i) => {
-      const share = row.value / total * 100, start = offset; offset += share;
+      const { share, start, end, dx, dy, labelY } = slices[i];
+      if (pie) {
+        const cx = callouts ? 160 : 85, cy = callouts ? 100 : 80, radius = callouts ? 84 : 71, split = segments.length === 1 ? 0 : callouts ? 4 : 1.5;
+        const angle = percent => (percent / 100 * 2 - .5) * Math.PI;
+        const point = percent => [cx + Math.cos(angle(percent)) * radius, cy + Math.sin(angle(percent)) * radius];
+        const shape = segments.length === 1 ? { cx, cy, r: radius } : { d: `M${cx},${cy} L${point(start)} A${radius},${radius} 0 ${share > 50 ? 1 : 0},1 ${point(end)} Z` };
+        const Shape = segments.length === 1 ? 'circle' : 'path', color = colors[i % colors.length], gradient = `${id}-${i}`;
+        const content = `${row.name}：${number(row.value, precision)} ${unit}（${number(share, precision)}%）`, interactive = Boolean(row.code && onNavigate);
+        const side = dx < 0 ? -1 : 1, labelX = side < 0 ? 8 : 312;
+        const valueLabel = number(row.value, precision).length > 6 ? formatAxisNumber(row.value) : number(row.value, precision);
+        return <g key={`${row.name}-${i}`} className="widget-pie-slice" role={interactive ? 'button' : 'img'} tabIndex={interactive ? 0 : undefined} aria-label={content} onClick={interactive ? () => onNavigate(row.code) : undefined} onKeyDown={interactive ? event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onNavigate(row.code); } } : undefined}>
+          <title>{content}</title>
+          <defs><linearGradient id={gradient} x1="0" y1="0" x2=".3" y2="1"><stop stopColor={`color-mix(in srgb, ${color} 82%, white)`}/><stop offset=".48" stopColor={color}/><stop offset="1" stopColor={`color-mix(in srgb, ${color} 74%, ${theme.panel})`}/></linearGradient></defs>
+          <g className="widget-pie-body" transform={`translate(${dx * split} ${dy * split})`}>
+            <Shape {...shape} className="widget-pie-depth" transform="translate(0 7)" fill={`color-mix(in srgb, ${color} 42%, ${theme.panel})`}/>
+            <Shape {...shape} className="widget-pie-face" fill={`url(#${gradient})`}/>
+          </g>
+          {callouts && <g className="widget-pie-label" textAnchor={side < 0 ? 'start' : 'end'}>
+            <polyline className="widget-pie-leader" points={`${cx + dx * (radius + split)},${cy + dy * (radius + split)} ${cx + dx * (radius + split + 12)},${cy + dy * (radius + split + 12)} ${cx + side * 96},${labelY + 6} ${labelX},${labelY + 6}`} stroke={color}/>
+            <text x={labelX} y={labelY - 27} className="widget-pie-name">{row.name.length > 5 ? `${row.name.slice(0, 4)}…` : row.name}</text>
+            <text x={labelX} y={labelY - 5} className="widget-pie-value" style={valueLabel.length > 3 ? { fontSize: 14 } : undefined}>{valueLabel}<tspan className="widget-pie-unit"> {unit}</tspan></text>
+            <text x={labelX} y={labelY + 25} className="widget-pie-share">{number(share, precision)}%</text>
+          </g>}
+        </g>;
+      }
       return <circle key={`${row.name}-${i}`} cx="85" cy="85" r="62" fill="none" stroke={theme.donut[i % theme.donut.length]} strokeWidth="18" pathLength="100" strokeDasharray={`${Math.max(.05, share - .65)} ${100 - Math.max(.05, share - .65)}`} strokeDashoffset={-start} transform="rotate(-90 85 85)"><title>{`${row.name}：${number(row.value, precision)} ${unit}（${number(share, precision)}%）`}</title></circle>;
     })}
-    <text x="85" y="86" textAnchor="middle" className="widget-donut-total" style={{ fontSize: number(total, precision).length > 7 ? 14 : undefined }}>{number(total, precision)}</text><text x="85" y="105" textAnchor="middle" className="widget-gauge-label">合计{unit && ` / ${unit}`}</text>
-  </svg><ul className="widget-donut-legend">{segments.map((row, i) => <li key={`${row.name}-${i}`}><i style={{ background: theme.donut[i % theme.donut.length] }} aria-hidden="true"/>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} title={row.name}>{row.name}</button> : <span title={row.name}>{row.name}</span>}<strong title={`${number(row.value, precision)} ${unit}`}>{number(row.value / total * 100, precision)}%</strong></li>)}</ul></div>;
+    {!pie && <><text x="85" y="86" textAnchor="middle" className="widget-donut-total" style={{ fontSize: number(total, precision).length > 7 ? 14 : undefined }}>{number(total, precision)}</text><text x="85" y="105" textAnchor="middle" className="widget-gauge-label">合计{unit && ` / ${unit}`}</text></>}
+  </svg>{!callouts && <ul className="widget-donut-legend">{segments.map((row, i) => <li key={`${row.name}-${i}`}><i style={{ background: colors[i % colors.length] }} aria-hidden="true"/>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} title={row.name}>{row.name}</button> : <span title={row.name}>{row.name}</span>}{pie && <small>{number(row.value, precision)} {unit}</small>}<strong title={`${number(row.value, precision)} ${unit}`}>{number(row.value / total * 100, precision)}%</strong></li>)}</ul>}</div>;
 }
 
 function DataTable({ rows, columns, unit, rowCount, title, onNavigate, precision }) {
@@ -170,7 +209,7 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
   else if (config.type === 'gauge') body = <Gauge data={data} unit={unit} title={config.title} target={config.target} precision={precision}/>;
   else if (['line', 'area', 'column'].includes(config.type)) body = <TrendChart rows={config.type === 'column' ? numericRows.slice(0, rowCount) : numericRows.slice(-rowCount)} unit={unit} title={config.title} type={config.type} precision={precision}/>;
   else if (config.type === 'bar') body = <BarChart rows={numericRows} unit={unit} rowCount={rowCount} onNavigate={onNavigate} precision={precision} selectedCodes={selectedCodes}/>;
-  else if (config.type === 'donut') body = <DonutChart theme={theme} rows={numericRows} unit={unit} rowCount={rowCount} title={config.title} onNavigate={onNavigate} precision={precision}/>;
+  else if (['donut', 'pie'].includes(config.type)) body = <DonutChart pie={config.type === 'pie'} theme={theme} rows={numericRows} unit={unit} rowCount={rowCount} title={config.title} onNavigate={onNavigate} precision={precision}/>;
   else if (config.type === 'table') body = <DataTable rows={data.rows} columns={config.columns} unit={unit} rowCount={rowCount} title={config.title} onNavigate={onNavigate} precision={precision}/>;
   else if (config.type === 'progress') body = <Progress rows={numericRows.slice(0, rowCount)} unit={unit} target={config.target} precision={precision}/>;
   else if (config.type === 'status') body = <StatusGrid rows={data.rows.slice(0, rowCount)} unit={unit} precision={precision} onNavigate={onNavigate}/>;

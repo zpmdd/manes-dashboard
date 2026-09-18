@@ -7,6 +7,7 @@ import * as echarts from 'echarts/core';
 import { buildProfessionalChart, CHART_PALETTES, PROFESSIONAL_TYPES } from '../src/professionalCharts.js';
 import { getWidgetData, normalizeWidgetData } from '../src/widgetData.js';
 import { FONTS } from '../src/fonts.js';
+import { createModule } from '../src/dashboardConfig.js';
 
 const config = (type, extra = {}) => ({ type, title: '实际业务数据', rowCount: 5, target: 100, unit: '台', chartOptions: {}, ...extra });
 const build = (type, rows, extra) => buildProfessionalChart(config(type, extra), { rows });
@@ -14,7 +15,11 @@ const trendRows = ['09:00', '10:00', '11:00'].flatMap((time, i) => ['东区', '�
 const radarRows = ['覆盖', '效率', '响应'].flatMap((name, i) => ['本期', '上期'].map((series, j) => ({ name, series, value: 40 + i * 20 + j, target: i === 2 ? 150 : 100 })));
 const fixtures = {
   multiLine: trendRows,
-  stacked: trendRows,
+  stacked: trendRows, groupedColumn: trendRows, stackedArea: trendRows, percentStacked: trendRows,
+  rose: [{ name: '甲', value: 4 }, { name: '乙', value: 1 }],
+  histogram: [-2, 0, 1, 2, 3, 4].map(value => ({ value })),
+  boxplot: ['甲', '乙'].flatMap(name => [1, 2, 3, 4, 5, 100].map(value => ({ name, value }))),
+  waterfall: [{ name: '收入', value: 5 }, { name: '支出', value: -8 }, { name: '补充', value: 7 }],
   combo: [{ name: '第一', value: 240, value2: 92.5 }, { name: '第二', value: 180, value2: 96 }],
   radar: radarRows,
   scatter: [{ name: '节点甲', x: 0, y: 25, series: '东区' }, { name: '节点乙', x: 12, y: 0, value: 36, series: '西区' }],
@@ -40,7 +45,7 @@ test('两套中文字体覆盖全部专业图表的真实 SVG 文本', () => {
   }
 });
 
-test('all eight professional types draw real ECharts SVG at normal and compact card sizes', () => {
+test('all professional types draw real ECharts SVG at normal and compact card sizes', () => {
   for (const type of PROFESSIONAL_TYPES) {
     for (const size of [{ width: 480, height: 280 }, { width: 220, height: 145 }]) {
       const svg = renderProfessionalSVG(config(type, { chartOptions: { labels: true } }), normalizeWidgetData({ rows: fixtures[type] }), size);
@@ -375,9 +380,9 @@ test('renderer choice accounts for expanded sparse slots without changing data c
 });
 
 test('all professional demo sources pass the exact same external-data rendering path', () => {
-  const sources = { multiLine: 'seriesTrend', stacked: 'seriesTrend', combo: 'comparison', radar: 'dimensions', scatter: 'scatter', heatmap: 'heat', funnel: 'funnel', treemap: 'tree' };
-  for (const [type, source] of Object.entries(sources)) {
-    const data = normalizeWidgetData(getWidgetData(source, '100000', { '100000': { name: '中国' } }));
+  for (const type of PROFESSIONAL_TYPES) {
+    const { source } = createModule(type);
+    const data = normalizeWidgetData(getWidgetData(source, '100000', { '100000': { name: '中国' }, '110000': { name: '北京', parent: '100000' } }));
     const svg = renderProfessionalSVG(config(type), data);
     assert.match(svg, /<svg/);
     assert.doesNotMatch(svg, /NaN|Infinity|undefined/);
@@ -390,4 +395,49 @@ test('filled chart labels remain legible on light and dark data marks', () => {
   assert.equal(build('stacked', fixtures.stacked, {chartOptions: {labels: true}}).option.series[0].label.color, '#342e38');
   const cells=build('heatmap', [{x:'甲',y:'一',value:0},{x:'乙',y:'一',value:100}], {chartOptions: {labels: true}}).option.series[0].data;
   assert.deepEqual(cells.map(cell=>cell.label.color), ['#eee7d8','#342e38']);
+});
+
+test('新增报表保留多系列缺口，统计分箱、原值占比和跨零累计均正确', () => {
+  const grouped = build('groupedColumn', trendRows).option.series;
+  assert.equal(grouped.length, 2); assert.equal(grouped[0].stack, undefined);
+  const area = build('stackedArea', trendRows, { rowCount: 2 }).option;
+  assert.deepEqual(area.xAxis.data, ['10:00', '11:00']); assert.equal(area.series[0].type, 'line'); assert(area.series[0].areaStyle);
+  const percentRows = [{ name: '甲', series: '一', value: 1 }, { name: '甲', series: '二', value: 3 }, { name: '乙', series: '一', value: 0 }];
+  const percent = build('percentStacked', percentRows).option;
+  assert.deepEqual(percent.series.map(series => series.data[0].value), [25, 75]);
+  assert.equal(percent.series[0].data[0].rawValue, 1); assert.equal(percent.series[1].data[1], null);
+  assert.equal(percent.series[0].data[1].value, 0); assert.equal(percent.yAxis.max, 100);
+  assert.throws(() => build('percentStacked', [{ name: '甲', series: '一', value: -1 }]), /非负/);
+  for (const type of ['groupedColumn', 'stackedArea', 'percentStacked']) assert.throws(() => build(type, [...trendRows, trendRows[0]]), /重复/);
+  const histogram = build('histogram', [-2, 0, 0, 1, 2].map(value => ({ value })), { rowCount: 2 });
+  assert.deepEqual(histogram.option.series[0].data.map(row => row.value), [1, 4]); assert.equal(histogram.count, 5);
+  const decimals = build('histogram', [0, .1, .2, .3, .4, .5, .6, .7, .8].map(value => ({ value })), { rowCount: 8 });
+  assert.deepEqual(decimals.option.series[0].data.map(row => row.value), [1,1,1,1,1,1,1,2]);
+  assert.deepEqual(build('histogram', [{ value: 3 }, { value: 3 }]).option.series[0].data, [{ name: '3', value: 2 }]);
+  assert.throws(() => build('histogram', [{ value: null }]), /有效数字/);
+  const waterfall = build('waterfall', fixtures.waterfall).option.series[0].data;
+  assert.deepEqual(waterfall.map(row => row.value), [[0,0,5,5], [1,5,-3,-8], [2,-3,4,7], [3,0,4,4]]);
+  assert.equal(waterfall.at(-1).code, undefined, 'An aggregate must not navigate as a single record');
+  assert.throws(() => build('waterfall', [{ name: '甲', value: 1 }, { name: '甲', value: 2 }]), /同一项目/);
+  assert.throws(() => build('waterfall', [{ name: '甲', value: 1e308 }, { name: '乙', value: 1e308 }]), /累计值/);
+  const rose = build('rose', [{ name: '甲', value: 6, code: 'a' }, { name: '乙', value: 3 }, { name: '丙', value: 1 }], { rowCount: 2 });
+  assert.deepEqual(rose.option.series[0].data.map(row => [row.name, row.value, row.code]), [['甲', 6, 'a'], ['其他', 4, undefined]]);
+  assert.equal(build('rose', [{ name: '零', value: 0 }]).option, null);
+});
+
+test('箱线图使用 ECharts 原生转换，并随数据刷新替换分组和离群值', () => {
+  const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width: 480, height: 280 });
+  try {
+    const option = build('boxplot', fixtures.boxplot).option; option.animation = false;
+    chart.setOption(option);
+    const data = chart.getModel().getSeriesByIndex(0).getData();
+    assert.equal(data.count(), 2); assert.equal(data.get('Q2', 0), 3.5);
+    assert.equal(chart.getModel().getSeriesByIndex(1).getData().count(), 2);
+    const next = build('boxplot', [{ name: '单样本', value: 0 }]).option; next.animation = false;
+    updateProfessionalChart(chart, next, { width: 481, height: 280 });
+    const updated = chart.getModel().getSeriesByIndex(0).getData();
+    assert.equal(updated.count(), 1); assert.equal(updated.get('Q2', 0), 0);
+    assert.equal(chart.getModel().getSeriesByIndex(1).getData().count(), 0);
+    assert.match(chart.renderToSVGString(), /单样本/); assert.doesNotMatch(chart.renderToSVGString(), /NaN|Infinity/);
+  } finally { chart.dispose(); }
 });

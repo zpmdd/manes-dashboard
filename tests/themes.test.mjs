@@ -50,7 +50,7 @@ test('alternative text and controls contrast against panels, map names against b
   }
 });
 
-test('all 8 themes render the 12 basic widgets and 8 real ECharts types at normal and compact sizes', () => {
+test('all 8 themes render all basic widgets and real ECharts types at normal and compact sizes', () => {
   for (const theme of THEMES) for (const { id } of MODULE_TYPES) {
     const config = createModule(id), data = normalizeWidgetData(getWidgetData(config.source, '100000', regionIndex));
     if (PROFESSIONAL_TYPES.includes(id)) {
@@ -67,7 +67,7 @@ test('all 8 themes render the 12 basic widgets and 8 real ECharts types at norma
     } else {
       const html = renderToStaticMarkup(createElement(DashboardWidget, { config, data, theme }));
       assert.match(html, /dashboard-widget/); assert.doesNotMatch(html, /NaN|Infinity|undefined/);
-      if (id === 'donut') assert(html.includes(theme.donut[0]), `${theme.id}: donut follows theme`);
+      if (['donut', 'pie'].includes(id)) assert(html.includes((id === 'pie' ? theme.colors : theme.donut)[0]), `${theme.id}: ${id} follows theme`);
     }
   }
 });

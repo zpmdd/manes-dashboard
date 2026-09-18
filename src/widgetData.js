@@ -1,8 +1,10 @@
 import { demoMetrics, shortName } from './geo.js';
 
-export const PROFESSIONAL_TYPES = ['multiLine', 'stacked', 'combo', 'radar', 'scatter', 'heatmap', 'funnel', 'treemap'];
+export const PROFESSIONAL_TYPES = ['multiLine', 'stacked', 'combo', 'radar', 'scatter', 'heatmap', 'funnel', 'treemap', 'rose', 'groupedColumn', 'stackedArea', 'percentStacked', 'histogram', 'boxplot', 'waterfall'];
+export const SERIES_TYPES = ['multiLine', 'stacked', 'groupedColumn', 'stackedArea', 'percentStacked'];
+export const ZOOM_TYPES = [...SERIES_TYPES, 'combo', 'scatter', 'heatmap', 'histogram', 'boxplot', 'waterfall'];
 export const SNAPSHOT_TIME = '09-12 09:00';
-const UNITS = { devices: '台', online: '%', flow: 'GB', trend: 'GB', regions: '台', events: '条', seriesTrend: 'GB', comparison: '台', dimensions: '分', scatter: '台', heat: '次', funnel: '条', tree: '台' };
+const UNITS = { devices: '台', online: '%', flow: 'GB', trend: 'GB', regions: '台', events: '条', seriesTrend: 'GB', comparison: '台', dimensions: '分', scatter: '台', heat: '次', funnel: '条', tree: '台', samples: 'ms', changes: '万元' };
 const TREND_FACTORS = [.52, .61, .57, .73, .69, .84, .92, 1];
 const EVENT_NAMES = ['采集链路延迟', '设备心跳超时', '数据上报恢复', '节点连接恢复', '网络延迟偏高', '设备连接恢复', '采集周期异常', '节点心跳恢复'];
 
@@ -34,6 +36,8 @@ export function getWidgetData(source, code, index) {
   if (source === 'heat') professionalRows = groups.flatMap((y, j) => Array.from({ length: 8 }, (_, i) => ({ x: `${String(i + 2).padStart(2, '0')}:00`, y, value: 20 + (seed + i * 17 + j * 29) % 80 })));
   if (source === 'funnel') professionalRows = ['采集事件', '有效事件', '已分派', '已处理', '已归档'].map((name, i) => ({ name, value: Math.round(1200 * [1, .85, .72, .6, .49][i]) }));
   if (source === 'tree') professionalRows = ['采集器', '网关', '传感器', '控制器', '终端', '监测点', '交换机', '接入点'].map((name, i) => ({ name, series: groups[i % 3], value: Math.round(metrics.devices * (.03 + (i + seed) % 7 * .015)) }));
+  if (source === 'samples') professionalRows = ['早班', '中班', '晚班'].flatMap((name, j) => Array.from({ length: 30 }, (_, i) => ({ name, value: 18 + j * 8 + (i * 7 % 13) + (i * 3 % 11) + (i === 29 ? 42 : 0) })));
+  if (source === 'changes') professionalRows = ['期初余额', '主营收入', '服务收入', '运营支出', '设备支出'].map((name, i) => ({ name, value: [180, 95, 40, -72, -38][i] }));
   if (professionalRows) return { ...empty, rows: professionalRows, value: professionalRows.reduce((sum, entry) => sum + entry.value, 0), scope };
   if (source === 'regions') {
     return { ...empty, rows: regionRows(code, index, metrics.devices), value: metrics.devices, scope, emptyMessage: '当前区域暂无下级区域' };

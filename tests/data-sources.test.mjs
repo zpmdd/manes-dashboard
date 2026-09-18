@@ -879,7 +879,7 @@ test('professional charts enforce their coordinate and secondary-value contracts
   assert.throws(() => mapped({ x: '华东', y: 0, value: null }, 'heatmap'), /有效数字/);
   assert.equal(mapped({ name: '09:00', value: 2, value2: '3' }, 'combo').rows[0].value2, 3);
   assert.throws(() => mapped({ name: '09:00', value: 2 }, 'combo'), /第二数值/);
-  for (const type of ['multiLine', 'stacked']) {
+  for (const type of ['multiLine', 'stacked', 'groupedColumn', 'stackedArea', 'percentStacked']) {
     assert.doesNotThrow(() => mapped({ name: '华东', series: '设备', value: 0 }, type));
     assert.throws(() => mapped({ name: '华东', value: 3 }, type), /系列/);
     assert.throws(() => mapped({ series: '设备', value: 3 }, type), /名称或时间/);
@@ -891,7 +891,7 @@ test('professional charts enforce their coordinate and secondary-value contracts
     const progress = mapped({ name: '完成量', value: 0, target }, 'progress');
     assert.equal(progress.rows[0].target, null); assert.equal(progress.value, 0, 'missing progress targets remain available for the configured fallback');
   }
-  for (const type of ['radar', 'funnel', 'treemap']) {
+  for (const type of ['radar', 'funnel', 'treemap', 'pie', 'rose']) {
     assert.throws(() => mapped({ name: '阶段', value: -1 }, type), /非负/);
     assert.throws(() => mapped({ value: 3 }, type), /名称/);
   }

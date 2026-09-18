@@ -1,13 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as echarts from 'echarts/core';
-import { BarChart, FunnelChart, HeatmapChart, LineChart, RadarChart, ScatterChart, TreemapChart } from 'echarts/charts';
-import { AriaComponent, DataZoomInsideComponent, GridComponent, LegendComponent, RadarComponent, TooltipComponent, VisualMapContinuousComponent } from 'echarts/components';
+import { BarChart, BoxplotChart, CustomChart, PieChart, FunnelChart, HeatmapChart, LineChart, RadarChart, ScatterChart, TreemapChart } from 'echarts/charts';
+import { AriaComponent, DatasetComponent, DataZoomInsideComponent, GridComponent, LegendComponent, RadarComponent, TooltipComponent, VisualMapContinuousComponent } from 'echarts/components';
 import { LabelLayout } from 'echarts/features';
 import { CanvasRenderer, SVGRenderer } from 'echarts/renderers';
 import { buildProfessionalChart } from './professionalCharts.js';
 import './professional-charts.css';
+import { ZOOM_TYPES } from './widgetData.js';
 
-echarts.use([BarChart, FunnelChart, HeatmapChart, LineChart, RadarChart, ScatterChart, TreemapChart, AriaComponent, DataZoomInsideComponent, GridComponent, LegendComponent, RadarComponent, TooltipComponent, VisualMapContinuousComponent, LabelLayout, CanvasRenderer, SVGRenderer]);
+echarts.use([BarChart, BoxplotChart, CustomChart, PieChart, FunnelChart, HeatmapChart, LineChart, RadarChart, ScatterChart, TreemapChart, AriaComponent, DatasetComponent, DataZoomInsideComponent, GridComponent, LegendComponent, RadarComponent, TooltipComponent, VisualMapContinuousComponent, LabelLayout, CanvasRenderer, SVGRenderer]);
 
 export function renderProfessionalSVG(config, data, size = { width: 480, height: 280 }, theme) {
   const result = buildProfessionalChart(config, data, { ...size, reducedMotion: true }, theme);
@@ -23,7 +24,7 @@ export function updateProfessionalChart(instance, option, size, notMerge = false
     const previous = interaction.zoom?.find(item => item.id === zoom.id);
     return previous ? { ...zoom, start: previous.start, end: previous.end } : zoom;
   }) };
-  instance.setOption(option, { notMerge, replaceMerge: ['series', 'dataZoom'], lazyUpdate: true });
+  instance.setOption(option, { notMerge, replaceMerge: ['series', 'dataZoom', 'dataset'], lazyUpdate: true });
   // ECharts resize consumes a pending lazy update in the same render cycle.
   if (instance.getWidth() !== size.width || instance.getHeight() !== size.height) {
     instance.resize({ width: size.width, height: size.height, animation: { duration: 0 } });
@@ -92,6 +93,6 @@ export default function ProfessionalChart({ config, data, onNavigate, theme, fon
   return <div className="professional-chart-shell" data-chart-renderer={renderer}>
     <div ref={host} className="professional-chart-stage" hidden={Boolean(unavailable)} role="img" tabIndex="0" aria-label={result.description}/>
     {unavailable && <div className="widget-empty professional-chart-empty" role={result.error || runtimeError ? 'alert' : 'status'}><span>{runtimeError ? '图表暂不可用' : result.error ? '请完善图表数据' : result.description}</span>{(result.error || runtimeError) && <p className="widget-error-reason">{runtimeError || result.description}</p>}{runtimeError && <button onClick={() => { setRuntimeError(''); setAttempt(value => value + 1); }}>重新绘制</button>}</div>}
-    {settings.zoom === true && !unavailable && ['multiLine', 'stacked', 'combo', 'scatter', 'heatmap'].includes(config.type) && <span className="professional-chart-zoom-hint">Ctrl + 滚轮缩放</span>}
+    {settings.zoom === true && !unavailable && ZOOM_TYPES.includes(config.type) && <span className="professional-chart-zoom-hint">Ctrl + 滚轮缩放</span>}
   </div>;
 }

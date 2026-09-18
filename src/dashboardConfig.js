@@ -1,7 +1,8 @@
-import { DATA_FIELDS, normalizeDataSource, validateDataPath, parseSourceContent } from './dataSources.js';
+import { NAME_GROUP_TYPES, DATA_FIELDS, normalizeDataSource, validateDataPath, parseSourceContent } from './dataSources.js';
 import { DEFAULT_THEME, THEMES } from './themes.js';
 import { DEFAULT_FONT, FONTS } from './fonts.js';
 import baseProject from './projects/base.js';
+import { SERIES_TYPES } from './widgetData.js';
 
 export const STORAGE_KEY = 'manes.dashboard.base.config.v2';
 export const LEGACY_STORAGE_KEYS = ['nexus.dashboard.config.v2', 'nexus.dashboard.config.v1'];
@@ -25,6 +26,8 @@ export const SOURCES = {
   heat: { label: '时段活跃度', unit: '次', columns: [{ key: 'x', label: '时段' }, { key: 'y', label: '区域' }, { key: 'value', label: '活跃度' }] },
   funnel: { label: '事件处理流程', unit: '条', columns: [{ key: 'name', label: '阶段' }, { key: 'value', label: '事件数' }] },
   tree: { label: '设备类型分布', unit: '台', columns: [{ key: 'name', label: '类型' }, { key: 'series', label: '分组' }, { key: 'value', label: '设备数' }] },
+  samples: { label: '分班次响应耗时', unit: 'ms', columns: [{ key: 'name', label: '班次' }, { key: 'value', label: '响应耗时' }] },
+  changes: { label: '收支增减', unit: '万元', columns: [{ key: 'name', label: '项目' }, { key: 'value', label: '变动金额' }] },
 };
 
 export const MODULE_TYPES = [
@@ -32,7 +35,8 @@ export const MODULE_TYPES = [
   { id: 'gauge', label: '仪表盘', sources: ['online'] },
   { id: 'line', label: '折线图', sources: ['trend'] },
   { id: 'bar', label: '条形图', sources: ['regions'] },
-  { id: 'donut', label: '环形图', sources: ['regions'] },
+  { id: 'donut', label: '环形图', sources: ['regions', 'tree'] },
+  { id: 'pie', label: '饼图', sources: ['regions', 'tree'] },
   { id: 'table', label: '数据表格', sources: Object.keys(SOURCES) },
   { id: 'area', label: '面积图', sources: ['trend'] },
   { id: 'column', label: '柱状图', sources: ['regions', 'trend'] },
@@ -48,6 +52,13 @@ export const MODULE_TYPES = [
   { id: 'heatmap', label: '矩阵热力图', sources: ['heat'] },
   { id: 'funnel', label: '漏斗图', sources: ['funnel'] },
   { id: 'treemap', label: '矩形树图', sources: ['tree'] },
+  { id: 'rose', label: '玫瑰图', sources: ['tree', 'regions'] },
+  { id: 'groupedColumn', label: '分组柱状图', sources: ['seriesTrend'] },
+  { id: 'stackedArea', label: '堆叠面积图', sources: ['seriesTrend'] },
+  { id: 'percentStacked', label: '百分比堆叠图', sources: ['seriesTrend'] },
+  { id: 'histogram', label: '直方图', sources: ['samples'] },
+  { id: 'boxplot', label: '箱线图', sources: ['samples'] },
+  { id: 'waterfall', label: '瀑布图', sources: ['changes'] },
 ];
 
 const LEGACY_CONFIG = {
@@ -149,7 +160,7 @@ export function createModule(typeId, existing = []) {
   const source = type.sources[0];
   const offset = existing.length % 7 * 3;
   return { id: `w_${crypto.randomUUID()}`, title: type.label, subtitle: '', type: type.id, source,
-    unit: SOURCES[source].unit, visible: true, locked: false, rowCount: typeId === 'scatter' ? 30 : ['multiLine', 'stacked', 'heatmap', 'treemap'].includes(typeId) ? 8 : 5, columns: SOURCES[source].columns.map(column => ({ ...column })),
+    unit: SOURCES[source].unit, visible: true, locked: false, rowCount: typeId === 'scatter' ? 30 : [...SERIES_TYPES, 'heatmap', 'treemap', 'rose', 'histogram'].includes(typeId) ? 8 : 5, columns: SOURCES[source].columns.map(column => ({ ...column })),
     layout: { x: 24 + offset, y: 12 + offset, w: 28, h: 32 }, surface: 'glass',
     binding: { sourceId: 'demo', fields: defaultFields() }, aggregate: 'sum', text: typeId === 'text' ? '请输入公告内容' : '', target: 100, precision: 1, chartOptions: { ...DEFAULT_CHART_OPTIONS, ...(typeId === 'combo' ? { primaryName: '设备数', secondaryName: '在线率', secondaryUnit: '%' } : typeId === 'scatter' ? { xName: '负载 (%)', yName: '时延 (ms)' } : {}) } };
 }
@@ -207,7 +218,7 @@ export function normalizeConfig(raw) {
     const type = MODULE_TYPES.find(entry => entry.id === item.type);
     if (!type || !type.sources.includes(item.source)) throw new Error('图表类型与示例数据不兼容');
     object(item.binding, ['sourceId', 'fields', ...(Object.hasOwn(item.binding ?? {}, 'groupBy') ? ['groupBy'] : [])], '数据绑定');
-    if (Object.hasOwn(item.binding, 'groupBy') && (item.binding.groupBy !== 'name' || !['bar', 'column', 'donut'].includes(item.type) || item.binding.sourceId === 'demo')) throw new Error('按名称合并仅适用于外部数据的条形图、柱状图和环形图');
+    if (Object.hasOwn(item.binding, 'groupBy') && (item.binding.groupBy !== 'name' || !NAME_GROUP_TYPES.includes(item.type) || item.binding.sourceId === 'demo')) throw new Error('按名称合并仅适用于外部数据的条形图、柱状图、饼图、环形图和玫瑰图');
     if (item.binding.sourceId !== 'demo' && !sourceIds.has(item.binding.sourceId)) throw new Error('组件绑定的数据源不存在');
     const fields = item.binding.fields;
     if (!fields || typeof fields !== 'object' || Array.isArray(fields) || Object.keys(fields).some(key => !DATA_FIELDS.includes(key))) throw new Error('字段映射格式不正确');
@@ -257,7 +268,7 @@ export function configForProject(raw, project = baseProject) {
     const oldSource = config.dataSources.find(source => source.id === 'ds_8b34a2de-317b-4b63-bc0c-f991459e5fce');
     if (oldSource) {
       config.map.vehicleSourceId = oldSource.id;
-      for (const item of config.modules) if (item.binding.sourceId === 'ds_596c6afe-bdd9-45b7-a209-2ab6ce05910b' && ['bar', 'column', 'donut'].includes(item.type)) {
+      for (const item of config.modules) if (item.binding.sourceId === 'ds_596c6afe-bdd9-45b7-a209-2ab6ce05910b' && NAME_GROUP_TYPES.includes(item.type)) {
         item.binding = { sourceId: oldSource.id, fields: { name: 'status', value: 'count', code: 'stateCode' }, groupBy: 'name' };
       }
       if (!config.modules.some(item => item.binding.sourceId === 'ds_596c6afe-bdd9-45b7-a209-2ab6ce05910b')) config.dataSources = config.dataSources.filter(source => source.id !== 'ds_596c6afe-bdd9-45b7-a209-2ab6ce05910b');

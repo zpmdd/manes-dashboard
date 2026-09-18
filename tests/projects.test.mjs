@@ -20,6 +20,7 @@ test('两套预设共享基线功能，基线无车辆数据，道研完整保�
   const first = defaultConfigForProject(base), second = defaultConfigForProject(daoyan);
   assert.deepEqual(first, DEFAULT_CONFIG); assert.equal(first.map.vehicleSourceId, ''); assert.deepEqual(first.dataSources, []);
   assert.equal(base.showBrand, true); assert.equal(daoyan.showBrand, false);
+  assert.equal(second.modules[1].type, 'pie');
   assert.equal(second.projectId, 'daoyan'); assert.equal(second.dataSources.length, 1);
   assert.deepEqual(second.map.layout, legacy.map.layout);
   assert.deepEqual(second.modules.map(item => item.layout), legacy.modules.map(item => item.layout));

@@ -97,8 +97,8 @@ const preset = {
     {
       "id": "online",
       "title": "行驶与静止",
-      "subtitle": "按 GPS 速度划分 · 点击图例联动",
-      "type": "donut",
+      "subtitle": "按 GPS 速度划分 · 点击扇区联动",
+      "type": "pie",
       "source": "regions",
       "visible": true,
       "unit": "辆",

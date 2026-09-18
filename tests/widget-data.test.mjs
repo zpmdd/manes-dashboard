@@ -83,7 +83,7 @@ test('tiny nonzero values remain visible and axis labels preserve useful small-n
   assert.deepEqual([0, -0, 0.0005, 0.001, -0.003, 2e-6, 2e12].map(formatAxisNumber), ['0', '0', '0.0005', '0.001', '-0.003', '2E-6', '2E12']);
 });
 
-test('all twelve components render real supplied data and failed connections never fall back to snapshots', async () => {
+test('all basic components render real supplied data and failed connections never fall back to snapshots', async () => {
   const [{ createServer }, { createElement }, { renderToStaticMarkup }] = await Promise.all([import('vite'), import('react'), import('react-dom/server')]);
   const server = await createServer({ configFile: false, appType: 'custom', server: { middlewareMode: true, watch: null, hmr: false, ws: false }, esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true, include: [] } });
   try {
@@ -91,7 +91,7 @@ test('all twelve components render real supplied data and failed connections nev
     const { VehicleWidget } = await server.ssrLoadModule('/src/VehiclePanels.jsx');
     const { ComponentInspector } = await server.ssrLoadModule('/src/EditorPanels.jsx');
     const { MODULE_TYPES, DEFAULT_CONFIG, createModule } = await server.ssrLoadModule('/src/dashboardConfig.js');
-    const basicTypes = ['metric', 'gauge', 'line', 'area', 'bar', 'column', 'donut', 'table', 'progress', 'status'];
+    const basicTypes = ['metric', 'gauge', 'line', 'area', 'bar', 'column', 'donut', 'pie', 'table', 'progress', 'status'];
     for (const precision of [0, 2]) for (const { id: type } of [...MODULE_TYPES, { id: 'map' }]) {
       const item = { ...(type === 'map' ? DEFAULT_CONFIG.map : createModule(type)), precision };
       const html = renderToStaticMarkup(createElement(ComponentInspector, { item, isMap: type === 'map' }));
@@ -102,12 +102,26 @@ test('all twelve components render real supplied data and failed connections nev
     const config = { id: 'external-test', title: '测试组件', source: 'devices', type: 'metric', rowCount: 8, unit: '台', target: 100, text: '<script>alert(1)</script>\n第二行', columns: [{ key: 'name', label: '项目' }, { key: 'value', label: '数值' }, { key: 'status', label: '状态' }] };
     const data = { rows: [{ name: '实际项目甲', value: 12, status: '正常', time: '09:00' }, { name: '实际项目乙', value: 30, status: '待处理', time: '10:00' }], value: 42, scope: '实际范围' };
     const render = (type, props = {}) => renderToStaticMarkup(createElement(DashboardWidget, { config: { ...config, type }, code: '100000', index: { '100000': { name: '中国' } }, data, dataState: { status: 'ready' }, ...props }));
-    for (const type of ['metric', 'gauge', 'line', 'area', 'bar', 'column', 'donut', 'table', 'progress', 'status', 'text', 'clock']) {
+    for (const type of ['metric', 'gauge', 'line', 'area', 'bar', 'column', 'donut', 'pie', 'table', 'progress', 'status', 'text', 'clock']) {
       const html = render(type);
       assert.match(html, new RegExp(`widget-type-${type}`));
       assert.doesNotMatch(html, /暂无数据|组件类型暂不可用|NaN|Infinity|undefined/);
       assert.doesNotMatch(html, /widget-heading-mark/, 'All shared widget headers omit decorative dots');
     }
+    const pie = render('pie', { data: { rows: [{ name: '静止', value: 4, code: 'vehicle:stopped' }, { name: '行驶', value: 1, code: 'vehicle:moving' }] }, onNavigate() {} });
+    assert.equal((pie.match(/class="widget-pie-slice" role="button" tabindex="0"/g) || []).length, 2);
+    assert.match(pie, /class="widget-pie-value">4<tspan class="widget-pie-unit"> 台/); assert.match(pie, /A84,84 0 1,1/);
+    assert.equal((pie.match(/class="widget-pie-leader"/g) || []).length, 2);
+    assert.equal((pie.match(/class="widget-pie-depth"/g) || []).length, 2);
+    assert.doesNotMatch(pie, /widget-donut-legend/);
+    const singlePie = render('pie', { data: { rows: [{ name: '唯一', value: 1 }] } });
+    assert.match(singlePie, /<circle cx="160" cy="100" r="84"/); assert.doesNotMatch(singlePie, /widget-donut-total/);
+    assert.match(render('pie', { data: { rows: [{ name: '零', value: 0 }] } }), /暂无正值分布数据/);
+    assert.match(render('pie', { data: { rows: [{ name: '负', value: -1 }] } }), /非负/);
+    const densePie = render('pie', { data: { rows: Array.from({ length: 8 }, (_, i) => ({ name: `类型${i}`, value: i + 1 })) } });
+    assert.doesNotMatch(densePie, /class="widget-pie-label"/); assert.equal((densePie.match(/<li>/g) || []).length, 8);
+    const crowdedPie = render('pie', { data: { rows: [97, 1, 1, 1].map((value, i) => ({ name: `类型${i}`, value })) } });
+    assert.doesNotMatch(crowdedPie, /class="widget-pie-leader"/); assert.equal((crowdedPie.match(/<li>/g) || []).length, 4, 'Concentrated slices retain readable legend rows');
     const vehicles = { value: 2, scope: '车辆定位快照', rows: [{ name: '车辆甲', code: 'vehicle:A', value: 0 }, { name: '车辆乙', code: 'vehicle:B', value: 10 }] };
     const selectedRanking = render('bar', { data: vehicles, selectedCodes: ['vehicle:A'], onNavigate() {} });
     assert.match(selectedRanking, /aria-pressed="true" aria-label="车辆甲/);

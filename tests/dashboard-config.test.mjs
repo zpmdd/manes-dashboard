@@ -71,11 +71,11 @@ test('MANES replaces only the former default brand across saved canvases and tem
   for (const invalid of [null, '<MANES>', '', 123]) assert.throws(() => normalizeConfig({ ...draft(), brand: invalid }), /品牌名称/);
 });
 
-test('二十种组件可动态添加、删除与重排，达到 40 个时停止添加', () => {
-  assert.equal(MODULE_TYPES.length, 20);
+test('二十八种组件可动态添加、删除与重排，达到 40 个时停止添加', () => {
+  assert.equal(MODULE_TYPES.length, 28);
   const config = draft();
   config.modules = MODULE_TYPES.map(type => createModule(type.id));
-  assert.equal(new Set(config.modules.map(item => item.id)).size, 20);
+  assert.equal(new Set(config.modules.map(item => item.id)).size, MODULE_TYPES.length);
   assert.deepEqual(normalizeConfig(config).modules, config.modules);
   for (const type of MODULE_TYPES) for (const id of type.sources) {
     const module = createModule(type.id);

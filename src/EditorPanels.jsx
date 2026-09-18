@@ -2,16 +2,17 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Copy, DownloadSimple, LockKey, Plus, Trash, UploadSimple, X } from '@phosphor-icons/react';
 import { CONFIG_FILE_LIMIT, DEFAULT_CHART_OPTIONS, MODULE_TYPES, SOURCES, normalizeConfig, configForProject, defaultConfigForProject, readLegacyConfig, legacyProject } from './dashboardConfig.js';
 import { TEMPLATE_LIMIT, deleteTemplate, getBuiltinTemplates, parseTemplateFile, readTemplates, readLegacyTemplates, saveTemplate, serializeTemplate } from './templateLibrary.js';
-import { getMappedData } from './dataSources.js';
+import { NAME_GROUP_TYPES, getMappedData } from './dataSources.js';
 import { profileDataFields, suggestDataFields } from './dataInference.js';
-import { PROFESSIONAL_TYPES as professionalTypes } from './widgetData.js';
+import { PROFESSIONAL_TYPES as professionalTypes, SERIES_TYPES, ZOOM_TYPES } from './widgetData.js';
 import { buildProfessionalChart } from './professionalCharts.js';
 import './editor-panels.css';
 
 const groupTypes = [
   { title: '指标与状态', types: ['metric', 'gauge', 'progress', 'status'] },
-  { title: '趋势与分布', types: ['line', 'area', 'column', 'bar', 'donut'] },
-  { title: '专业图表', types: professionalTypes },
+  { title: '趋势与对比', types: ['line', 'multiLine', 'area', 'stackedArea', 'bar', 'column', 'groupedColumn', 'stacked', 'combo'] },
+  { title: '占比与构成', types: ['pie', 'donut', 'rose', 'percentStacked', 'funnel', 'treemap'] },
+  { title: '统计与关系', types: ['histogram', 'boxplot', 'waterfall', 'scatter', 'radar', 'heatmap'] },
   { title: '表格与内容', types: ['table', 'text', 'clock', 'map'] },
 ];
 const fieldNames = { name: '名称', value: '数值', time: '时间', status: '状态', target: '目标', series: '系列', code: '区域编码', x: 'X 维度', y: 'Y 维度', value2: '辅助数值' };
@@ -19,6 +20,14 @@ const fieldNames = { name: '名称', value: '数值', time: '时间', status: '�
 function MiniChart({ type }) {
   return <svg className="ep-mini-chart" viewBox="0 0 100 48" fill="none" aria-hidden="true">
     {type === 'metric' ? <><path d="M9 10h25" opacity=".45"/><text x="8" y="36" fill="currentColor" stroke="none" fontSize="26">8,640</text><path d="m79 29 5-5 5 5m-5-5v11"/></> :
+    type === 'pie' ? <><path d="M48 24V5a19 19 0 1 0 19 19Z" fill="currentColor" opacity=".8"/><path d="M53 20V2a18 18 0 0 1 18 18Z" fill="currentColor" opacity=".35"/></> :
+    type === 'rose' ? <><path d="M50 25V4a21 21 0 0 1 21 21Z" fill="currentColor"/><path d="M50 25h17a17 17 0 0 1-17 17Z" fill="currentColor" opacity=".65"/><path d="M50 25v12a12 12 0 0 1-12-12Z" fill="currentColor" opacity=".4"/><path d="M50 25H34a16 16 0 0 1 16-16Z" fill="currentColor" opacity=".25"/></> :
+    type === 'groupedColumn' ? <>{[0,1,2,3].map(i => <g key={i}><rect x={10+i*22} y={18-i*3} width="7" height={23+i*3} fill="currentColor"/><rect x={19+i*22} y={27-i*4} width="7" height={14+i*4} fill="currentColor" opacity=".4"/></g>)}</> :
+    type === 'stackedArea' ? <><path d="M8 36 29 27 50 32 71 17 92 22V42H8Z" fill="currentColor" opacity=".7"/><path d="M8 36V22l21-9 21 5 21-13 21 7v10L71 17 50 32 29 27Z" fill="currentColor" opacity=".25"/></> :
+    type === 'percentStacked' ? <>{[10,19,14,23,16].map((height,i) => <g key={i}><rect x={10+i*18} y="6" width="11" height="36" fill="currentColor" opacity=".3"/><rect x={10+i*18} y={42-height} width="11" height={height} fill="currentColor"/></g>)}</> :
+    type === 'histogram' ? <>{[8,20,32,38,29,18,7].map((height,i) => <rect key={i} x={8+i*12} y={43-height} width="11" height={height} fill="currentColor" opacity={.4+i*.06}/>)}</> :
+    type === 'boxplot' ? <>{[0,1,2].map(i => <g key={i}><path d={`M${22+i*28} 5v37m-7-37h14m-14 37h14`}/><rect x={14+i*28} y={14+i*2} width="16" height="16" fill="currentColor" fillOpacity=".25"/><path d={`M${14+i*28} ${22+i*2}h16`}/></g>)}</> :
+    type === 'waterfall' ? <><path d="M9 40h82" opacity=".2"/>{[[9,27,13],[27,12,15],[45,12,9],[63,21,10],[81,9,31]].map(([x,y,h],i) => <rect key={i} x={x} y={y} width="11" height={h} fill="currentColor" opacity={i===2||i===3?.35:.8}/>)}</> :
     ['gauge', 'donut'].includes(type) ? <><circle cx="50" cy="25" r="17" strokeWidth="5" opacity=".18"/><path d={type === 'gauge' ? 'M33 25a17 17 0 1 1 28 13' : 'M50 8a17 17 0 1 1-16 23'} strokeWidth="5"/><text x="50" y="29" textAnchor="middle" fontSize="10" stroke="none" fill="currentColor">86%</text></> :
     ['line', 'area'].includes(type) ? <><path d="M8 38h84M8 9v29" opacity=".2"/>{type === 'area' && <path d="M9 34 24 27 40 30 56 15 72 20 90 8v30H9Z" fill="currentColor" stroke="none" opacity=".17"/>}<path d="m9 34 15-7 16 3 16-15 16 5L90 8" strokeWidth="2"/></> :
     type === 'multiLine' ? <><path d="m9 35 16-14 17 5 17-17 15 10 17-12" strokeWidth="2"/><path d="m9 20 16 10 17-15 17 9 15-9 17 11" opacity=".4" strokeWidth="2"/></> :
@@ -95,22 +104,23 @@ function DataMapping({ item, result, onChange }) {
     } catch (issue) { return { error: issue.message }; }
   }, [result?.rows, binding, item.type, item.aggregate, item.unit, item.columns, item.rowCount, item.target]);
   const preview = mapped?.rows?.slice(0, 3) ?? [];
-  const relevant = item.type === 'scatter' ? ['x', 'y', 'name', 'series', 'value'] : item.type === 'heatmap' ? ['x', 'y', 'value'] : item.type === 'combo' ? ['name', 'time', 'value', 'value2'] : item.type === 'radar' ? ['name', 'value', 'series', 'target'] : ['multiLine','stacked'].includes(item.type) ? ['name', 'time', 'value', 'series'] : Object.keys(fieldNames).filter(key => !['x','y','value2'].includes(key) || item.type === 'table');
+  const relevant = item.type === 'histogram' ? ['value'] : item.type === 'boxplot' ? ['name', 'value'] : item.type === 'waterfall' ? ['name', 'time', 'value', 'code'] : ['pie', 'rose'].includes(item.type) ? ['name', 'value', 'code'] : item.type === 'scatter' ? ['x', 'y', 'name', 'series', 'value'] : item.type === 'heatmap' ? ['x', 'y', 'value'] : item.type === 'combo' ? ['name', 'time', 'value', 'value2'] : item.type === 'radar' ? ['name', 'value', 'series', 'target'] : SERIES_TYPES.includes(item.type) ? ['name', 'time', 'value', 'series'] : Object.keys(fieldNames).filter(key => !['x','y','value2'].includes(key) || item.type === 'table');
   return <details className="ep-mapping" open><summary>字段映射</summary><div className="ep-mapping-tools"><span>{fields.length ? `识别到 ${fields.length} 个字段` : '读取数据后可选择字段'}</span><button type="button" disabled={!fields.length} onClick={() => onChange({ binding: { ...binding, fields: { ...binding.fields, ...suggestion.fields } } })}>自动匹配</button></div><datalist id={listId}>{fields.filter(field => field.selectable).map(field => <option key={field.path} value={field.path}>{field.type}</option>)}</datalist><div className="ep-field-grid">{relevant.map(key => <Field key={key} label={fieldNames[key]} value={binding.fields[key]} maxLength={160} placeholder={key} list={listId} onChange={value => onChange({ binding: { ...binding, fields: { ...binding.fields, [key]: value } } })}/>)}</div>{error ? <p className="ep-error" role="alert">{error}</p> : preview.length ? <div className="ep-data-preview"><strong>映射结果 · 前 {preview.length} 行</strong><table><thead><tr>{relevant.filter(key => binding.fields[key]).map(key => <th key={key}>{fieldNames[key]}</th>)}</tr></thead><tbody>{preview.map((row,i) => <tr key={i}>{relevant.filter(key => binding.fields[key]).map(key => <td key={key}>{row[key] == null || row[key] === '' ? '—' : String(row[key])}</td>)}</tr>)}</tbody></table></div> : <p className="ep-muted">{result?.status === 'loading' ? '正在读取数据…' : result?.error || '暂无记录'}</p>}</details>;
 }
 
 function ChartControls({ item, onChange }) {
   const value = item.chartOptions, change = patch => onChange({ chartOptions: { ...value, ...patch } });
-  const cartesian = ['multiLine', 'stacked', 'combo', 'scatter', 'heatmap'].includes(item.type);
+  const cartesian = ZOOM_TYPES.includes(item.type);
   return <section className="ep-property-section"><h3>图表设置</h3>
     <Select label="配色" value={value.palette} onChange={palette => change({ palette })}><option value="champagne">跟随大屏配色</option><option value="ocean">固定 · 海洋蓝绿</option><option value="forest">固定 · 森林青金</option></Select>
     <div className="ep-field-grid">
-      {item.type !== 'treemap' && <Toggle label={item.type === 'heatmap' ? '显示色标' : '显示图例'} value={value.legend} onChange={legend => change({ legend })}/>}
+      {!['treemap', 'histogram', 'waterfall'].includes(item.type) && <Toggle label={item.type === 'heatmap' ? '显示色标' : '显示图例'} value={value.legend} onChange={legend => change({ legend })}/>}
       <Toggle label="数值标签" value={value.labels} onChange={labels => change({ labels })}/>
-      {['multiLine', 'combo'].includes(item.type) && <Toggle label="平滑曲线" value={value.smooth} onChange={smooth => change({ smooth })}/>}
+      {['multiLine', 'stackedArea', 'combo'].includes(item.type) && <Toggle label="平滑曲线" value={value.smooth} onChange={smooth => change({ smooth })}/>}
       {cartesian && <Toggle label="区间缩放" value={value.zoom} onChange={zoom => change({ zoom })}/>}
     </div>
     {item.type === 'combo' && <><div className="ep-field-grid"><Field label="主系列名称" value={value.primaryName} maxLength={20} onChange={primaryName => change({ primaryName })}/><Field label="副系列名称" value={value.secondaryName} maxLength={20} onChange={secondaryName => change({ secondaryName })}/></div><Field label="副轴单位" value={value.secondaryUnit} maxLength={8} onChange={secondaryUnit => change({ secondaryUnit })}/></>}
+    {['histogram', 'boxplot', 'waterfall', 'percentStacked'].includes(item.type) && <p className="ep-muted">{{ histogram: '读取全部样本等宽分箱，纵轴为频数；前闭后开，最后一箱包含最大值。', boxplot: '按名称分组原始样本，自动计算四分位数、1.5 倍四分位距须线及离群值。', waterfall: '每行数值表示增减量，按输入顺序累计，末尾自动添加累计柱。', percentStacked: '使用非负原始数值，按每个类别的总量计算占比；提示保留原值。' }[item.type]}</p>}
     {cartesian && <div className="ep-field-grid"><Field label="X 轴名称" value={value.xName} maxLength={20} onChange={xName => change({ xName })}/>{['scatter', 'heatmap'].includes(item.type) && <Field label="Y 轴名称" value={value.yName} maxLength={20} onChange={yName => change({ yName })}/>}</div>}
   </section>;
 }
@@ -122,14 +132,14 @@ export function ComponentInspector({ item, isMap = false, vehicleEnabled = false
   const layout = item.layout;
   const binding = item.binding ?? { sourceId: 'demo', fields: {} };
   const custom = binding.sourceId !== 'demo';
-  const rowCountLabel = { multiLine: '显示横轴点数', stacked: '显示类别数', combo: '显示类别数', radar: '显示指标数', scatter: '显示点数', heatmap: '每轴显示类别数' }[item.type] || '显示条数';
+  const rowCountLabel = { multiLine: '显示横轴点数', stacked: '显示类别数', combo: '显示类别数', radar: '显示指标数', scatter: '显示点数', heatmap: '每轴显示类别数', groupedColumn: '显示类别数', stackedArea: '显示横轴点数', percentStacked: '显示类别数', histogram: '分箱数量', boxplot: '显示分组数', waterfall: '显示变动项数' }[item.type] || '显示条数';
   const boundSource = dataSources.find(entry => entry.id === binding.sourceId);
   const source = SOURCES[item.source];
   const availableColumns = custom ? Object.entries(fieldNames).map(([key, label]) => ({ key, label })) : source?.columns ?? [];
   const changeSource = (id, type = item.type) => onChange({ type, source: id, unit: SOURCES[id].unit, columns: structuredClone(SOURCES[id].columns) });
   const changeType = type => {
     const { groupBy, ...ungrouped } = binding;
-    const nextBinding = groupBy && !['bar', 'column', 'donut'].includes(type) ? { binding: ungrouped } : {};
+    const nextBinding = groupBy && !NAME_GROUP_TYPES.includes(type) ? { binding: ungrouped } : {};
     if (['text', 'clock'].includes(type)) { onChange({ type, source: 'devices', columns: structuredClone(SOURCES.devices.columns), binding: { ...ungrouped, sourceId: 'demo' } }); return; }
     const sources = MODULE_TYPES.find(entry => entry.id === type)?.sources ?? [];
     const nextSource = sources.includes(item.source) ? item.source : sources[0] ?? item.source;
@@ -147,7 +157,7 @@ export function ComponentInspector({ item, isMap = false, vehicleEnabled = false
     {!isMap && <>
       <section className="ep-property-section"><h3>内容与样式</h3><Field label="标题" value={item.title} maxLength={20} onChange={title => onChange({ title })}/><Field label="副标题" value={item.subtitle} onChange={subtitle => onChange({ subtitle })}/><div className="ep-field-grid"><Select label="组件类型" value={item.type} onChange={changeType}>{MODULE_TYPES.map(type => <option key={type.id} value={type.id}>{type.label}</option>)}</Select><Select label="面板材质" value={item.surface} onChange={surface => onChange({ surface })}><option value="glass">烟灰玻璃</option><option value="soft">轻透玻璃</option><option value="solid">深色面板</option></Select></div>{item.type === 'text' ? <label className="ep-field"><span>文本内容</span><textarea value={item.text} maxLength={1000} rows={5} onChange={event => onChange({ text: event.target.value })}/></label> : item.type !== 'clock' && <div className="ep-field-grid"><Field label="数值单位" value={item.unit} maxLength={8} onChange={unit => onChange({ unit })}/>{!professionalTypes.includes(item.type) && <Select label="最多小数位" value={item.precision ?? 1} onChange={value => onChange({ precision: Number(value) })}>{[0, 1, 2, 3].map(value => <option value={value} key={value}>{value} 位</option>)}</Select>}{!['metric', 'gauge'].includes(item.type) && <NumberField label={rowCountLabel} value={item.rowCount} min={item.type === 'radar' ? 3 : 1} max={100} step={1} onChange={rowCount => onChange({ rowCount: Math.round(rowCount) })}/>}</div>}{['gauge', 'progress', 'radar'].includes(item.type) && <NumberField label="目标值" value={item.target} min={.1} max={1e12} step={.001} onChange={target => onChange({ target })}/>}</section>
       {professionalTypes.includes(item.type) && <ChartControls item={item} onChange={onChange}/>}
-      {!['text', 'clock'].includes(item.type) && <section className="ep-property-section"><h3>数据绑定</h3><Select label="接入数据源" value={binding.sourceId} onChange={changeBinding}><option value="demo">内置示例数据</option>{custom && !boundSource && <option value={binding.sourceId}>数据源已移除</option>}{dataSources.map(entry => <option value={entry.id} key={entry.id}>{entry.name}</option>)}</Select>{custom ? <>{!boundSource && <p className="ep-error">请选择可用数据源，恢复此组件的数据连接。</p>}<div className="ep-field-grid">{['metric', 'gauge'].includes(item.type) && <Select label="数值汇总" value={item.aggregate} onChange={aggregate => onChange({ aggregate })}><option value="sum">求和</option><option value="average">平均值</option><option value="first">第一条</option></Select>}<div className="ep-bound-source"><span>来源</span><strong>{{ http: 'HTTP 接口', json: '静态 JSON', csv: 'CSV 表格' }[boundSource?.type] ?? '未连接'}</strong></div></div>{['bar', 'column', 'donut'].includes(item.type) && <Toggle label="按名称合并并求和" value={binding.groupBy === 'name'} onChange={enabled => { const { groupBy, ...rest } = binding; onChange({ binding: enabled ? { ...rest, groupBy: 'name' } : rest }); }}/>}<DataMapping item={item} result={sourceResult} onChange={onChange}/></> : <Select label="示例内容" value={item.source} onChange={id => changeSource(id)}>{(MODULE_TYPES.find(type => type.id === item.type)?.sources ?? []).map(id => <option key={id} value={id}>{SOURCES[id].label}</option>)}</Select>}</section>}
+      {!['text', 'clock'].includes(item.type) && <section className="ep-property-section"><h3>数据绑定</h3><Select label="接入数据源" value={binding.sourceId} onChange={changeBinding}><option value="demo">内置示例数据</option>{custom && !boundSource && <option value={binding.sourceId}>数据源已移除</option>}{dataSources.map(entry => <option value={entry.id} key={entry.id}>{entry.name}</option>)}</Select>{custom ? <>{!boundSource && <p className="ep-error">请选择可用数据源，恢复此组件的数据连接。</p>}<div className="ep-field-grid">{['metric', 'gauge'].includes(item.type) && <Select label="数值汇总" value={item.aggregate} onChange={aggregate => onChange({ aggregate })}><option value="sum">求和</option><option value="average">平均值</option><option value="first">第一条</option></Select>}<div className="ep-bound-source"><span>来源</span><strong>{{ http: 'HTTP 接口', json: '静态 JSON', csv: 'CSV 表格' }[boundSource?.type] ?? '未连接'}</strong></div></div>{NAME_GROUP_TYPES.includes(item.type) && <Toggle label="按名称合并并求和" value={binding.groupBy === 'name'} onChange={enabled => { const { groupBy, ...rest } = binding; onChange({ binding: enabled ? { ...rest, groupBy: 'name' } : rest }); }}/>}<DataMapping item={item} result={sourceResult} onChange={onChange}/></> : <Select label="示例内容" value={item.source} onChange={id => changeSource(id)}>{(MODULE_TYPES.find(type => type.id === item.type)?.sources ?? []).map(id => <option key={id} value={id}>{SOURCES[id].label}</option>)}</Select>}</section>}
       {item.type === 'table' && <section className="ep-property-section"><h3>表格列</h3><div className="ep-columns">{availableColumns.map(column => {
         const current = item.columns.find(entry => entry.key === column.key);
         return <div className="ep-column" key={column.key}><label><input type="checkbox" checked={Boolean(current)} disabled={Boolean(current) && item.columns.length === 1} onChange={event => onChange({ columns: event.target.checked ? [...item.columns, { ...column }] : item.columns.filter(entry => entry.key !== column.key) })}/><span>{column.label}</span></label><input aria-label={`${column.label}列标题`} maxLength={12} value={current?.label ?? column.label} disabled={!current} onChange={event => onChange({ columns: item.columns.map(entry => entry.key === column.key ? { ...entry, label: event.target.value } : entry) })}/></div>;

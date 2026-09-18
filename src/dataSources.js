@@ -1,3 +1,6 @@
+import { SERIES_TYPES } from './widgetData.js';
+
+export const NAME_GROUP_TYPES = ['bar', 'column', 'donut', 'pie', 'rose'];
 export const DATA_SOURCE_LIMIT = 40;
 export const DATA_SIZE_LIMIT = 1024 * 1024;
 export const DATA_ROW_LIMIT = 5000;
@@ -166,15 +169,17 @@ export function getMappedData(sourceResult, binding, config = {}) {
     }
     if (config.type === 'heatmap' && (x === null || y === null)) throw new Error(`第 ${i + 1} 行的 X、Y 类别不能为空`);
     if ((config.type === 'combo' || (showsValue2 && provided(mapped.value2))) && value2 === null) throw new Error(`第 ${i + 1} 行的第二数值字段必须是有效数字`);
-    if (['multiLine', 'stacked', 'combo'].includes(config.type) && !category(mapped.time) && !category(mapped.name)) throw new Error(`第 ${i + 1} 行需要名称或时间字段`);
-    if (['multiLine', 'stacked'].includes(config.type) && !category(mapped.series)) throw new Error(`第 ${i + 1} 行需要系列字段`);
-    if (['radar', 'funnel', 'treemap'].includes(config.type) && (!category(mapped.name) || value < 0)) throw new Error(`第 ${i + 1} 行需要名称和非负数值`);
+    if ([...SERIES_TYPES, 'combo', 'waterfall'].includes(config.type) && !category(mapped.time) && !category(mapped.name)) throw new Error(`第 ${i + 1} 行需要名称或时间字段`);
+    if (SERIES_TYPES.includes(config.type) && !category(mapped.series)) throw new Error(`第 ${i + 1} 行需要系列字段`);
+    if (['radar', 'funnel', 'treemap', 'rose', 'pie'].includes(config.type) && (!category(mapped.name) || value < 0)) throw new Error(`第 ${i + 1} 行需要名称和非负数值`);
+    if (config.type === 'boxplot' && !category(mapped.name)) throw new Error(`第 ${i + 1} 行需要名称分组字段`);
+    if (config.type === 'percentStacked' && value < 0) throw new Error(`第 ${i + 1} 行的百分比构成数值不能为负`);
     if (['radar', 'progress'].includes(config.type) && target !== null && target <= 0) throw new Error(`第 ${i + 1} 行的${config.type === 'radar' ? '雷达' : '进度'}目标值必须大于 0`);
-    const name = scalar(mapped.name) || (['multiLine', 'stacked', 'combo'].includes(config.type) ? '' : `第 ${i + 1} 项`);
+    const name = scalar(mapped.name) || ([...SERIES_TYPES, 'combo', 'waterfall'].includes(config.type) ? '' : `第 ${i + 1} 项`);
     return { name, value, time: scalar(mapped.time), status: scalar(mapped.status), target, series: scalar(mapped.series), code: scalar(mapped.code), x, y, value2 };
   });
   if (binding?.groupBy) {
-    if (binding.groupBy !== 'name' || !['bar', 'column', 'donut'].includes(config.type)) throw new Error('不支持当前图表的分组合并');
+    if (binding.groupBy !== 'name' || !NAME_GROUP_TYPES.includes(config.type)) throw new Error('不支持当前图表的分组合并');
     const groups = new Map();
     for (const row of rows) {
       const previous = groups.get(row.name);
