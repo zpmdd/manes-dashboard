@@ -1,4 +1,4 @@
-import { inFeature, NATIONAL } from './geo.js';
+import { inFeature, lineage, shortName, NATIONAL } from './geo.js';
 import { strictDataNumber } from './dataSources.js';
 
 export const VEHICLE_FIELDS = [
@@ -56,6 +56,13 @@ export async function vehicleDistrict(vehicles, index, readRegion) {
     if (index[code]?.level === 'district') return code;
   }
   return null;
+}
+
+export function vehicleLocationLabel(district, index) {
+  const path = lineage(district, index), province = path.find(item => item.level === 'province'), city = path.find(item => item.level === 'city');
+  if (!province || index[district]?.level !== 'district') return '未匹配地区';
+  const cityName = city?.name || (/市$/.test(province.name) ? province.name : '省直辖');
+  return [shortName(province.name), shortName(cityName), index[district].name].join('-');
 }
 
 export function vehicleCalloutPosition(point, width, height, bounds) {

@@ -1,4 +1,5 @@
 import { Component, lazy, memo, Suspense, useEffect, useId, useMemo, useState } from 'react';
+import { MapPin } from '@phosphor-icons/react';
 import { chartDomain, donutRows, formatWidgetNumber as number, formatAxisNumber, getWidgetData, normalizeWidgetData, PROFESSIONAL_TYPES, progressValues, sortTableRows, statusTone, visibleRowCount } from './widgetData.js';
 import { DATA_FIELDS } from './dataSources.js';
 import { DEFAULT_THEME } from './themes.js';
@@ -83,8 +84,8 @@ function BarChart({ rows, unit, rowCount, onNavigate, precision, selectedCodes }
   const shown = rows.slice(0, rowCount), max = Math.max(...rows.map(row => Math.abs(row.value))) || 1;
   return <ol className="widget-ranking">{shown.map((row, i) => {
     const selected = selectedCodes?.includes(row.code);
-    const content = <><span className="widget-rank-number">{String(i + 1).padStart(2, '0')}</span><span className="widget-rank-content"><span className="widget-rank-caption"><span title={row.name}>{row.name}</span><strong>{number(row.value, precision)}<small>{unit}</small></strong></span><span className={`widget-bar-track ${row.value < 0 ? 'is-negative' : ''}`}><span style={{ width: `${Math.abs(row.value) / max * 100}%` }}/></span></span>{row.code && onNavigate && <span className="widget-rank-arrow" aria-hidden="true">{selected ? '✓' : '›'}</span>}</>;
-    return <li key={`${row.code || row.name}-${i}`}>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} aria-pressed={selected} aria-label={`${row.name}，${number(row.value, precision)} ${unit}，查看区域`}>{content}</button> : <div>{content}</div>}</li>;
+    const content = <><span className="widget-rank-number">{String(i + 1).padStart(2, '0')}</span><span className="widget-rank-content"><span className="widget-rank-caption"><span className="widget-rank-name" title={row.name}>{row.name}{row.location && <span className="widget-rank-location" title={row.location}><MapPin size={12} aria-hidden="true"/><span>{row.location}</span></span>}</span><strong>{number(row.value, precision)}<small>{unit}</small></strong></span><span className={`widget-bar-track ${row.value < 0 ? 'is-negative' : ''}`}><span style={{ width: `${Math.abs(row.value) / max * 100}%` }}/></span></span>{row.code && onNavigate && <span className="widget-rank-arrow" aria-hidden="true">{selected ? '✓' : '›'}</span>}</>;
+    return <li key={`${row.code || row.name}-${i}`}>{row.code && onNavigate ? <button onClick={() => onNavigate(row.code)} aria-pressed={selected} aria-label={`${row.name}${row.location ? `，${row.location}` : ''}，${number(row.value, precision)} ${unit}，查看区域`}>{content}</button> : <div>{content}</div>}</li>;
   })}</ol>;
 }
 
@@ -98,37 +99,45 @@ function DonutChart({ rows, unit, rowCount, title, onNavigate, precision, theme,
   if (!total) return <EmptyState message="暂无正值分布数据"/>;
   const slices = segments.map(row => {
     const start = offset, share = row.value / total * 100; offset += share;
-    const angle = segments.length === 1 ? 0 : ((start + share / 2) / 100 * 2 - .5) * Math.PI;
+    const angle = segments.length === 1 ? 0 : ((start + share / 2) / 100 * 2 + (pie ? .5 : -.5)) * Math.PI;
     return { start, share, end: offset, dx: Math.cos(angle), dy: Math.sin(angle) };
   });
   const leftCount = slices.filter(slice => slice.dx < 0).length;
   const callouts = pie && leftCount <= 2 && slices.length - leftCount <= 2;
+  const cx = callouts ? 160 : 85, cy = callouts ? 100 : 80, radius = callouts ? 84 : 71, tilt = .72, depth = 12, split = segments.length > 1 ? 1.2 : 0;
+  const Shape = segments.length === 1 ? 'circle' : 'path';
+  const point = (percent, y = 0) => { const angle = (percent / 100 * 2 + .5) * Math.PI; return [cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius + y]; };
+  if (pie) for (const slice of slices) {
+    slice.shape = segments.length === 1 ? { cx, cy, r: radius } : { d: `M${cx},${cy} L${point(slice.start)} A${radius},${radius} 0 ${slice.share > 50 ? 1 : 0},1 ${point(slice.end)} Z` };
+    slice.transform = `translate(${slice.dx * split} ${cy * (1 - tilt) + slice.dy * split * tilt}) scale(1 ${tilt})`;
+    // The joined pie exposes only its front outer wall, never a raised radial face.
+    slice.wall = [[-25, 25], [75, 125]].map(([from, to]) => {
+      const frontStart = Math.max(from, slice.start), frontEnd = Math.min(to, slice.end);
+      return frontEnd > frontStart ? `M${point(frontStart)} A${radius},${radius} 0 0,1 ${point(frontEnd)} L${point(frontEnd, depth)} A${radius},${radius} 0 0,0 ${point(frontStart, depth)} Z` : '';
+    }).join(' ');
+  }
   if (callouts) for (const side of [-1, 1]) {
     const labels = slices.filter(slice => (slice.dx < 0 ? -1 : 1) === side).sort((a, b) => a.dy - b.dy);
     labels.forEach((slice, i) => { slice.labelY = labels.length === 1 ? Math.max(50, Math.min(142, 100 + slice.dy * 96)) : 46 + i / (labels.length - 1) * 106; });
   }
   return <div className={`widget-donut-layout${pie ? ' widget-pie-layout' : ''}${callouts ? ' widget-pie-callouts' : ''}`}><svg viewBox={callouts ? '0 0 320 210' : '0 0 170 170'} role={pie ? 'group' : 'img'} aria-label={`${title}，总计 ${number(total, precision)} ${unit}，${segments.map(row => `${row.name} ${number(row.value, precision)}`).join('，')}`}>
     {!pie && <circle cx="85" cy="85" r="62" fill="none" stroke="var(--chart-track, #eee7d816)" strokeWidth="18"/>}
+    {pie && <g className="widget-pie-depths" aria-hidden="true">{slices.map((slice, i) => slice.wall.trim() && <path key={i} transform={slice.transform} d={slice.wall} className="widget-pie-depth" fill={`color-mix(in srgb, ${colors[i % colors.length]} 42%, ${theme.panel})`}/>)}</g>}
     {segments.map((row, i) => {
-      const { share, start, end, dx, dy, labelY } = slices[i];
+      const { share, start, dx, dy, labelY, shape, transform } = slices[i];
       if (pie) {
-        const cx = callouts ? 160 : 85, cy = callouts ? 100 : 80, radius = callouts ? 84 : 71, split = segments.length === 1 ? 0 : callouts ? 4 : 1.5;
-        const angle = percent => (percent / 100 * 2 - .5) * Math.PI;
-        const point = percent => [cx + Math.cos(angle(percent)) * radius, cy + Math.sin(angle(percent)) * radius];
-        const shape = segments.length === 1 ? { cx, cy, r: radius } : { d: `M${cx},${cy} L${point(start)} A${radius},${radius} 0 ${share > 50 ? 1 : 0},1 ${point(end)} Z` };
-        const Shape = segments.length === 1 ? 'circle' : 'path', color = colors[i % colors.length], gradient = `${id}-${i}`;
+        const color = colors[i % colors.length], gradient = `${id}-${i}`;
         const content = `${row.name}：${number(row.value, precision)} ${unit}（${number(share, precision)}%）`, interactive = Boolean(row.code && onNavigate);
         const side = dx < 0 ? -1 : 1, labelX = side < 0 ? 8 : 312;
         const valueLabel = number(row.value, precision).length > 6 ? formatAxisNumber(row.value) : number(row.value, precision);
         return <g key={`${row.name}-${i}`} className="widget-pie-slice" role={interactive ? 'button' : 'img'} tabIndex={interactive ? 0 : undefined} aria-label={content} onClick={interactive ? () => onNavigate(row.code) : undefined} onKeyDown={interactive ? event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onNavigate(row.code); } } : undefined}>
           <title>{content}</title>
           <defs><linearGradient id={gradient} x1="0" y1="0" x2=".3" y2="1"><stop stopColor={`color-mix(in srgb, ${color} 82%, white)`}/><stop offset=".48" stopColor={color}/><stop offset="1" stopColor={`color-mix(in srgb, ${color} 74%, ${theme.panel})`}/></linearGradient></defs>
-          <g className="widget-pie-body" transform={`translate(${dx * split} ${dy * split})`}>
-            <Shape {...shape} className="widget-pie-depth" transform="translate(0 7)" fill={`color-mix(in srgb, ${color} 42%, ${theme.panel})`}/>
+          <g className="widget-pie-body" transform={transform}>
             <Shape {...shape} className="widget-pie-face" fill={`url(#${gradient})`}/>
           </g>
           {callouts && <g className="widget-pie-label" textAnchor={side < 0 ? 'start' : 'end'}>
-            <polyline className="widget-pie-leader" points={`${cx + dx * (radius + split)},${cy + dy * (radius + split)} ${cx + dx * (radius + split + 12)},${cy + dy * (radius + split + 12)} ${cx + side * 96},${labelY + 6} ${labelX},${labelY + 6}`} stroke={color}/>
+            <polyline className="widget-pie-leader" points={`${cx + dx * (radius + split)},${cy + dy * (radius + split) * tilt} ${cx + dx * (radius + split + 12)},${cy + dy * (radius + split + 12) * tilt} ${cx + side * 96},${labelY + 6} ${labelX},${labelY + 6}`} stroke={color}/>
             <text x={labelX} y={labelY - 27} className="widget-pie-name">{row.name.length > 5 ? `${row.name.slice(0, 4)}…` : row.name}</text>
             <text x={labelX} y={labelY - 5} className="widget-pie-value" style={valueLabel.length > 3 ? { fontSize: 14 } : undefined}>{valueLabel}<tspan className="widget-pie-unit"> {unit}</tspan></text>
             <text x={labelX} y={labelY + 25} className="widget-pie-share">{number(share, precision)}%</text>

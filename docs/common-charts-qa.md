@@ -47,3 +47,15 @@
 - [浏览器状态记录](evidence/common-charts/browser-checks.json)
 
 ECharts 数据变换参考：[官方 Data Transform 文档](https://echarts.apache.org/handbook/en/concepts/data-transform/)。
+
+## 后续修订：倾斜饼面、地图下钻与三级位置
+
+- 饼面纵向比例调整为 0.72，配合侧面厚度形成轻微俯视透视；外引线连接实际扇区边缘，文字保持正立。
+- 根据用户近景反馈，改用前半圆可见弧段构造真实外圈侧壁，替代向下复制整个扇区的伪厚度；侧壁先于全部顶面绘制，各自共用投影。小扇区转向前侧，两块都露出等高厚度，径向仅轻微分离 1.2 个 SVG 单位；无黑色描边，仅保留细暖色高光。回归断言覆盖双扇区侧壁、绘制顺序及顶面与侧壁对齐。
+- 修复全国视图下状态分组只高亮、不定位的问题。点击“行驶”下钻朝阳区并选择车辆 3；点击“静止”从区县返回全国地图并聚焦北京、天津的车辆 1、2、4、5。切换地图层级后再执行相机定位，避免旧区县范围影响车群显示。
+- 速度列表的车辆名称后增加定位图标和三级地名。现有快照解析为车辆 1–4“北京-北京-朝阳区”、车辆 5“天津-天津-蓟州区”；普通省市区验证为“广东-广州-天河区”。按 GPS 读取现有离线边界，同一批查询复用文件请求；数据变化会取消旧结果。状态分组排行不附加单车地名。
+- `npm run verify` 再次通过：123 项应用测试、地图检查、两版构建、4 项 Sites 检查及独立产物检查。增加真实区县与地名断言、跨区域及同区县车群定位、全国分类点击和位置无障碍文本回归。
+- Chrome 实测桌面 2560 × 1323、窄屏 390 × 844。窄屏地名完整显示且无横向溢出；点击车辆 5 下钻蓟州区，Space 激活“行驶”扇区下钻朝阳区；桌面跨区域车群全部可见。
+- 两版构建页面复查通过，捕获的控制台错误均为空；基线排行没有附加车辆位置。道研编辑器临时将状态饼图切为条形图，仍为“静止 4 辆 / 行驶 1 辆”，没有误显示单车定位文案；草稿已放弃，饼图保留。
+
+本次证据：[饼图接缝近景](evidence/vehicle-chart-location/pie-seam.png)、[行驶车辆下钻](evidence/vehicle-chart-location/moving-district-desktop.png)、[静止车群聚焦](evidence/vehicle-chart-location/stopped-group-desktop.png)、[窄屏三卡](evidence/vehicle-chart-location/cards-narrow.png)、[道研构建](evidence/vehicle-chart-location/daoyan-built.png)、[基线构建](evidence/vehicle-chart-location/base-built.png)。

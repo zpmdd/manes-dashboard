@@ -74,17 +74,21 @@ class PanelErrorBoundary extends Component {
   }
 }
 
-const BoundWidget = memo(function BoundWidget({ item, result, refresh, code, index, onNavigate, theme, fontFamily, vehicleData = false, selectedCodes }) {
+const BoundWidget = memo(function BoundWidget({ item, result, refresh, code, index, onNavigate, theme, fontFamily, vehicleData = false, selectedCodes, vehicleLocations }) {
   const external = item.binding.sourceId !== 'demo' && !['text', 'clock'].includes(item.type);
   const mapped = useMemo(() => {
     if (!external) return null;
     try {
       const data = getMappedData({ rows: result?.rows }, item.binding, item);
       if (vehicleData) data.scope = '车辆定位快照';
+      if (vehicleData && item.type === 'bar') {
+        const vehicleCodes = new Set(result?.rows?.map(row => row.code));
+        data.rows = data.rows.map(row => vehicleCodes.has(row.code) ? { ...row, location: vehicleLocations?.[row.code] || '正在定位…' } : row);
+      }
       return { data, vehicleData };
     }
     catch (error) { return { data: { rows: [] }, error: error.message }; }
-  }, [external, result?.rows, item.binding, item.aggregate, item.type, item.unit, item.columns, item.binding.groupBy, vehicleData]);
+  }, [external, result?.rows, item.binding, item.aggregate, item.type, item.unit, item.columns, item.binding.groupBy, vehicleData, vehicleLocations]);
   const state = mapped?.error ? { status: 'error', error: mapped.error } : result || { status: 'loading' };
   const reload = useCallback(() => refresh(item.binding.sourceId), [refresh, item.binding.sourceId]);
   const widget = <DashboardWidget selectedCodes={vehicleData ? selectedCodes : undefined} theme={theme} fontFamily={fontFamily} config={item} code={code} index={index} onNavigate={onNavigate} data={mapped?.data} dataState={external ? state : undefined} onRefresh={external ? reload : undefined}/>;
@@ -203,8 +207,8 @@ export function App() {
     const next = normalizeConfig({ ...config, dataSources: sources, modules: [...config.modules, item] });
     editor.change(next); editor.select(item.id); setSidePanel('inspector');
   };
-  const navigate = useCallback((next, vehicle) => { navigationRequest.current?.abort(); setCode(String(next)); location.hash = String(next); setDialog(null); sendCommand(vehicle ? 'vehicle' : 'region', vehicle || String(next), String(next)); }, [sendCommand]);
-  const vehicleLayer = useVehicleLayer({ allVehicles: vehicles, index, mapVisible: config.map.visible, layers, setLayers, command, code, activeCode, dialog, setDialog, navigate, sendCommand, setToast, fetchJson, navigationRequest });
+  const navigate = useCallback((next, vehicle) => { navigationRequest.current?.abort(); setCode(String(next)); location.hash = String(next); setDialog(null); sendCommand(Array.isArray(vehicle) ? 'vehicles' : vehicle ? 'vehicle' : 'region', vehicle || String(next), String(next)); }, [sendCommand]);
+  const vehicleLayer = useVehicleLayer({ allVehicles: vehicles, index, mapVisible: config.map.visible, layers, setLayers, command, code, dialog, setDialog, navigate, setToast, fetchJson, navigationRequest });
   const { vehicle, setVehicle, vehicleHighlight, vehicleDetailed, setVehicleDetailed, vehicleHover, hoverVehicle, hoverTimer, focusVehicles, pickVehicle, clearVehicleSelection, showVehicleDetails } = vehicleLayer;
   const navigateWidget = useCallback(next => {
     if (project.vehicles && vehicleLayer.navigateWidget(next)) return;
@@ -243,7 +247,7 @@ export function App() {
       {error && <div className="load-error" role="alert"><strong>{error}</strong><div><button onClick={() => setRetry(n => n + 1)}>重试</button><button onClick={() => navigate(NATIONAL)}>返回全国</button></div></div>}
       <div className="map-bottom">{project.vehicles && <VehicleToolbar vehicles={vehicles} result={vehicleResult} layer={vehicleLayer} loaded={loaded} loading={loading} visible={layers.vehicles}/>}<div className="map-legend">{layers.roadmap && <span>离线道路底图</span>}{layers.roads && <span><i className="legend-line"/>道路网络</span>}{layers.beacons && <span><i className="legend-dot"/>监测节点</span>}{layers.heat && <span>{project.vehicles ? `车辆密度 · ${vehicles.length} 辆` : '态势热力'}</span>}</div><button onClick={showInfo}>{layers.roadmap ? '本地道路瓦片 · 1–10 级' : loaded?.code === '420381' ? '© OpenStreetMap contributors' : 'DataV.GeoAtlas · Natural Earth'}<Info size={11}/></button></div>
     </section></CanvasItem>}
-    {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}><BoundWidget selectedCodes={vehicleLayer.selectedCodes} vehicleData={project.vehicles && item.binding.sourceId === config.map.vehicleSourceId} theme={theme} fontFamily={fontFamily} item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={activeCode} index={index} onNavigate={navigateWidget}/></CanvasItem>)}
+    {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}><BoundWidget vehicleLocations={vehicleLayer.vehicleLocations} selectedCodes={vehicleLayer.selectedCodes} vehicleData={project.vehicles && item.binding.sourceId === config.map.vehicleSourceId} theme={theme} fontFamily={fontFamily} item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={activeCode} index={index} onNavigate={navigateWidget}/></CanvasItem>)}
     {editing && <div className="canvas-guides" aria-hidden="true">{editor.guides.map(guide => <i key={guide.axis} className={`canvas-guide guide-${guide.axis}`} style={guide.axis === 'x' ? { left: `${guide.position}%`, top: `${guide.from}%`, height: `${guide.to - guide.from}%` } : { top: `${guide.position}%`, left: `${guide.from}%`, width: `${guide.to - guide.from}%` }}/>)}</div>}
     </div>
     {vehicleHover && layers.vehicles && !editing && <VehicleTooltip value={vehicleHover} detailed={vehicleDetailed} onPointerEnter={() => clearTimeout(hoverTimer.current)} onPointerLeave={() => hoverVehicle(null)}/>}

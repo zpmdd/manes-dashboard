@@ -314,7 +314,7 @@ function CameraControls({ command, code, onTelemetry, bounds, viewport, project 
     const c = controls.current;
     if (!c || !command.sequence || appliedCommand.current === command.sequence) return;
     if (command.type === 'region' && command.vehicle !== code) return;
-    if (command.type === 'vehicle' && command.regionCode !== code) return;
+    if (['vehicle', 'vehicles'].includes(command.type) && command.regionCode !== code) return;
     appliedCommand.current = command.sequence;
     if (command.type === 'vehicle') { focusBounds.current = districtVehicleBounds(bounds, project, command.vehicle); fit(); return; }
     if (command.type === 'region') { focusBounds.current = bounds; fit(); return; }

@@ -9,7 +9,7 @@ import { createDataSourceController, validateSourceUrl, getMappedData, parseSour
 import { normalizeConfig } from '../src/dashboardConfig.js';
 import { DEFAULT_THEME, THEMES } from '../src/themes.js';
 import { layoutLabels, lineage, shortName } from '../src/geo.js';
-import { VEHICLE_FIELDS, linkedVehicles as resolveVehicles, groupVehiclePoints, vehicleDistrict, vehicleCalloutPosition } from '../src/vehicles.js';
+import { VEHICLE_FIELDS, linkedVehicles as resolveVehicles, groupVehiclePoints, vehicleDistrict, vehicleLocationLabel, vehicleCalloutPosition } from '../src/vehicles.js';
 import { atlasGrid, roadmapMaterial, viewAtlas } from '../src/useRoadmap.js';
 
 import VEHICLES from '../src/projects/daoyan-vehicles.json' with { type: 'json' };
@@ -124,6 +124,9 @@ try {
   const readVehicleRegion = async code => JSON.parse(await readFile(new URL(`../public/data/regions/${code}.json`, import.meta.url), 'utf8'));
   const districts = await Promise.all(VEHICLES.map(vehicle => vehicleDistrict([vehicle], vehicleRegionIndex, readVehicleRegion)));
   assert.deepEqual(districts, ['110105', '110105', '110105', '110105', '120119'], 'Resolve actual boundaries, including municipalities without a city tier');
+  assert.deepEqual(districts.map(code => vehicleLocationLabel(code, vehicleRegionIndex)), ['北京-北京-朝阳区', '北京-北京-朝阳区', '北京-北京-朝阳区', '北京-北京-朝阳区', '天津-天津-蓟州区']);
+  assert.equal(vehicleLocationLabel('440106', vehicleRegionIndex), '广东-广州-天河区');
+  assert.equal(vehicleLocationLabel(null, vehicleRegionIndex), '未匹配地区');
   assert.equal(await vehicleDistrict(VEHICLES.slice(0, 4), vehicleRegionIndex, readVehicleRegion), '110105', 'Overlapping groups stop at their shared district too');
   assert.equal(await vehicleDistrict(VEHICLES, vehicleRegionIndex, readVehicleRegion), null, 'Cross-district fleet focus stays separate from single-vehicle focus');
   assert.equal(await vehicleDistrict([{ GEO_LON: 0, GEO_LAT: 0 }], vehicleRegionIndex, readVehicleRegion), null);
@@ -341,8 +344,8 @@ try {
   const vehicleHookSource = await readFile(new URL('../src/useVehicleLayer.js', import.meta.url), 'utf8');
   const focusSource = vehicleHookSource.slice(vehicleHookSource.indexOf('  const focusVehicles = '), vehicleHookSource.indexOf('  const pickVehicle = '));
   const pendingVehicles = [], focusedVehicles = [], vehicleNotices = [], vehicleHighlights = [], vehicleRequest = { current: null };
-  const focusVehicle = new Function('context', 'useCallback', 'vehicleDistrict', 'fetchJson', 'allVehicles', `const { index, vehicleRequest, navigate, sendCommand, setLayers, setDialog, setVehicleHover, setVehicleHighlight, setVehicle, setToast } = context; ${focusSource}; return focusVehicles;`)(
-    { index: vehicleRegionIndex, vehicleRequest, navigate: (code, vehicle) => focusedVehicles.push([code, vehicle.VEHICLENO]), sendCommand: () => assert.fail('Single vehicles must never use point-radius zoom'), setLayers() {}, setDialog() {}, setVehicleHover() {}, setVehicleHighlight: code => vehicleHighlights.push(code), setVehicle() {}, setToast: message => vehicleNotices.push(message) },
+  const focusVehicle = new Function('context', 'useCallback', 'vehicleDistrict', 'fetchJson', 'allVehicles', `const NATIONAL = '100000'; const { index, vehicleRequest, navigate, setLayers, setDialog, setVehicleHover, setVehicleHighlight, setVehicle, setToast } = context; ${focusSource}; return focusVehicles;`)(
+    { index: vehicleRegionIndex, vehicleRequest, navigate: (code, vehicle) => focusedVehicles.push([code, Array.isArray(vehicle) ? vehicle.map(item => item.VEHICLENO) : vehicle?.VEHICLENO]), setLayers() {}, setDialog() {}, setVehicleHover() {}, setVehicleHighlight: code => vehicleHighlights.push(code), setVehicle() {}, setToast: message => vehicleNotices.push(message) },
     fn => fn, () => new Promise((resolve, reject) => pendingVehicles.push({ resolve, reject })), () => {}, VEHICLES,
   );
   const obsoleteFocus = focusVehicle([VEHICLES[0]]), obsoleteRequest = vehicleRequest.current;
@@ -356,6 +359,14 @@ try {
   assert.equal(focusedVehicles.length, 1, 'Clearing selection or navigating away cancels a pending focus');
   const failedFocus = focusVehicle(VEHICLES[1]); pendingVehicles[3].reject(new Error('Offline boundary unavailable')); await failedFocus;
   assert(vehicleNotices[0].includes('Offline boundary unavailable'), 'Boundary failures surface without overzooming or hiding vehicles');
+  const stoppedVehicles = linkedVehicles('vehicle:stopped'), groupFocus = focusVehicle(stoppedVehicles, 'vehicle:stopped'); pendingVehicles[4].resolve(null); await groupFocus;
+  assert.deepEqual(focusedVehicles.at(-1), ['100000', ['1', '2', '4', '5']], 'Cross-region selections restore the full map before framing all selected vehicles');
+  const sameDistrictFocus = focusVehicle(VEHICLES.slice(0, 2), 'vehicle:all'); pendingVehicles[5].resolve('110105'); await sameDistrictFocus;
+  assert.deepEqual(focusedVehicles.at(-1), ['110105', undefined], 'Same-district groups show the complete district');
+  const dispatchedGroups = [];
+  const navigateGroup = new Function('useCallback', 'linkedVehicles', 'allVehicles', 'focusVehicles', `${vehicleHookSource.slice(vehicleHookSource.indexOf('  const navigateWidget = '), vehicleHookSource.indexOf('  return { vehicle,'))}; return navigateWidget;`)(fn => fn, resolveVehicles, VEHICLES, (vehicles, code) => dispatchedGroups.push([code, vehicles.map(item => item.VEHICLENO)]));
+  for (const code of ['vehicle:moving', 'vehicle:stopped', 'vehicle:all']) assert.equal(navigateGroup(code), true);
+  assert.deepEqual(dispatchedGroups.slice(0, 2), [['vehicle:moving', ['3']], ['vehicle:stopped', ['1', '2', '4', '5']]], 'National-view chart clicks run the same focus path as individual GPS rows');
   console.log('PASS: all single-vehicle entrypoints share district focus; rapid selection, cancellation and boundary failure preserve the latest intent.');
   const defaults = new Function(`${appSource.split('\n').find(line => line.startsWith('const DEFAULT_LAYERS = '))}; return DEFAULT_LAYERS;`)();
   let presetLayers = defaults;

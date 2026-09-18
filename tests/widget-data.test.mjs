@@ -112,7 +112,10 @@ test('all basic components render real supplied data and failed connections neve
     assert.equal((pie.match(/class="widget-pie-slice" role="button" tabindex="0"/g) || []).length, 2);
     assert.match(pie, /class="widget-pie-value">4<tspan class="widget-pie-unit"> 台/); assert.match(pie, /A84,84 0 1,1/);
     assert.equal((pie.match(/class="widget-pie-leader"/g) || []).length, 2);
-    assert.equal((pie.match(/class="widget-pie-depth"/g) || []).length, 2);
+    assert.equal((pie.match(/class="widget-pie-depth"/g) || []).length, 2, 'Both the 80% and 20% slices expose their front outer wall');
+    assert(pie.lastIndexOf('class="widget-pie-depth"') < pie.indexOf('class="widget-pie-face"'), 'Every side wall stays below every top surface, so slices cannot cover each other');
+    assert.deepEqual([...pie.matchAll(/<path transform="([^"]+)"[^>]+class="widget-pie-depth"/g)].map(match => match[1]), [...pie.matchAll(/class="widget-pie-body" transform="([^"]+)"/g)].map(match => match[1]), 'Each slightly separated slice keeps its top and wall aligned');
+    assert.match(pie, /scale\(1 0.72\)/, 'Only the pie surface is tilted, while the labels stay upright');
     assert.doesNotMatch(pie, /widget-donut-legend/);
     const singlePie = render('pie', { data: { rows: [{ name: '唯一', value: 1 }] } });
     assert.match(singlePie, /<circle cx="160" cy="100" r="84"/); assert.doesNotMatch(singlePie, /widget-donut-total/);
@@ -129,6 +132,10 @@ test('all basic components render real supplied data and failed connections neve
     assert.match(selectedRanking, /✓/);
     assert.doesNotMatch(render('bar', { data: vehicles, selectedCodes: [], onNavigate() {} }), /aria-pressed="true"|✓/, 'Clearing selection removes the check mark');
     assert.doesNotMatch(render('bar', { data: vehicles, onNavigate() {} }), /aria-pressed/, 'Unbound base rankings retain ordinary navigation semantics');
+    const locatedRanking = render('bar', { data: { rows: [{ name: '车辆甲', code: 'vehicle:A', value: 0, location: '北京-北京-朝阳区' }] }, onNavigate() {} });
+    assert.match(locatedRanking, /车辆甲，北京-北京-朝阳区，0/);
+    assert.match(locatedRanking, /class="widget-rank-location" title="北京-北京-朝阳区"/);
+    assert.doesNotMatch(render('bar', { data: vehicles }), /widget-rank-location/, 'Ordinary rankings do not invent location metadata');
     const vehicleMetric = renderToStaticMarkup(createElement(VehicleWidget, { item: config, data: vehicles, state: { status: 'ready' }, onNavigate() {} }, createElement(DashboardWidget, { config, data: vehicles })));
     assert.match(vehicleMetric, />2<\/strong>/);
     assert.doesNotMatch(vehicleMetric, /vehicle-metric-visual|行驶|静止/, 'The sculpted total omits the vehicle visual and duplicate state counts');
