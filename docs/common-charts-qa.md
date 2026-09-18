@@ -59,3 +59,14 @@ ECharts 数据变换参考：[官方 Data Transform 文档](https://echarts.apac
 - 两版构建页面复查通过，捕获的控制台错误均为空；基线排行没有附加车辆位置。道研编辑器临时将状态饼图切为条形图，仍为“静止 4 辆 / 行驶 1 辆”，没有误显示单车定位文案；草稿已放弃，饼图保留。
 
 本次证据：[饼图接缝近景](evidence/vehicle-chart-location/pie-seam.png)、[行驶车辆下钻](evidence/vehicle-chart-location/moving-district-desktop.png)、[静止车群聚焦](evidence/vehicle-chart-location/stopped-group-desktop.png)、[窄屏三卡](evidence/vehicle-chart-location/cards-narrow.png)、[道研构建](evidence/vehicle-chart-location/daoyan-built.png)、[基线构建](evidence/vehicle-chart-location/base-built.png)。
+
+## 后续修订：取消车群选择与恢复导航
+
+- 原“取消高亮”仅清除选中状态，未发出地图适配命令；现与 Esc 共用取消入口，终止尚未完成的定位并恢复当前行政层级的完整范围。
+- 面包屑、返回上级、区域选择和普通地图点击共用清除车辆聚焦后的导航入口；道研“运行总览”同时返回全国。基础版业务视图保留原有层级行为。
+- 构建版快速取消时还复现了“车辆详情”动态插入导致取消按钮移位、误开详情的问题；固定取消按钮在详情之前，缩放时保持位置。
+- Chrome 实测“静止”跨北京和天津的四车选择后，取消按钮、Esc、“中国”面包屑、区域选择器的“全国概览”均清除选择并恢复全图；车辆 5 下钻蓟州区后，“运行总览”返回全国。取消后北京标签位置与初始全国视图完全一致（2560 × 1267 视口，x=1774.2585、y=628.5781），列表无选中项。
+- 最新道研构建快速选择后立即取消成功，未误开弹窗，地图回到点位概览。`npm run verify` 通过全部 123 项应用测试、地图检查、双版本构建、4 项 Sites 检查和产物检查；新增取消未完成定位、层级导航与道研总览回归断言。
+- 最新基础版构建通过区域选择器下钻北京市，再通过“中国”面包屑返回全国；两版构建页面捕获的控制台错误均为空。
+
+取消后的实际页面：[恢复全国概览](evidence/vehicle-chart-location/selection-cancel-overview.png)。

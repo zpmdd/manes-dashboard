@@ -348,6 +348,8 @@ try {
     { index: vehicleRegionIndex, vehicleRequest, navigate: (code, vehicle) => focusedVehicles.push([code, Array.isArray(vehicle) ? vehicle.map(item => item.VEHICLENO) : vehicle?.VEHICLENO]), setLayers() {}, setDialog() {}, setVehicleHover() {}, setVehicleHighlight: code => vehicleHighlights.push(code), setVehicle() {}, setToast: message => vehicleNotices.push(message) },
     fn => fn, () => new Promise((resolve, reject) => pendingVehicles.push({ resolve, reject })), () => {}, VEHICLES,
   );
+  const restoredRegions = [];
+  const selectionNavigation = new Function('useCallback', 'vehicleRequest', 'setVehicleHighlight', 'setVehicleHover', 'navigate', 'code', `${vehicleHookSource.slice(vehicleHookSource.indexOf('  const navigateRegion = '), vehicleHookSource.indexOf('  const hoverVehicle = '))}; return { navigateRegion, clearVehicleSelection };`)(fn => fn, vehicleRequest, code => vehicleHighlights.push(code), () => {}, code => restoredRegions.push(code), '100000');
   const obsoleteFocus = focusVehicle([VEHICLES[0]]), obsoleteRequest = vehicleRequest.current;
   const currentFocus = focusVehicle(VEHICLES[4]);
   assert(obsoleteRequest.signal.aborted, 'A new vehicle selection cancels the prior lookup');
@@ -355,8 +357,12 @@ try {
   pendingVehicles[0].resolve('110105'); await obsoleteFocus;
   assert.deepEqual(focusedVehicles, [['120119', '5']], 'Late district lookup results cannot steal the selected vehicle focus');
   assert.deepEqual(vehicleHighlights, ['vehicle:1', 'vehicle:5']);
-  const cancelledFocus = focusVehicle(VEHICLES[2]); vehicleRequest.current.abort(); pendingVehicles[2].resolve('110105'); await cancelledFocus;
+  const cancelledFocus = focusVehicle(VEHICLES[2]); selectionNavigation.clearVehicleSelection(); pendingVehicles[2].resolve('110105'); await cancelledFocus;
   assert.equal(focusedVehicles.length, 1, 'Clearing selection or navigating away cancels a pending focus');
+  assert.deepEqual(restoredRegions, ['100000'], 'Cancelling a fleet selection refits the current national region instead of leaving the fleet zoom');
+  assert.equal(vehicleHighlights.at(-1), 'vehicle:all');
+  selectionNavigation.navigateRegion('110000');
+  assert.equal(restoredRegions.at(-1), '110000', 'Explicit hierarchy navigation clears vehicle focus and visits the requested region');
   const failedFocus = focusVehicle(VEHICLES[1]); pendingVehicles[3].reject(new Error('Offline boundary unavailable')); await failedFocus;
   assert(vehicleNotices[0].includes('Offline boundary unavailable'), 'Boundary failures surface without overzooming or hiding vehicles');
   const stoppedVehicles = linkedVehicles('vehicle:stopped'), groupFocus = focusVehicle(stoppedVehicles, 'vehicle:stopped'); pendingVehicles[4].resolve(null); await groupFocus;
@@ -370,12 +376,16 @@ try {
   console.log('PASS: all single-vehicle entrypoints share district focus; rapid selection, cancellation and boundary failure preserve the latest intent.');
   const defaults = new Function(`${appSource.split('\n').find(line => line.startsWith('const DEFAULT_LAYERS = '))}; return DEFAULT_LAYERS;`)();
   let presetLayers = defaults;
-  const setView = new Function('project', 'DEFAULT_LAYERS', 'setMode', 'setLayers', 'setDialog', `${appSource.slice(appSource.indexOf('  const setView = '), appSource.indexOf('  const fullScreen = '))}; return setView;`)({ vehicles: false }, defaults, () => {}, next => { presetLayers = typeof next === 'function' ? next(presetLayers) : next; }, () => {});
+  const makeSetView = new Function('project', 'DEFAULT_LAYERS', 'setMode', 'setLayers', 'setDialog', 'navigateRegion', 'NATIONAL', `${appSource.slice(appSource.indexOf('  const setView = '), appSource.indexOf('  const fullScreen = '))}; return setView;`);
+  const setView = makeSetView({ vehicles: false }, defaults, () => {}, next => { presetLayers = typeof next === 'function' ? next(presetLayers) : next; }, () => {}, () => assert.fail('Base view presets preserve their current region'), '100000');
   assert.equal(defaults.beacons, false);
   for (const mode of ['overview', 'monitor', 'traffic', 'regions']) {
     presetLayers = { ...presetLayers, beacons: true }; setView(mode);
     assert.equal(presetLayers.beacons, false, `${mode} must start with monitoring pillars disabled`);
   }
+  const vehicleOverviewRegions = [], setVehicleView = makeSetView({ vehicles: true }, defaults, () => {}, () => {}, () => {}, code => vehicleOverviewRegions.push(code), '100000');
+  for (const mode of ['monitor', 'traffic', 'regions', 'overview']) setVehicleView(mode);
+  assert.deepEqual(vehicleOverviewRegions, ['100000'], 'Vehicle overview ends fleet focus and returns to the national overview');
   console.log('PASS: initial map and all four business view presets leave demo pillars disabled.');
   // Exercise App's actual region selection/effect with deferred map reads and the real source controller.
   const activeCodeSource = appSource.split('\n').find(line => line.includes('const activeCode = '));

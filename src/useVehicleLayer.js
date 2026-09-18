@@ -24,16 +24,17 @@ export function useVehicleLayer({ allVehicles, index, mapVisible, layers, setLay
     return () => abort.abort();
   }, [allVehicles, index, fetchJson]);
   const hoverTimer = useRef(), vehicleRequest = navigationRequest;
+  const navigateRegion = useCallback(next => { vehicleRequest.current?.abort(); setVehicleHighlight('vehicle:all'); setVehicleHover(null); navigate(next); }, [navigate]);
+  const clearVehicleSelection = useCallback(() => navigateRegion(code), [navigateRegion, code]);
   const hoverVehicle = useCallback(value => { clearTimeout(hoverTimer.current); if (value) setVehicleHover(value); else hoverTimer.current = setTimeout(() => setVehicleHover(null), 120); }, []);
   useEffect(() => { setVehicleHover(null); return () => clearTimeout(hoverTimer.current); }, [command, vehicleHighlight, vehicleDetailed, code, layers.vehicles]);
   useEffect(() => () => vehicleRequest.current?.abort(), [mapVisible]);
   useEffect(() => {
     if (!vehicleHover && vehicleHighlight === 'vehicle:all') return;
-    const dismiss = event => { if (event.key === 'Escape' && !dialog) { setVehicleHover(null); setVehicleHighlight('vehicle:all'); vehicleRequest.current?.abort(); } };
+    const dismiss = event => { if (event.key === 'Escape' && !dialog) { if (vehicleHighlight === 'vehicle:all') setVehicleHover(null); else clearVehicleSelection(); } };
     window.addEventListener('keydown', dismiss); return () => window.removeEventListener('keydown', dismiss);
-  }, [vehicleHover, vehicleHighlight, dialog]);
+  }, [vehicleHover, vehicleHighlight, dialog, clearVehicleSelection]);
   useEffect(() => { vehicleRequest.current?.abort(); setVehicleHover(null); if (!linkedVehicles(vehicleHighlight, allVehicles)?.length) setVehicleHighlight('vehicle:all'); }, [allVehicles]);
-  const clearVehicleSelection = useCallback(() => { vehicleRequest.current?.abort(); setVehicleHighlight('vehicle:all'); setVehicleHover(null); }, []);
   const focusVehicles = useCallback(async (item, highlight) => {
     vehicleRequest.current?.abort();
     const abort = new AbortController(); vehicleRequest.current = abort;
@@ -61,5 +62,5 @@ export function useVehicleLayer({ allVehicles, index, mapVisible, layers, setLay
     }
     return false;
   }, [focusVehicles, allVehicles]);
-  return { vehicle, setVehicle, vehicleHighlight, selectedCodes, vehicleLocations, vehicleDetailed, setVehicleDetailed, vehicleHover, hoverVehicle, hoverTimer, focusVehicles, pickVehicle, clearVehicleSelection, showVehicleDetails, navigateWidget };
+  return { vehicle, setVehicle, vehicleHighlight, selectedCodes, vehicleLocations, vehicleDetailed, setVehicleDetailed, vehicleHover, hoverVehicle, hoverTimer, focusVehicles, pickVehicle, clearVehicleSelection, navigateRegion, showVehicleDetails, navigateWidget };
 }

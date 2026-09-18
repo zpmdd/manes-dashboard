@@ -209,15 +209,15 @@ export function App() {
   };
   const navigate = useCallback((next, vehicle) => { navigationRequest.current?.abort(); setCode(String(next)); location.hash = String(next); setDialog(null); sendCommand(Array.isArray(vehicle) ? 'vehicles' : vehicle ? 'vehicle' : 'region', vehicle || String(next), String(next)); }, [sendCommand]);
   const vehicleLayer = useVehicleLayer({ allVehicles: vehicles, index, mapVisible: config.map.visible, layers, setLayers, command, code, dialog, setDialog, navigate, setToast, fetchJson, navigationRequest });
-  const { vehicle, setVehicle, vehicleHighlight, vehicleDetailed, setVehicleDetailed, vehicleHover, hoverVehicle, hoverTimer, focusVehicles, pickVehicle, clearVehicleSelection, showVehicleDetails } = vehicleLayer;
+  const { vehicle, setVehicle, vehicleHighlight, vehicleDetailed, setVehicleDetailed, vehicleHover, hoverVehicle, hoverTimer, focusVehicles, pickVehicle, clearVehicleSelection, navigateRegion, showVehicleDetails } = vehicleLayer;
   const navigateWidget = useCallback(next => {
     if (project.vehicles && vehicleLayer.navigateWidget(next)) return;
-    if (index?.[String(next)]) navigate(next); else setToast('数据中的区域编码不在当前地图范围内');
-  }, [index, navigate, vehicleLayer.navigateWidget]);
-  const pickFeature = useCallback(feature => { const next = String(feature.properties.adcode); if (next === code) setToast('已到当前数据的最细层级'); else if (index?.[next]) navigate(next); }, [navigate, code, index]);
+    if (index?.[String(next)]) navigateRegion(next); else setToast('数据中的区域编码不在当前地图范围内');
+  }, [index, navigateRegion, vehicleLayer.navigateWidget]);
+  const pickFeature = useCallback(feature => { const next = String(feature.properties.adcode); if (next === code) setToast('已到当前数据的最细层级'); else if (index?.[next]) navigateRegion(next); }, [navigateRegion, code, index]);
   const setView = next => {
     setMode(next);
-    if (next === 'overview') setLayers({ ...DEFAULT_LAYERS, vehicles: project.vehicles });
+    if (next === 'overview') { setLayers({ ...DEFAULT_LAYERS, vehicles: project.vehicles }); if (project.vehicles) navigateRegion(NATIONAL); }
     if (next === 'monitor') setLayers(s => ({ ...s, heat: true, beacons: false, arcs: false }));
     if (next === 'traffic') setLayers(s => ({ ...s, roads: true, heat: false, arcs: false, beacons: false }));
     if (next === 'regions') { setLayers(s => ({ ...s, heat: false, beacons: false, arcs: false })); setDialog('regions'); }
@@ -237,14 +237,14 @@ export function App() {
     </header>
     <div ref={stage} className={`canvas-stage ${editing && config.canvas.snap ? 'show-grid' : ''}`} onPointerDown={editing ? () => editor.select(null) : undefined}>
     {(config.map.visible || editing) && <CanvasItem id="map" title={config.mapTitle} item={config.map} editor={editor} isMap onLayoutPreview={previewMapLayout}><section className="map-panel" aria-label="交互式三维行政区地图" aria-busy={loading}>
-      <div className="map-heading"><div className="map-section-title">{config.mapTitle}</div><div className="location-strip"><div className="breadcrumb">{path.map((p, i) => <span key={p.code}>{i > 0 && <CaretRight size={11}/>}<button onClick={() => navigate(p.code)}>{shortName(p.name)}</button></span>)}</div><button className="scope-select" onClick={() => setDialog('regions')}>{scope?.name === '中国' ? '全国运行总览' : scope?.name || '全国运行总览'}<CaretDown size={13}/></button></div></div>
+      <div className="map-heading"><div className="map-section-title">{config.mapTitle}</div><div className="location-strip"><div className="breadcrumb">{path.map((p, i) => <span key={p.code}>{i > 0 && <CaretRight size={11}/>}<button onClick={() => navigateRegion(p.code)}>{shortName(p.name)}</button></span>)}</div><button className="scope-select" onClick={() => setDialog('regions')}>{scope?.name === '中国' ? '全国运行总览' : scope?.name || '全国运行总览'}<CaretDown size={13}/></button></div></div>
       <div className="map-tools" aria-label="地图工具"><IconButton label="地图图层" onClick={() => setDialog('layers')}><Stack/></IconButton><IconButton label="恢复默认视角" onClick={() => sendCommand('reset')}><Compass/></IconButton><IconButton label="数据与性能说明" onClick={showInfo}><Info/></IconButton></div>
       <div className="map-interaction"><IconButton label="放大地图" onClick={() => sendCommand('zoomIn')}><Plus/></IconButton><IconButton label="缩小地图" onClick={() => sendCommand('zoomOut')}><Minus/></IconButton><span/><IconButton label="旋转地图十五度" onClick={() => sendCommand('rotate')}><Compass/></IconButton><IconButton label="俯视地图" onClick={() => sendCommand('top')}><MapTrifold/></IconButton></div>
       {loaded?.code === NATIONAL && <SouthSea data={loaded.data}/>}
-      {path.length > 1 && <button className="back-region" onClick={() => navigate(path[path.length - 2].code)}><ArrowLeft/>返回{shortName(path[path.length - 2].name)}</button>}
+      {path.length > 1 && <button className="back-region" onClick={() => navigateRegion(path[path.length - 2].code)}><ArrowLeft/>返回{shortName(path[path.length - 2].name)}</button>}
       {hover && <div className="hover-caption" role="status">{hover}<span>点击查看区域</span><ArrowUpRight/></div>}
       {loading && <div className={`loading-state${loaded ? ' is-focusing' : ''}`} role="status"><CircleNotch className="spinner" size={24}/><span>正在展开地图</span></div>}
-      {error && <div className="load-error" role="alert"><strong>{error}</strong><div><button onClick={() => setRetry(n => n + 1)}>重试</button><button onClick={() => navigate(NATIONAL)}>返回全国</button></div></div>}
+      {error && <div className="load-error" role="alert"><strong>{error}</strong><div><button onClick={() => setRetry(n => n + 1)}>重试</button><button onClick={() => navigateRegion(NATIONAL)}>返回全国</button></div></div>}
       <div className="map-bottom">{project.vehicles && <VehicleToolbar vehicles={vehicles} result={vehicleResult} layer={vehicleLayer} loaded={loaded} loading={loading} visible={layers.vehicles}/>}<div className="map-legend">{layers.roadmap && <span>离线道路底图</span>}{layers.roads && <span><i className="legend-line"/>道路网络</span>}{layers.beacons && <span><i className="legend-dot"/>监测节点</span>}{layers.heat && <span>{project.vehicles ? `车辆密度 · ${vehicles.length} 辆` : '态势热力'}</span>}</div><button onClick={showInfo}>{layers.roadmap ? '本地道路瓦片 · 1–10 级' : loaded?.code === '420381' ? '© OpenStreetMap contributors' : 'DataV.GeoAtlas · Natural Earth'}<Info size={11}/></button></div>
     </section></CanvasItem>}
     {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}><BoundWidget vehicleLocations={vehicleLayer.vehicleLocations} selectedCodes={vehicleLayer.selectedCodes} vehicleData={project.vehicles && item.binding.sourceId === config.map.vehicleSourceId} theme={theme} fontFamily={fontFamily} item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={activeCode} index={index} onNavigate={navigateWidget}/></CanvasItem>)}
@@ -252,7 +252,7 @@ export function App() {
     </div>
     {vehicleHover && layers.vehicles && !editing && <VehicleTooltip value={vehicleHover} detailed={vehicleDetailed} onPointerEnter={() => clearTimeout(hoverTimer.current)} onPointerLeave={() => hoverVehicle(null)}/>}
     {editor.editing && dialog === 'theme' && <ThemePanel theme={theme} editing={editor.editing} onChange={editor.setTheme} onClose={() => setDialog(null)}/>}
-    {dialog === 'regions' && index && <RegionPicker index={index} code={activeCode} onNavigate={navigate} onClose={() => setDialog(null)}/>}
+    {dialog === 'regions' && index && <RegionPicker index={index} code={activeCode} onNavigate={navigateRegion} onClose={() => setDialog(null)}/>}
     {dialog === 'layers' && <LayerPanel heatHint={project.vehicles ? '按当前车辆 GPS 位置叠加，重叠越多热度越高' : undefined} extraLayers={project.vehicles ? [['vehicles', '车辆信息', `${vehicles.length} 辆车 · 数据源可在地图属性中设置`]] : []} layers={layers} setLayers={setLayers} quality={quality} setQuality={setQuality} detail={loaded?.code === '420381'} onClose={() => setDialog(null)}/>}
     {dialog === 'vehicle' && vehicle && <VehiclePanel vehicles={vehicles} vehicle={vehicle} onSelect={setVehicle} onFocus={focusVehicles} onClose={() => setDialog(null)}/>}
     {dialog === 'templates' && <PanelErrorBoundary title="模板库" onClose={() => setDialog(null)}><Suspense fallback={<div className="toast" role="status">正在加载模板库…</div>}><TemplatePanel project={project} config={config} onLoad={next => editor.change(next)} onClose={() => setDialog(null)}/></Suspense></PanelErrorBoundary>}
