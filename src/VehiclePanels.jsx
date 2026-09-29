@@ -5,7 +5,7 @@ import { VEHICLE_FIELDS, linkedVehicles } from './vehicles';
 
 export function VehiclePanel({ vehicles, vehicle, onSelect, onFocus, onClose }) {
   return <Dialog title={`车辆 ${vehicle.VEHICLENO}`} subtitle="VEHICLE · 定位快照" onClose={onClose} wide>
-    <div className="vehicle-tabs" aria-label="选择车辆">{vehicles.map(item => <button key={item.VEHICLENO} aria-pressed={vehicle === item} onClick={() => onSelect(item)}>车辆 {item.VEHICLENO}</button>)}</div>
+    <div className="vehicle-tabs" aria-label="选择车辆">{vehicles.map(item => <button key={item.code} aria-pressed={vehicle === item} onClick={() => onSelect(item)}>车辆 {item.VEHICLENO}</button>)}</div>
     <dl className="vehicle-details">{VEHICLE_FIELDS.map(([key, label]) => <div key={key} className={key.endsWith('_CODE') ? 'vehicle-code' : ''}><dt>{label}</dt><dd>{vehicle[key] ?? '未提供'}</dd></div>)}</dl>
     <button className="vehicle-focus" onClick={() => onFocus(vehicle)}>定位此车<ArrowUpRight size={14}/></button>
     <p className="fineprint">按提供的经纬度展示。号牌颜色、报警、状态和加密标识保留原始编码；坐标系尚未确认。</p>
@@ -30,14 +30,15 @@ export function VehicleTooltip({ value: { vehicles, rect }, detailed, ...events 
   return createPortal(<div id="vehicle-hover-details" className="vehicle-tooltip" role="tooltip" style={{ left, top }} {...events}>
     <strong>{group ? `此处 ${vehicles.length} 辆车` : `车辆 ${item.VEHICLENO}`}</strong>
     <span className="vehicle-tooltip-status">{group ? `行驶 ${vehicles.filter(row => row.GPS_SPEED > 0).length} · 静止 ${vehicles.filter(row => row.GPS_SPEED === 0).length}` : item.GPS_SPEED > 0 ? '行驶' : '静止'}</span>
-    {group ? <p>{vehicles.map(row => `车辆 ${row.VEHICLENO}`).join('、')}</p> : <dl><div><dt>GPS 速度</dt><dd>{item.GPS_SPEED}</dd></div><div><dt>行车定位速度</dt><dd>{item.RECORD_SPEED}</dd></div><div><dt>经纬度</dt><dd>{item.GEO_LON.toFixed(6)}, {item.GEO_LAT.toFixed(6)}</dd></div></dl>}
+    {group ? <p>{vehicles.slice(0, 8).map(row => `车辆 ${row.VEHICLENO}`).join('、')}{vehicles.length > 8 && ` 等 ${vehicles.length} 辆，点击放大查看`}</p> : <dl><div><dt>GPS 速度</dt><dd>{item.GPS_SPEED}</dd></div><div><dt>行车定位速度</dt><dd>{item.RECORD_SPEED}</dd></div><div><dt>经纬度</dt><dd>{item.GEO_LON.toFixed(6)}, {item.GEO_LAT.toFixed(6)}</dd></div></dl>}
     <time>GPS · {item.GPS_DATE}</time><small>{detailed ? '点击选中车辆' : '点击放大查看车辆'}</small>
   </div>, document.body);
 }
 
-export function VehicleToolbar({ vehicles, result, layer, loaded, loading, visible }) {
+export function VehicleToolbar({ vehicles, result, layer, loaded, loading, visible, clusters, clusterMode = false }) {
   const dates = [...new Set(vehicles.map(item => item.GPS_DATE).filter(Boolean))];
-  return <div className="vehicle-toolbar"><button onClick={() => layer.focusVehicles()} disabled={!loaded || loading || !vehicles.length}>定位车辆 · {vehicles.length}</button>{layer.vehicleHighlight !== 'vehicle:all' && <button onClick={layer.clearVehicleSelection}>取消高亮 · {linkedVehicles(layer.vehicleHighlight, vehicles)?.length || 0} 辆</button>}{layer.vehicleDetailed && visible && layer.vehicle && <button onClick={() => layer.showVehicleDetails(layer.vehicle)}>车辆详情</button>}<span>{result.status === 'error' ? result.error : result.status === 'loading' ? '正在加载车辆数据' : dates.length === 1 ? `GPS · ${dates[0]}` : dates.length ? 'GPS · 各车时间见详情' : '暂无车辆数据'}</span>{result.stale && <span>保留上次数据</span>}<span className="vehicle-mode" aria-live="polite">{layer.vehicleDetailed ? '车辆视图' : '点位概览 · 点击放大'}</span></div>;
+  const count = clusterMode ? clusters?.length || 0 : vehicles.length;
+  return <div className="vehicle-toolbar"><button onClick={() => layer.focusVehicles(clusterMode ? vehicles.filter(row => row.CLUSTER_LABEL >= 0) : undefined)} disabled={!loaded || loading || !count}>{clusterMode ? result.status === 'ready' ? `定位聚集 · ${count} 簇` : '定位聚集' : `定位车辆 · ${count}`}</button>{layer.vehicleHighlight !== 'vehicle:all' && <button onClick={layer.clearVehicleSelection}>取消高亮 · {linkedVehicles(layer.vehicleHighlight, vehicles)?.length || 0} 辆</button>}{!clusterMode && layer.vehicleDetailed && visible && layer.vehicle && <button onClick={() => layer.showVehicleDetails(layer.vehicle)}>车辆详情</button>}<span>{result.status === 'error' ? result.error : result.status === 'loading' ? '正在加载车辆数据' : dates.length === 1 ? `GPS · ${dates[0]}` : dates.length ? 'GPS · 各车时间见详情' : '暂无车辆数据'}</span>{result.stale && <span>保留上次数据</span>}<span className="vehicle-mode" aria-live="polite">{clusterMode ? result.status !== 'ready' ? '等待聚集结果' : count ? '聚集簇中心 · 点击定位' : '当前窗无聚集' : layer.vehicleDetailed ? '车辆视图' : '点位概览 · 点击放大'}</span></div>;
 }
 
 export function VehicleWidget({ children, item, state, data, onNavigate }) {

@@ -11,6 +11,7 @@ for (const project of ['base', 'daoyan']) {
   assert(html.includes(`data-project="${project}"`)); assert(!html.includes('%PROJECT_'));
   assert.equal(JSON.parse(readFileSync(path.join(directory, 'project.json'))).project, project);
   assert(html.includes(project === 'base' ? 'href="/brand/manes-icon.svg"' : 'href="data:,"'));
+  if (project === 'base') assert(!existsSync(path.join(directory, 'client/data/vehicle-demo')), 'base must not include synthetic vehicle batches');
   const assets = path.join(directory, 'client/assets');
   const bundle = readdirSync(assets).filter(file => file.endsWith('.js')).map(file => readFileSync(path.join(assets, file), 'utf8')).join('\n');
   for (const marker of ['ds_daoyan_vehicles', '2026/9/13 00:00', '00000000000000000000000000000011']) assert.equal(bundle.includes(marker), project === 'daoyan', `${project} project data boundary: ${marker}`);

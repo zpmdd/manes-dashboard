@@ -11,6 +11,7 @@ for (const args of [['node_modules/vite/bin/vite.js', 'build', '--mode', project
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status || 1);
 }
+if (project === 'base') rmSync(path.join(root, 'dist/client/data/vehicle-demo'), { recursive: true, force: true });
 const destination = path.join(root, 'releases', project);
 rmSync(destination, { recursive: true, force: true });
 mkdirSync(destination, { recursive: true });

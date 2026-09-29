@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { mergeGroups } from 'three/addons/utils/BufferGeometryUtils.js';
 import { extent, labelPoint, layoutLabels, NATIONAL, polygons, projection, shortName } from './geo';
 import { useRoadmap } from './useRoadmap';
-import { EMPTY_VEHICLES, linkedVehicles, groupVehiclePoints, vehicleCalloutPosition } from './vehicles';
+import { EMPTY_VEHICLES, linkedVehicles, groupVehiclePoints, vehicleCalloutPosition, VEHICLE_MARKER_LIMIT, CLUSTER_LABEL_LIMIT } from './vehicles';
 import { VehicleCallout } from './VehiclePanels';
 import { DEFAULT_THEME } from './themes';
 
@@ -101,48 +101,84 @@ export function vehicleDetailVisible(camera, project, size, previous = false) {
   return points[0].distanceTo(points[1]) >= (previous ? 1.6 : 2);
 }
 
-function MapLabelLayout({ model, labelPortal, viewport, onVehicleDetailChange, fontFamily }) {
+const screenOrigin = () => [0, 0];
+// Visibility is tested per projected marker; the screen-space container has no world anchor.
+const screenOcclusion = () => {};
+
+function MapLabelLayout({ model, clusters, labelPortal, viewport, onVehicleDetailChange, fontFamily, vehiclesEnabled, clusterMode, highlightedVehicles, selectedVehicle, onVehicleSelect, onVehicleHover, hoverVehicle }) {
   const { size, invalidate } = useThree();
-  const detail = useRef(null);
-  const regions = useMemo(() => new Map(model.regions.map(region => [String(region.feature.properties.adcode), region])), [model]);
-  useLayoutEffect(() => { invalidate(); }, [model, size, viewport, invalidate, fontFamily]);
+  const detail = useRef(null), slots = useRef([]), last = useRef(''), dimensions = useRef(new WeakMap());
+  const point = useMemo(() => new THREE.Vector3(), []);
+  const regions = useMemo(() => new Map(model.regions.map(region => [String(region.feature.properties.adcode), region])), [model.regions]);
+  const highlighted = useMemo(() => new Set(highlightedVehicles), [highlightedVehicles]);
+  useLayoutEffect(() => { last.current = ''; dimensions.current = new WeakMap(); invalidate(); }, [model, clusters, size, viewport, invalidate, fontFamily, vehiclesEnabled, clusterMode, highlighted, selectedVehicle]);
   useFrame(({ camera }) => {
+    const regionElements = labelPortal.current?.querySelectorAll('.map-region-label') || [];
+    const signature = camera.matrixWorld.elements.join(',') + camera.projectionMatrix.elements.join(',') + `:${regionElements.length}:${labelPortal.current?.childElementCount}`;
+    if (last.current === signature) return;
+    last.current = signature;
     const detailed = vehicleDetailVisible(camera, model.project, size, detail.current);
-    if (labelPortal.current) labelPortal.current.dataset.vehicleDetail = String(detailed);
-    if (detail.current !== detailed) { detail.current = detailed; onVehicleDetailChange?.(detailed); }
-    const elements = [...(labelPortal.current?.querySelectorAll('.vehicle-marker') || []), ...(labelPortal.current?.querySelectorAll('.map-region-label') || [])];
-    const labels = elements.flatMap(element => {
-      const region = regions.get(element.dataset.adcode);
-      const vehicle = model.vehicles[Number(element.dataset.vehicle)];
-      if (!region && !vehicle) return [];
-      const position = vehicle?.position || [region.anchor[0], TOP + .08 * model.scale, region.anchor[2]];
-      const point = new THREE.Vector3(...position).project(camera);
-      const rect = element.getBoundingClientRect();
-      return [{ element, vehicle, focused: !!vehicle || region.focused, x: (point.x + 1) * size.width / 2, y: (1 - point.y) * size.height / 2, width: rect.width, height: rect.height }];
-    });
-    const groups = groupVehiclePoints(labels.filter(label => label.vehicle).sort((a, b) => Number(b.element.dataset.highlighted === 'true') - Number(a.element.dataset.highlighted === 'true')), detailed);
-    for (const group of groups) for (const [i, point] of group.entries()) {
-      const highlighted = group.some(p => p.element.dataset.highlighted === 'true');
-      point.element.dataset.members = group.map(p => p.element.dataset.vehicle).join(',');
-      point.element.dataset.count = group.length;
-      point.element.classList.toggle('is-selected', highlighted);
-      point.element.setAttribute('aria-pressed', String(highlighted));
-      point.element.setAttribute('aria-label', detailed ? `查看车辆 ${point.vehicle.vehicle.VEHICLENO}` : `车辆点 · ${group.length} 辆 · 点击放大`);
-      point.element.style.visibility = i ? 'hidden' : 'visible';
-      point.element.tabIndex = i ? -1 : 0;
-    }
-    const placed = [...groups.map(group => group[0]), ...labels.filter(label => !label.vehicle)];
+    if (detail.current !== detailed) { detail.current = detailed; if (labelPortal.current) labelPortal.current.dataset.vehicleDetail = String(detailed); onVehicleDetailChange?.(detailed); }
     const bounds = viewport ? { left: (viewport.x + viewport.width * .02) * size.width, right: (viewport.x + viewport.width * .98) * size.width, top: (viewport.y + viewport.height * .12) * size.height, bottom: (viewport.y + viewport.height * .98) * size.height } : { left: 0, right: size.width, top: 0, bottom: size.height };
-    const arranged = layoutLabels(placed, bounds);
-    for (const { element, vehicle, x, y, dx = 0, dy = 0, width, height, hidden } of arranged) {
+    const visible = [];
+    if (vehiclesEnabled && !clusterMode) model.vehicles.forEach((vehicle, index) => {
+      point.set(...vehicle.position).project(camera);
+      const x = (point.x + 1) * size.width / 2, y = (1 - point.y) * size.height / 2;
+      if (point.z < -1 || point.z > 1 || x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return;
+      visible.push({ vehicle, index, x, y, focused: true, pinned: vehicle === selectedVehicle });
+    });
+    const groups = groupVehiclePoints(visible, detailed), labels = [];
+    for (const element of labelPortal.current?.querySelectorAll('.cluster-map-label') || []) {
+      const cluster = clusters[Number(element.dataset.cluster)];
+      if (!cluster) continue;
+      const [x, y] = model.project(cluster.center);
+      point.set(x, TOP + .1 * model.scale, -y).project(camera);
+      labels.push({ element, cluster: true, focused: true, x: point.z < -1 || point.z > 1 ? -Infinity : (point.x + 1) * size.width / 2, y: (1 - point.y) * size.height / 2 });
+    }
+    // One HTML root and a fixed marker pool replace a React root for every GPS record.
+    for (let slot = 0; slot < slots.current.length; slot++) {
+      const element = slots.current[slot];
+      if (!element) continue;
+      const group = groups[slot];
+      element.parentElement.style.display = group ? '' : 'none';
+      if (!group) continue;
+      const first = group[0], vehicle = first.vehicle.vehicle, selected = group.some(p => highlighted.has(p.vehicle.vehicle));
+      const members = group.map(p => p.index).join(','), label = group.length > 1 ? `${group.length} 辆` : vehicle.VEHICLENO;
+      const className = `vehicle-marker${clusterMode ? vehicle.CLUSTER_LABEL === -1 ? ' is-noise' : ' is-clustered' : ''}${vehicle.GPS_SPEED > 0 ? ' is-moving' : ''}${selected ? ' is-selected' : ''}`;
+      if (element.dataset.members !== members || element.className !== className || element.dataset.detailed !== String(detailed)) {
+        element.dataset.members = members; element.dataset.vehicle = first.index; element.dataset.count = group.length; element.dataset.detailed = detailed;
+        element.dataset.highlighted = selected; element.className = className; element.setAttribute('aria-pressed', String(selected));
+        element.setAttribute('aria-label', group.length > 1 ? `车辆点 · ${group.length} 辆 · 点击放大` : `查看车辆 ${vehicle.VEHICLENO}`);
+        element.querySelector('.vehicle-marker-name').textContent = label;
+      }
+      element.parentElement.style.transform = `translate3d(${first.x}px,${first.y}px,0) translate(-50%,-50%)`;
+      labels.push({ ...first, element });
+    }
+    for (const element of regionElements) {
+      const region = regions.get(element.dataset.adcode);
+      if (!region) continue;
+      point.set(region.anchor[0], TOP + .08 * model.scale, region.anchor[2]).project(camera);
+      labels.push({ element, focused: region.focused, x: (point.x + 1) * size.width / 2, y: (1 - point.y) * size.height / 2 });
+    }
+    // Batch DOM writes above; measure only changed text/font, before the layout writes below.
+    for (const label of labels) {
+      const token = `${detailed}:${label.element.textContent}`;
+      let cached = dimensions.current.get(label.element);
+      if (cached?.token !== token) { const rect = label.element.getBoundingClientRect(); cached = { token, width: rect.width, height: rect.height }; dimensions.current.set(label.element, cached); }
+      Object.assign(label, { width: cached.width, height: cached.height });
+    }
+    const arranged = layoutLabels(labels, bounds);
+    for (const { element, vehicle, cluster, x, y, dx = 0, dy = 0, width, height, hidden } of arranged) {
       const length = Math.hypot(dx, dy), edge = Math.min(dx ? width / 2 / Math.abs(dx) : Infinity, dy ? height / 2 / Math.abs(dy) : Infinity);
       // Broad-view dots stay at their actual coordinates; only detailed labels are displaced.
       if (vehicle && !detailed) {
         element.style.visibility = x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom ? 'hidden' : 'visible';
+        element.tabIndex = element.style.visibility === 'hidden' ? -1 : 0;
         element.style.setProperty('--label-x', '0px'); element.style.setProperty('--label-y', '0px'); element.style.setProperty('--leader-length', '0px');
         continue;
       }
       element.style.visibility = hidden ? 'hidden' : 'visible';
+      if (vehicle || cluster) element.tabIndex = hidden ? -1 : 0;
       element.style.setProperty('--label-x', `${dx}px`);
       element.style.setProperty('--label-y', `${dy}px`);
       element.style.setProperty('--leader-length', `${length ? Math.max(0, length * (1 - edge) - 2) : 0}px`);
@@ -165,7 +201,10 @@ function MapLabelLayout({ model, labelPortal, viewport, onVehicleDetailChange, f
       }
     }
   });
-  return null;
+  const members = element => element.dataset.members.split(',').map(i => model.vehicles[Number(i)].vehicle);
+  return vehiclesEnabled && !clusterMode && <Html key="viewport-markers" portal={labelPortal} calculatePosition={screenOrigin} onOcclude={screenOcclusion} zIndexRange={[12, 12]} style={{ pointerEvents: 'none' }}>
+    {Array.from({ length: Math.min(VEHICLE_MARKER_LIMIT, model.vehicles.length) }, (_, i) => <div className="vehicle-anchor" key={i} style={{ display: 'none' }}><button ref={element => { slots.current[i] = element; last.current = ''; invalidate(); }} className="vehicle-marker" aria-describedby="vehicle-hover-details" onPointerEnter={hoverVehicle} onPointerLeave={() => onVehicleHover?.(null)} onFocus={hoverVehicle} onBlur={() => onVehicleHover?.(null)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); const group = members(event.currentTarget); onVehicleHover?.(null); onVehicleSelect(group.length === 1 && detail.current ? group[0] : group, detail.current); }}><i className="vehicle-dot" aria-hidden="true"/><span className="vehicle-symbol"><Car size={14} weight="fill"/><span className="vehicle-marker-name"/></span></button></div>)}
+  </Html>;
 }
 
 function Roads({ data, project, layers, detail, scale, labelPortal }) {
@@ -210,14 +249,30 @@ function Roads({ data, project, layers, detail, scale, labelPortal }) {
   </lineSegments>)}{labels.map(({ref, name, point}) => <Html key={ref} portal={labelPortal} position={[point[0],TOP+.065 * scale,-point[1]]} center zIndexRange={[8,0]} style={{pointerEvents:'none'}}><span className="road-label" title={name}>{ref}</span></Html>)}</>;
 }
 
-function Beacon({ position, height, scale, theme }) {
-  return <group position={position} scale={scale}>
-    <mesh position={[0, .035, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+export function Beacons({ points, scale, theme = DEFAULT_THEME, selected, onSelect }) {
+  const group = useRef(), { invalidate } = useThree();
+  useLayoutEffect(() => {
+    if (!group.current) return;
+    const transform = new THREE.Object3D();
+    group.current.children.forEach((mesh, part) => {
+      points.forEach((point, i) => {
+        const { position, height } = point, width = point.label !== undefined && selected === `cluster:${point.label}` ? 1.4 : 1;
+        transform.position.set(position[0], position[1] + [.035, height / 2, height / 2, height][part] * scale, position[2]);
+        transform.rotation.set(part === 0 ? -Math.PI / 2 : 0, 0, 0);
+        transform.scale.set(scale * width, scale * (part === 1 || part === 2 ? height : width), scale * width);
+        transform.updateMatrix(); mesh.setMatrixAt(i, transform.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true; mesh.computeBoundingSphere();
+    });
+    invalidate();
+  }, [points, scale, selected, invalidate]);
+  return points.length > 0 && <group name="monitor-beacons" key={points.length} ref={group} onClick={onSelect ? event => { if (event.delta > 5 || event.instanceId == null) return; event.stopPropagation(); onSelect(`cluster:${points[event.instanceId].label}`); } : undefined}>
+    <instancedMesh args={[null, null, points.length]} frustumCulled={false}>
       <ringGeometry args={[.11, .15, 32]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#efe3bb' : theme.accent} transparent opacity={.65} toneMapped={false} />
-    </mesh>
-    <mesh position={[0, height / 2, 0]}><cylinderGeometry args={[.028, .028, height, 5]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#fff0ce' : theme.accent} toneMapped={false} /></mesh>
-    <mesh position={[0, height / 2, 0]}><cylinderGeometry args={[.07, .12, height, 8, 1, true]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#ebd8a3' : theme.accent} transparent opacity={.13} depthWrite={false} side={THREE.DoubleSide} /></mesh>
-    <mesh position={[0, height, 0]}><sphereGeometry args={[.068, 12, 8]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#fff6db' : theme.accent} toneMapped={false} /></mesh>
+    </instancedMesh>
+    <instancedMesh args={[null, null, points.length]} frustumCulled={false}><cylinderGeometry args={[.028, .028, 1, 5]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#fff0ce' : theme.accent} toneMapped={false} /></instancedMesh>
+    <instancedMesh args={[null, null, points.length]} frustumCulled={false}><cylinderGeometry args={[.07, .12, 1, 8, 1, true]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#ebd8a3' : theme.accent} transparent opacity={.13} depthWrite={false} side={THREE.DoubleSide} /></instancedMesh>
+    <instancedMesh args={[null, null, points.length]} frustumCulled={false}><sphereGeometry args={[.068, 12, 8]} /><meshBasicMaterial color={theme.id === DEFAULT_THEME.id ? '#fff6db' : theme.accent} toneMapped={false} /></instancedMesh>
   </group>;
 }
 
@@ -234,10 +289,57 @@ export const RegionMesh = memo(function RegionMesh({ region, selected, onSelect,
 });
 
 const heatFragment = `varying vec2 vUv; void main(){float d=length(vUv-0.5)*2.0; float a=pow(max(0.0,1.0-d),2.0)*0.4; gl_FragColor=vec4(1.0,0.70,0.32,a);}`;
-const heatVertex = `varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`;
+const heatVertex = `varying vec2 vUv; void main(){vUv=uv;vec4 p=vec4(position,1.0);
+#ifdef USE_INSTANCING
+p=instanceMatrix*p;
+#endif
+gl_Position=projectionMatrix*modelViewMatrix*p;}`;
+
+function HeatLayer({ points, scale }) {
+  const mesh = useRef(), { invalidate } = useThree();
+  useLayoutEffect(() => {
+    if (!mesh.current) return;
+    const transform = new THREE.Object3D(); transform.rotation.x = -Math.PI / 2; transform.scale.setScalar(2 * scale);
+    points.forEach((point, i) => { transform.position.set(point.position[0], TOP + .025 * scale, point.position[2]); transform.updateMatrix(); mesh.current.setMatrixAt(i, transform.matrix); });
+    mesh.current.instanceMatrix.needsUpdate = true; invalidate();
+  }, [points, scale, invalidate]);
+  return points.length > 0 && <instancedMesh key={points.length} ref={mesh} args={[null, null, points.length]} frustumCulled={false}>
+    <planeGeometry args={[1, 1]}/><shaderMaterial vertexShader={heatVertex} fragmentShader={heatFragment} transparent depthWrite={false}/>
+  </instancedMesh>;
+}
 
 export function heatPointsFor(model, hubs, vehicleHeat) {
-  return vehicleHeat ? model.vehicles.map(({ vehicle, position }) => ({ name: vehicle.VEHICLENO, position })) : hubs;
+  return vehicleHeat ? model.vehicles.filter(({ vehicle }) => Number.isInteger(vehicle.CLUSTER_LABEL) && vehicle.CLUSTER_LABEL >= 0).map(({ vehicle, position }) => ({ name: vehicle.code || vehicle.VEHICLENO, position })) : hubs;
+}
+
+export function beaconPointsFor(model, hubs, clusters, vehicleBeacons) {
+  return vehicleBeacons ? clusters.map(cluster => {
+    const [x, y] = model.project(cluster.center);
+    return { label: cluster.label, position: [x, TOP + .035 * model.scale, -y], height: 1.25 };
+  }) : hubs;
+}
+
+export function ClusterPoints({ clusters, model, selected, onSelect, theme = DEFAULT_THEME }) {
+  const mesh = useRef(), { invalidate } = useThree();
+  useLayoutEffect(() => {
+    if (!mesh.current) return;
+    const transform = new THREE.Object3D(), color = new THREE.Color();
+    transform.rotation.x = -Math.PI / 2;
+    clusters.forEach((cluster, i) => {
+      const [x, y] = model.project(cluster.center), active = selected === `cluster:${cluster.label}`;
+      transform.position.set(x, TOP + .05 * model.scale, -y);
+      transform.scale.setScalar((active ? .08 : .055) * model.scale); transform.updateMatrix();
+      mesh.current.setMatrixAt(i, transform.matrix);
+      mesh.current.setColorAt(i, color.set(active ? '#fff5d5' : theme.accent));
+    });
+    mesh.current.instanceMatrix.needsUpdate = true;
+    mesh.current.instanceColor.needsUpdate = true;
+    mesh.current.computeBoundingSphere(); invalidate();
+  }, [clusters, model, selected, theme, invalidate]);
+  // Every cluster retains its center point; only HTML text labels have a count limit.
+  return clusters.length > 0 && <instancedMesh name="cluster-points" key={clusters.length} ref={mesh} args={[null, null, clusters.length]} frustumCulled={false} renderOrder={3} onClick={event => { if (event.delta > 5 || event.instanceId == null) return; event.stopPropagation(); onSelect(`cluster:${clusters[event.instanceId].label}`); }}>
+    <circleGeometry args={[1, 16]}/><meshBasicMaterial transparent toneMapped={false} depthTest={false} depthWrite={false}/>
+  </instancedMesh>;
 }
 
 export function updateMapClipping(camera, target, surfaceY = TOP) {
@@ -366,19 +468,23 @@ function CameraControls({ command, code, onTelemetry, bounds, viewport, project 
   return <OrbitControls ref={controls} makeDefault enableDamping dampingFactor={.12} enablePan screenSpacePanning minDistance={.0001} maxDistance={90} minPolarAngle={.01} maxPolarAngle={Math.PI / 2.12} onStart={cancelFlight} onEnd={() => direction.current.copy(camera.position).sub(controls.current.target)} onChange={() => invalidate()} />;
 }
 
-function World({ vehicles = EMPTY_VEHICLES, vehicleHeat = false, data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, onVehicleClear, onVehicleDetails, vehicleHighlight = 'vehicle:all', command, quality, onTelemetry, viewport, theme = DEFAULT_THEME, fontFamily }) {
+function World({ clusters = [], clusterMode = false, onClusterSelect, vehicles = EMPTY_VEHICLES, vehicleHeat = false, data, collections, roadData, labelPortal, code, layers, selected, onSelect, onHover, onVehicleSelect, onVehicleHover, onVehicleDetailChange, onVehicleClear, onVehicleDetails, vehicleHighlight = 'vehicle:all', command, quality, onTelemetry, viewport, theme = DEFAULT_THEME, fontFamily }) {
   const national = code === NATIONAL;
   const geography = useMemo(() => modelFor(data, code, collections), [data, code, collections]);
   const model = useMemo(() => ({ ...geography, vehicles: projectVehicles(vehicles, geography.project, geography.bounds) }), [geography, vehicles]);
   const { gl, invalidate } = useThree();
-  const highlightedVehicles = vehicleHighlight === 'vehicle:all' ? [] : linkedVehicles(vehicleHighlight, vehicles) || [];
-  const selectedVehicle = highlightedVehicles.length === 1 ? model.vehicles.find(point => point.vehicle === highlightedVehicles[0]) : null;
+  const highlightedVehicles = useMemo(() => vehicleHighlight === 'vehicle:all' ? [] : linkedVehicles(vehicleHighlight, vehicles) || [], [vehicleHighlight, vehicles]);
+  const selectedVehicle = !clusterMode && highlightedVehicles.length === 1 ? model.vehicles.find(point => point.vehicle === highlightedVehicles[0]) : null;
+  // All centers are drawn in one batch; keep only the most useful text labels.
+  const labeledClusters = useMemo(() => [...clusters].sort((a, b) => Number(vehicleHighlight === `cluster:${b.label}`) - Number(vehicleHighlight === `cluster:${a.label}`) || b.vehicleCount - a.vehicleCount || a.label - b.label).slice(0, CLUSTER_LABEL_LIMIT), [clusters, vehicleHighlight]);
   const vehicleMembers = element => (element.dataset.members || element.dataset.vehicle).split(',').map(i => model.vehicles[Number(i)].vehicle);
   const hoverVehicle = event => { if (event.currentTarget.dataset.vehicle !== String(vehicles.indexOf(selectedVehicle?.vehicle))) onVehicleHover?.({ vehicles: vehicleMembers(event.currentTarget), rect: event.currentTarget.getBoundingClientRect() }); };
   const { material: roadmap, status: roadmapStatus } = useRoadmap(layers.roadmap, model.project, viewport);
   const hubs = useMemo(() => national ? HUBS.map(h => {
     const [x, y] = model.project(h.point); return { ...h, position: [x, TOP + .035, -y] };
   }) : model.regions.filter(r => r.focused).slice(0, 8).map((r, i) => ({ name: shortName(r.feature.properties.name), position: r.anchor, height: .55 + (i % 3) * .27 })), [model, national]);
+  const heatPoints = useMemo(() => heatPointsFor(model, hubs, vehicleHeat), [model, hubs, vehicleHeat]);
+  const beaconPoints = useMemo(() => beaconPointsFor(model, hubs, clusters, vehicleHeat), [model, hubs, clusters, vehicleHeat]);
   const arcs = useMemo(() => {
     if (hubs.length < 2) return [];
     const origin = hubs[national ? 2 : 0].position;
@@ -414,15 +520,17 @@ function World({ vehicles = EMPTY_VEHICLES, vehicleHeat = false, data, collectio
     {model.contextEdges.length > 0 && <Line points={model.contextEdges} segments color={theme.map.contextEdge} lineWidth={.65} transparent opacity={.6} toneMapped={false} fog={false} depthWrite={false} renderOrder={2} />}
     {layers.roads && <Roads data={roadData} project={model.project} scale={model.scale} labelPortal={labelPortal} layers={layers} detail={code === '420381'} />}
     {layers.arcs && arcs.map((p, i) => <Line key={i} points={p} color={theme.id === DEFAULT_THEME.id ? '#f5e3b9' : theme.accent} transparent opacity={.55} lineWidth={1} depthWrite={false} />)}
-    {layers.beacons && hubs.map(h => <Beacon theme={theme} key={h.name} position={h.position} height={h.height} scale={model.scale} />)}
-    {layers.vehicles && model.vehicles.map(({ vehicle, position }, i) => <Html key={vehicle.VEHICLENO} portal={labelPortal} position={position} center zIndexRange={[12, 9]} style={{ pointerEvents: 'none' }}><button ref={element => { if (element) invalidate(); }} className={`vehicle-marker${vehicle.GPS_SPEED > 0 ? ' is-moving' : ''}${highlightedVehicles.includes(vehicle) ? ' is-selected' : ''}`} data-vehicle={i} data-highlighted={highlightedVehicles.includes(vehicle)} aria-label={`查看车辆 ${vehicle.VEHICLENO}`} aria-pressed={highlightedVehicles.includes(vehicle)} aria-describedby="vehicle-hover-details" onPointerEnter={hoverVehicle} onPointerLeave={() => onVehicleHover?.(null)} onFocus={hoverVehicle} onBlur={() => onVehicleHover?.(null)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onVehicleHover?.(null); const detailed = labelPortal.current?.dataset.vehicleDetail === 'true'; onVehicleSelect(detailed ? vehicle : vehicleMembers(event.currentTarget), detailed); }}><i className="vehicle-dot" aria-hidden="true"/><span className="vehicle-symbol"><Car size={14} weight="fill"/><span>{vehicle.VEHICLENO}</span></span></button></Html>)}
+    {layers.beacons && <Beacons points={beaconPoints} scale={model.scale} theme={theme} selected={vehicleHighlight} onSelect={vehicleHeat ? onClusterSelect : undefined}/>}
+    {layers.vehicles && clusterMode && <ClusterPoints clusters={clusters} model={model} selected={vehicleHighlight} onSelect={onClusterSelect} theme={theme}/>}
+    {layers.vehicles && clusterMode && labeledClusters.map((cluster, index) => {
+      const [x, y] = model.project(cluster.center);
+      return <Html key={cluster.id} portal={labelPortal} position={[x, TOP + .1 * model.scale, -y]} center zIndexRange={[13, 12]} style={{ pointerEvents: 'none' }}><button className="cluster-map-label" data-cluster={index} aria-pressed={vehicleHighlight === `cluster:${cluster.label}`} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onClusterSelect(`cluster:${cluster.label}`); }} aria-label={`地图聚集簇 ${cluster.label + 1}，${cluster.vehicleCount} 辆`}>聚集簇 {cluster.label + 1}<strong>{cluster.vehicleCount} 辆</strong></button></Html>;
+    })}
     {layers.vehicles && selectedVehicle && <Html portal={labelPortal} position={selectedVehicle.position} zIndexRange={[15, 13]} style={{ pointerEvents: 'none' }}><VehicleCallout index={model.vehicles.indexOf(selectedVehicle)} vehicle={selectedVehicle.vehicle} onClose={onVehicleClear} onDetails={onVehicleDetails}/></Html>}
     {layers.labels && model.regions.filter(r => r.feature.properties.name).map(({ feature, anchor, focused }) => <Html key={feature.properties.adcode} portal={labelPortal} position={[anchor[0], TOP + .08 * model.scale, anchor[2]]} center zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}><span ref={element => { if (element) invalidate(); }} className={`map-region-label${focused ? ' is-focused' : national ? '' : ' is-context'}`} data-adcode={feature.properties.adcode} title={feature.properties.name}>{shortName(feature.properties.name)}</span></Html>)}
-    {layers.heat && heatPointsFor(model, hubs, vehicleHeat).map(h => <mesh key={h.name} rotation={[-Math.PI / 2, 0, 0]} position={[h.position[0], TOP + .025 * model.scale, h.position[2]]}>
-      <planeGeometry args={[2.0 * model.scale, 2.0 * model.scale]} /><shaderMaterial vertexShader={heatVertex} fragmentShader={heatFragment} transparent depthWrite={false} />
-    </mesh>)}
+    {layers.heat && <HeatLayer points={heatPoints} scale={model.scale}/>}
     <CameraControls command={command} code={code} onTelemetry={onTelemetry} bounds={model.bounds} viewport={viewport} project={model.project} />
-    {(layers.labels || layers.vehicles) && <MapLabelLayout model={model} labelPortal={labelPortal} viewport={viewport} onVehicleDetailChange={onVehicleDetailChange} fontFamily={fontFamily} />}
+    {(layers.labels || layers.vehicles) && <MapLabelLayout model={model} clusters={labeledClusters} labelPortal={labelPortal} viewport={viewport} onVehicleDetailChange={onVehicleDetailChange} fontFamily={fontFamily} vehiclesEnabled={layers.vehicles} clusterMode={clusterMode} highlightedVehicles={highlightedVehicles} selectedVehicle={selectedVehicle} onVehicleSelect={onVehicleSelect} onVehicleHover={onVehicleHover} hoverVehicle={hoverVehicle} />}
   </>;
 }
 

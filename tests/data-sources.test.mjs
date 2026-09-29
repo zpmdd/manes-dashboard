@@ -11,6 +11,25 @@ import { analyzeDataContent, inspectDataSource, profileDataFields, suggestDataFi
 const source = (patch = {}) => ({ id: 'ds_test', name: '运行数据', type: 'json', content: '[{"name":"华东","value":12}]', url: '', rowsPath: '', refreshSeconds: 0, ...patch });
 const binding = { sourceId: 'ds_test', fields: { name: 'label', value: 'metrics.total', target: 'metrics.target', time: 'at', status: 'state', code: 'code', series: 'group' } };
 
+test('raw batches load bounded complete pages; reject missing, unsafe, oversized and processed inputs', async () => {
+  const batch = source({ type: 'batch', url: 'https://example.com/run/observations.json' });
+  const manifest = { schemaVersion: 1, kind: 'vehicle-observations', rowCount: 6000, pages: [{ file: 'part-1.json', rowCount: 3000 }, { file: 'part-2.json', rowCount: 3000 }] };
+  const rows = Array.from({ length: 3000 }, (_, i) => ({ value: i, SOURCE_ROW: i + 2 }));
+  const calls = [];
+  const fetcher = async url => { calls.push(url); return new Response(JSON.stringify(url.endsWith('observations.json') ? manifest : rows)); };
+  assert.equal((await loadDataSource(batch, '100000', { fetcher })).length, 6000);
+  assert.deepEqual(calls, [batch.url, 'https://example.com/run/part-1.json', 'https://example.com/run/part-2.json']);
+  assert.equal((await inspectDataSource(batch, '100000', { fetcher })).fields.length, 2);
+  for (const patch of [{ rowCount: 100001 }, { rowCount: 5999 }, { pages: [{ file: '../secret.json', rowCount: 6000 }] }, { pages: [manifest.pages[0], manifest.pages[0]] }]) {
+    await assert.rejects(loadDataSource(batch, '', { fetcher: async () => new Response(JSON.stringify({ ...manifest, ...patch })) }), /批次/);
+  }
+  await assert.rejects(loadDataSource(batch, '', { fetcher: async url => new Response(JSON.stringify(url.endsWith('observations.json') ? manifest : rows.slice(1))) }), /缺失记录/);
+  await assert.rejects(loadDataSource(batch, '', { fetcher: async url => new Response(JSON.stringify(url.endsWith('observations.json') ? manifest : rows.map(row => ({ ...row, CLUSTER_OPTIONS: {} })))) }), /已去重/);
+  await assert.rejects(loadDataSource(batch, '', { fetcher: async url => url.endsWith('observations.json') ? new Response(JSON.stringify(manifest)) : new Response('x'.repeat(DATA_SIZE_LIMIT + 1)) }), /1 MB/);
+  const controller = new AbortController();
+  await assert.rejects(loadDataSource(batch, '', { signal: controller.signal, fetcher: async () => { controller.abort(); return new Response(JSON.stringify(manifest)); } }), { name: 'AbortError' });
+});
+
 test('source normalization restricts templates, safe field paths and credentials', () => {
   assert.equal(normalizeDataSource(source({ refreshSeconds: 1 })).refreshSeconds, 15);
   assert.equal(normalizeDataSource(source({ type: 'http', url: '/api/metrics', content: 'unused' })).content, '');

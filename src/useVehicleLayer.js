@@ -2,27 +2,35 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { linkedVehicles, vehicleDistrict, vehicleLocationLabel } from './vehicles';
 import { NATIONAL } from './geo';
 
-export function useVehicleLayer({ allVehicles, index, mapVisible, layers, setLayers, command, code, dialog, setDialog, navigate, setToast, fetchJson, navigationRequest }) {
+export function useVehicleLayer({ allVehicles, locationVehicles = allVehicles, index, mapVisible, layers, setLayers, command, code, dialog, setDialog, navigate, setToast, fetchJson, navigationRequest }) {
   const [vehicleId, setVehicleId] = useState(null);
-  const vehicle = allVehicles.find(item => item.VEHICLENO === vehicleId) || allVehicles[0];
-  const setVehicle = useCallback(item => setVehicleId(item?.VEHICLENO ?? null), []);
+  const vehicle = allVehicles.find(item => (item.code || `vehicle:${item.VEHICLENO}`) === vehicleId) || allVehicles[0];
+  const setVehicle = useCallback(item => setVehicleId(item ? item.code || `vehicle:${item.VEHICLENO}` : null), []);
   const [vehicleHighlight, setVehicleHighlight] = useState('vehicle:all'), [vehicleDetailed, setVehicleDetailed] = useState(false), [vehicleHover, setVehicleHover] = useState(null);
   const selectedCodes = useMemo(() => vehicleHighlight === 'vehicle:all' ? [] : (linkedVehicles(vehicleHighlight, allVehicles) || []).map(item => item.code), [allVehicles, vehicleHighlight]);
   const [locationResult, setLocationResult] = useState(null);
   const vehicleLocations = locationResult?.rows === allVehicles ? locationResult.labels : null;
   useEffect(() => {
-    if (!index || !allVehicles.length) return;
+    if (!index || !locationVehicles.length) return;
     const abort = new AbortController(), regions = new Map();
     const readRegion = region => {
       if (!regions.has(region)) regions.set(region, fetchJson(`/data/regions/${region}.json`, abort.signal));
       return regions.get(region);
     };
-    Promise.all(allVehicles.map(async item => {
-      try { return [item.code, vehicleLocationLabel(await vehicleDistrict([item], index, readRegion), index)]; }
-      catch { return [item.code, '位置暂不可用']; }
-    })).then(entries => { if (!abort.signal.aborted) setLocationResult({ rows: allVehicles, labels: Object.fromEntries(entries) }); });
+    void (async () => {
+      const entries = [];
+      for (let start = 0; start < locationVehicles.length && !abort.signal.aborted; start += 32) {
+        entries.push(...await Promise.all(locationVehicles.slice(start, start + 32).map(async item => {
+          try { return [item.code, vehicleLocationLabel(await vehicleDistrict([item], index, readRegion), index)]; }
+          catch { return [item.code, '位置暂不可用']; }
+        })));
+        // Yield between batches so nationwide boundary matching never blocks map interaction.
+        if (start + 32 < locationVehicles.length) await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      if (!abort.signal.aborted) setLocationResult({ rows: allVehicles, labels: Object.fromEntries(entries) });
+    })();
     return () => abort.abort();
-  }, [allVehicles, index, fetchJson]);
+  }, [allVehicles, locationVehicles, index, fetchJson]);
   const hoverTimer = useRef(), vehicleRequest = navigationRequest;
   const navigateRegion = useCallback(next => { vehicleRequest.current?.abort(); setVehicleHighlight('vehicle:all'); setVehicleHover(null); navigate(next); }, [navigate]);
   const clearVehicleSelection = useCallback(() => navigateRegion(code), [navigateRegion, code]);
@@ -42,7 +50,7 @@ export function useVehicleLayer({ allVehicles, index, mapVisible, layers, setLay
     if (!vehicles.length) return;
     const single = vehicles.length === 1 ? vehicles[0] : null;
     setLayers(s => ({ ...s, vehicles: true })); setDialog(null); setVehicleHover(null);
-    setVehicleHighlight(highlight || (single ? `vehicle:${single.VEHICLENO}` : 'vehicle:all'));
+    setVehicleHighlight(highlight || (single ? single.code || `vehicle:${single.VEHICLENO}` : 'vehicle:all'));
     setVehicle(vehicles[0]);
     try {
       const district = await vehicleDistrict(vehicles, index, region => fetchJson(`/data/regions/${region}.json`, abort.signal));

@@ -6,7 +6,7 @@ import { MODULE_TYPES } from './dashboardConfig.js';
 import './data-sources.css';
 
 const EXAMPLE = '[\n  { "name": "华东中心", "value": 862, "target": 1000, "status": "在线", "time": "09:00", "code": "310000" },\n  { "name": "华北中心", "value": 715, "target": 1000, "status": "在线", "time": "10:00", "code": "110000" }\n]';
-const TYPES = { json: 'JSON 数据', csv: 'CSV 表格', http: 'HTTP 接口' };
+const TYPES = { json: 'JSON 数据', csv: 'CSV 表格', http: 'HTTP 接口', batch: '车辆原始批次' };
 const FIELD_TYPES = { number: '数值', 'numeric-string': '数值文字', time: '时间', string: '文字', boolean: '布尔', mixed: '混合', empty: '空值', unsupported: '需调整名称' };
 const FIELD_LABELS = { name: '名称 / 分类', value: '主数值', value2: '第二数值', time: '时间', series: '系列', x: 'X 坐标 / 类别', y: 'Y 坐标 / 类别', status: '状态', target: '目标值', code: '区域编码' };
 const FIELD_PAGE_SIZE = 100;
@@ -22,7 +22,7 @@ export function DataSourcePanel({ sources = [], onChange, onClose, code = '10000
   const dialog = useRef(), upload = useRef(), request = useRef(), opener = useRef(document.activeElement);
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const source = draft.find(item => item.id === selected);
-  const sourceRegion = source?.type === 'http' && source.url.includes('{adcode}') ? code : null;
+  const sourceRegion = ['http', 'batch'].includes(source?.type) && source.url.includes('{adcode}') ? code : null;
   const fieldsByPath = useMemo(() => new Map((preview?.fields || []).map(field => [field.path, field])), [preview?.fields]);
   const filteredFields = useMemo(() => {
     const fields = preview?.fields || [], query = fields.length > FIELD_PAGE_SIZE ? fieldQuery.trim().toLowerCase() : '';
@@ -108,7 +108,7 @@ export function DataSourcePanel({ sources = [], onChange, onClose, code = '10000
     if (preview?.rows === null) throw new Error('请先选择要使用的数据列表');
     return draft.map(item => {
       const normalized = normalizeDataSource(item);
-      if (normalized.type !== 'http') parseSourceContent(normalized.content, normalized.type, normalized.rowsPath);
+      if (!['http', 'batch'].includes(normalized.type)) parseSourceContent(normalized.content, normalized.type, normalized.rowsPath);
       return normalized;
     });
   };
@@ -147,7 +147,7 @@ export function DataSourcePanel({ sources = [], onChange, onClose, code = '10000
           {source ? <>
             <div className="ds-section-heading"><h3>连接设置</h3><button type="button" className="ds-remove" onClick={remove}><Trash size={14}/>移除</button></div>
             <div className="ds-grid"><label className="ds-field"><span>数据源名称</span><input value={source.name} maxLength={40} required onChange={event => update({ name: event.target.value })}/></label><label className="ds-field"><span>接入方式</span><select value={source.type} onChange={event => changeType(event.target.value)}>{Object.entries(TYPES).map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label></div>
-            {source.type === 'http' ? <>
+            {source.type === 'batch' ? <><label className="ds-field ds-wide"><span>原始批次清单地址</span><input required value={source.url} maxLength={2048} placeholder="/data/vehicle-demo/observations.json" onChange={event => update({ url: event.target.value })}/><small>连接由 Excel 导出的完整原始批次，支持修改时间窗后重算。</small></label><p className="ds-help">最多 100,000 条、100 个分片；每片最多 1 MB、5,000 条。完整读取后统一计算，模板仅保存地址。</p></> : source.type === 'http' ? <>
               <label className="ds-field ds-wide"><span>GET 接口地址</span><input value={source.url} maxLength={2048} required placeholder="/api/monitoring?adcode={adcode}" spellCheck={false} onChange={event => update({ url: event.target.value })}/><small>支持 {'{adcode}'} 区域参数，当前区域 {code}。返回 JSON 或 CSV。</small></label>
               <div className="ds-grid"><label className="ds-field"><span>JSON 数据列表路径</span><input value={source.rowsPath} maxLength={160} placeholder="例如 data.rows；根数组留空" spellCheck={false} onChange={event => update({ rowsPath: event.target.value })}/></label><label className="ds-field"><span>自动刷新间隔</span><select value={source.refreshSeconds} onChange={event => update({ refreshSeconds: Number(event.target.value) })}>{[...new Set([0, 15, 30, 60, 300, 900, source.refreshSeconds])].sort((a, b) => a - b).map(seconds => <option key={seconds} value={seconds}>{seconds === 0 ? '手动刷新' : `${seconds} 秒`}</option>)}</select></label></div>
               <p className="ds-help">受保护接口请使用同源服务端代理。模板只保存连接配置，不保存 Token、Cookie 或账号密码。跨域接口需允许当前站点访问。</p>
@@ -157,7 +157,7 @@ export function DataSourcePanel({ sources = [], onChange, onClose, code = '10000
               {source.type === 'json' && <label className="ds-field ds-wide"><span>数据列表路径</span><input value={source.rowsPath} maxLength={160} placeholder="例如 data.rows；根数组留空" spellCheck={false} onChange={event => update({ rowsPath: event.target.value })}/></label>}
               <p className="ds-help">每个源最多 1 MB、5,000 行、40 个顶层字段（CSV 为列）。数值字段需为有效数字；空值不会当作 0。</p>
             </>}
-            <div className="ds-test-row"><button type="button" className="ds-test" onClick={() => testSource()} disabled={testing}><ArrowsClockwise size={15} className={testing ? 'ds-spinning' : ''}/>{testing ? '正在读取…' : source.type === 'http' ? '测试并识别字段' : '识别数据'}</button>{source.type !== 'csv' && <button type="button" className="ds-infer-again" onClick={() => testSource(true)} disabled={testing}>重新识别路径</button>}<a href="/data/examples/monitoring.json" download="monitoring.json">下载监测示例</a><a href="/data/examples/professional.json" download="professional.json">下载专业图表示例</a></div>
+            <div className="ds-test-row"><button type="button" className="ds-test" onClick={() => testSource()} disabled={testing}><ArrowsClockwise size={15} className={testing ? 'ds-spinning' : ''}/>{testing ? '正在读取…' : source.type === 'http' ? '测试并识别字段' : '识别数据'}</button>{!['csv', 'batch'].includes(source.type) && <button type="button" className="ds-infer-again" onClick={() => testSource(true)} disabled={testing}>重新识别路径</button>}<a href="/data/examples/monitoring.json" download="monitoring.json">下载监测示例</a><a href="/data/examples/professional.json" download="professional.json">下载专业图表示例</a></div>
             {preview !== null && <>
               {preview.candidates.length > 1 && <label className="ds-field ds-wide"><span>选择数据列表</span><select value={preview.rowsPath ?? '__unselected__'} onChange={event => selectRows(event.target.value)}><option value="__unselected__" disabled>发现多组数据，请选择</option>{preview.candidates.map(candidate => <option key={candidate.path} value={candidate.path}>{candidate.path || '根数组'} · {candidate.rowCount} 行</option>)}</select></label>}
               {preview.rows && <><div className="ds-preview"><div className="ds-preview-title">数据预览 <span>共 {preview.rows.length} 行 · 预览 {Math.min(5, preview.rows.length)} 行 / {previewKeys.length} 列</span></div>{preview.rows.length ? <div className="ds-table-scroll"><table><thead><tr>{previewKeys.map(key => <th key={key}>{key}</th>)}</tr></thead><tbody>{preview.rows.slice(0, 5).map((row, i) => <tr key={i}>{previewKeys.map(key => <td key={key} title={cellText(readDataPath(row, key))}>{cellText(readDataPath(row, key))}</td>)}</tr>)}</tbody></table></div> : <p>数据源返回空列表。</p>}</div>

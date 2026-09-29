@@ -1,5 +1,5 @@
 // 仅编辑面板使用的字段分析与组件建议，不进入大屏运行时依赖。
-import { DATA_FIELDS, DATA_SIZE_LIMIT, getMappedData, loadSourcePayload, normalizeDataFields, parseCsv, readDataPath, strictDataNumber, validateDataPath, validateRows } from './dataSources.js';
+import { DATA_FIELDS, DATA_SIZE_LIMIT, getMappedData, loadDataSource, loadSourcePayload, normalizeDataFields, parseCsv, readDataPath, strictDataNumber, validateDataPath, validateRows } from './dataSources.js';
 import { buildProfessionalChart, PROFESSIONAL_TYPES } from './professionalCharts.js';
 
 export function profileDataFields(rows) {
@@ -141,7 +141,12 @@ export function suggestDataWidgets(analysis, currentFields = {}) {
 }
 
 export async function inspectDataSource(source, code, options = {}) {
-  const started = Date.now(), payload = await loadSourcePayload(source, code, options);
+  const started = Date.now();
+  if (source.type === 'batch') {
+    const rows = await loadDataSource(source, code, options);
+    return { rows, rowsPath: '', candidates: [], fields: profileDataFields(rows), elapsedMs: Date.now() - started };
+  }
+  const payload = await loadSourcePayload(source, code, options);
   const preferredPath = Object.hasOwn(options, 'preferredPath') ? options.preferredPath : payload.source.rowsPath;
   return { ...analyzeDataContent(payload.content, payload.type, preferredPath), elapsedMs: Date.now() - started, content: payload.content, contentType: payload.type };
 }

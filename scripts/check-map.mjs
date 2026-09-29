@@ -24,7 +24,7 @@ globalThis.reportError = error => reportedErrors.push(error);
 const root = createRoot({});
 if (previousReporter === undefined) delete globalThis.reportError; else globalThis.reportError = previousReporter;
 try {
-  const { RegionMesh, modelFor, heatPointsFor, vehicleBounds, districtVehicleBounds, vehicleDetailVisible, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
+  const { RegionMesh, ClusterPoints, Beacons, modelFor, heatPointsFor, beaconPointsFor, vehicleBounds, districtVehicleBounds, vehicleDetailVisible, fitMapViewport, updateMapClipping, mapPixelRatio, MapScene } = await vite.ssrLoadModule('/src/MapScene.jsx');
   const mapSource = await readFile(new URL('../src/MapScene.jsx', import.meta.url), 'utf8');
   const labelExpression = mapSource.split('\n').find(line => line.includes('{layers.labels && model.regions'))?.trim().slice(1, -1);
   assert(labelExpression, 'National labels must have an independent rendering path');
@@ -68,17 +68,20 @@ try {
   const demoHeat = [{ name: '演示节点', position: [0, .36, 0] }];
   assert.strictEqual(heatPointsFor(baseModel, demoHeat, false), demoHeat, 'Base heat retains its demo source');
   assert.deepEqual(heatPointsFor(baseModel, demoHeat, true), [], 'Empty vehicle data must never fall back to demo heat');
+  assert.deepEqual(heatPointsFor(models[0], demoHeat, true), [], 'Unprocessed GPS rows must not imply algorithm clusters');
   for (const model of models) {
-    const heat = heatPointsFor(model, demoHeat, true);
-    assert.deepEqual(heat.map(point => point.name), VEHICLES.map(row => row.VEHICLENO));
-    assert.deepEqual(heat.map(point => [point.position[0], point.position[2]]), VEHICLES.map(row => { const [x, y] = model.project([row.GEO_LON, row.GEO_LAT]); return [x, -y]; }), 'Heat stays at actual GPS coordinates through drill-down');
+    const clusteredModel = { ...model, vehicles: model.vehicles.map((point, i) => ({ ...point, vehicle: { ...point.vehicle, CLUSTER_LABEL: i < 4 ? 0 : -1 } })) };
+    const heat = heatPointsFor(clusteredModel, demoHeat, true);
+    assert.deepEqual(heat.map(point => point.name), VEHICLES.slice(0, 4).map(row => row.VEHICLENO), 'Heat includes cluster zero and excludes noise');
+    assert.deepEqual(heat.map(point => [point.position[0], point.position[2]]), VEHICLES.slice(0, 4).map(row => { const [x, y] = model.project([row.GEO_LON, row.GEO_LAT]); return [x, -y]; }), 'Cluster heat stays at member GPS coordinates through drill-down');
+    assert.deepEqual(heatPointsFor({ ...model, vehicles: model.vehicles.map(point => ({ ...point, vehicle: { ...point.vehicle, CLUSTER_LABEL: -1 } })) }, demoHeat, true), [], 'No clusters means no heat, including after parameter or window changes');
   }
-  const changedHeatModel = modelFor(nationalData, '100000', [{ code: '100000', data: nationalData }], [{ ...VEHICLES[0], VEHICLENO: 'NEW', GEO_LON: 108.94, GEO_LAT: 34.34 }]);
+  const changedHeatModel = modelFor(nationalData, '100000', [{ code: '100000', data: nationalData }], [{ ...VEHICLES[0], VEHICLENO: 'NEW', GEO_LON: 108.94, GEO_LAT: 34.34, CLUSTER_LABEL: 1 }]);
   const changedHeat = heatPointsFor(changedHeatModel, demoHeat, true);
   assert.equal(changedHeat.length, 1); assert.equal(changedHeat[0].name, 'NEW');
-  assert.notDeepEqual(changedHeat[0].position, heatPointsFor(models[0], demoHeat, true)[0].position, 'Replacing vehicles moves heat and removes obsolete points');
+  assert.notDeepEqual(changedHeat[0].position, models[0].vehicles[0].position, 'Replacing vehicles moves heat and removes obsolete points');
   changedHeatModel.regions.forEach(region => region.geometry.dispose()); changedHeatModel.backdrops.forEach(geometry => geometry.dispose());
-  console.log('PASS: GPS heat follows vehicle additions, removals, coordinates and drill-down; empty data never shows demo points.');
+  console.log('PASS: heat uses only DBSCAN members at actual GPS coordinates; noise, pending analysis and zero clusters never create heat.');
   baseModel.regions.forEach(region => region.geometry.dispose()); baseModel.backdrops.forEach(geometry => geometry.dispose());
   const camera = new THREE.PerspectiveCamera(34, 1, .1, 200);
   const vehicleModel = models[0], vehicleSize = { width: 1280, height: 720 }, vehicleViewport = { x: .21, y: .15, width: .78, height: .61 };
@@ -166,13 +169,12 @@ try {
       assert(Math.abs(a.x + a.dx - b.x - b.dx) >= 44 || Math.abs(a.y + a.dy - b.y - b.dy) >= 28, 'Vehicle labels must not overlap');
     }
   }
-  const markerExpression = mapSource.split('\n').find(line => line.includes('{layers.vehicles && model.vehicles.map')).trim().slice(1, -1);
-  const { code: markerCode } = await transformWithEsbuild(`(model, highlightedVehicles) => (${markerExpression})`, 'vehicle-markers.jsx', { loader: 'jsx', jsx: 'transform', jsxFactory: 'createElement' });
-  const renderMarkers = new Function('createElement', 'Html', 'Car', 'layers', 'labelPortal', 'invalidate', 'hoverVehicle', 'onVehicleHover', 'onVehicleSelect', `return ${markerCode}`)(createElement, 'html', 'car', { vehicles: true }, { current: null }, () => {}, () => {}, () => {}, () => {});
-  for (const highlighted of [[], [VEHICLES[3]], linkedVehicles('vehicle:stopped')]) {
-    const markers = renderMarkers(vehicleModel, vehicleModel.vehicles.map(point => point.vehicle).filter(vehicle => highlighted.some(item => item.VEHICLENO === vehicle.VEHICLENO)));
-    assert.equal(markers.length, 5, 'Selections highlight without filtering any markers');
-    assert.equal(markers.filter(marker => marker.props.children.props['data-highlighted']).length, highlighted.length);
+  const fleetPoints = Array.from({ length: 10000 }, (_, i) => ({ i, x: i % 100 * 12, y: Math.floor(i / 100) * 8, pinned: i === 9999 }));
+  for (const detailed of [true, false]) {
+    const groups = groupVehiclePoints(fleetPoints, detailed);
+    assert(groups.length <= 64, 'Large fleets have bounded map labels');
+    assert.deepEqual(groups.flat().map(point => point.i).sort((a, b) => a - b), fleetPoints.map(point => point.i), 'Screen grouping preserves all vehicle identities exactly once');
+    assert.deepEqual(groups.find(group => group.some(point => point.pinned)), [fleetPoints[9999]], 'Selected vehicle stays individually selectable');
   }
   for (const bounds of [{ left: 280, right: 1200, top: 160, bottom: 680 }, { left: 18, right: 372, top: 180, bottom: 510 }]) {
     for (const x of [bounds.left + 10, (bounds.left + bounds.right) / 2, bounds.right - 10]) for (const y of [bounds.top + 10, (bounds.top + bounds.bottom) / 2, bounds.bottom - 10]) {
@@ -339,6 +341,57 @@ try {
   await act(async () => root.render(createElement(WorldProbe)));
   console.log('PASS: all eight themes update real R3F surfaces while reusing geometry and materials.');
 
+  const clusterPoints = Array.from({ length: 40 }, (_, label) => ({ label, center: [100 + label * .1, 30], vehicleCount: label + 2 }));
+  const clusterModel = { project: models[0].project, scale: 1 }, clusterSelections = [];
+  await act(async () => root.render(createElement(ClusterPoints, { clusters: clusterPoints, model: clusterModel, onSelect: value => clusterSelections.push(value) })));
+  const clusterMesh = scene.getObjectByName('cluster-points'), matrix = new THREE.Matrix4();
+  assert.equal(clusterMesh.count, 40, 'All algorithm centers remain visible beyond the 24 text-label cap');
+  clusterPoints.forEach((cluster, i) => {
+    clusterMesh.getMatrixAt(i, matrix);
+    const [x, y] = clusterModel.project(cluster.center);
+    assert(Math.abs(matrix.elements[12] - x) < 1e-5 && Math.abs(matrix.elements[14] + y) < 1e-5, 'Each point uses its own algorithm center');
+  });
+  clusterMesh.__r3f.handlers.onClick({ instanceId: 39, delta: 0, stopPropagation() {} });
+  clusterMesh.__r3f.handlers.onClick({ instanceId: 1, delta: 6, stopPropagation() {} });
+  assert.deepEqual(clusterSelections, ['cluster:39'], 'Unlabelled centers select the correct cluster; camera drags do not select');
+  await act(async () => root.render(createElement(ClusterPoints, { clusters: [clusterPoints[2]], model: clusterModel, onSelect() {} })));
+  assert.equal(scene.getObjectByName('cluster-points').count, 1, 'Changing the analysis replaces old centers');
+  await act(async () => root.render(createElement(ClusterPoints, { clusters: [], model: clusterModel, onSelect() {} })));
+  assert(!scene.getObjectByName('cluster-points'), 'A zero-cluster window leaves no obsolete points');
+  console.log('PASS: all 40 cluster centers share one draw batch, retain coordinates and click linkage, and clear on empty results.');
+
+  const demoBeacons = [{ position: [1, .395, 2], height: .85 }], beaconSelections = [];
+  assert.strictEqual(beaconPointsFor(clusterModel, demoBeacons, [], false), demoBeacons, 'Base keeps its original demo pillars');
+  assert.deepEqual(beaconPointsFor(clusterModel, demoBeacons, [], true), [], 'No algorithm clusters must never fall back to demo pillars');
+  for (const model of models) {
+    const points = beaconPointsFor(model, demoBeacons, clusterPoints, true);
+    assert.equal(points.length, clusterPoints.length);
+    assert.deepEqual(points.map(point => [point.position[0], point.position[2]]), clusterPoints.map(cluster => { const [x, y] = model.project(cluster.center); return [x, -y]; }), 'Pillars retain algorithm centers through drill-down');
+  }
+  const renderBeacons = (points, selected) => act(async () => root.render(createElement(Beacons, { points, scale: .5, selected, onSelect: value => beaconSelections.push(value) })));
+  const pillars = beaconPointsFor(clusterModel, demoBeacons, clusterPoints, true);
+  await renderBeacons(pillars);
+  const beaconGroup = scene.getObjectByName('monitor-beacons');
+  assert.equal(beaconGroup.children.length, 4, 'All pillars share four draw batches with the original ring, core, halo and tip');
+  assert(beaconGroup.children.every(mesh => mesh.isInstancedMesh && mesh.count === 40));
+  pillars.forEach((point, i) => {
+    beaconGroup.children[1].getMatrixAt(i, matrix);
+    assert(Math.abs(matrix.elements[12] - point.position[0]) < 1e-5 && Math.abs(matrix.elements[14] - point.position[2]) < 1e-5);
+    assert(Math.abs(matrix.elements[13] - (point.position[1] + point.height * .25)) < 1e-5, 'The pillar sits on the map with its full height');
+  });
+  beaconGroup.__r3f.handlers.onClick({ instanceId: 39, delta: 0, stopPropagation() {} });
+  beaconGroup.__r3f.handlers.onClick({ instanceId: 1, delta: 6, stopPropagation() {} });
+  assert.deepEqual(beaconSelections, ['cluster:39'], 'Pillars beyond the text cap locate the correct cluster and ignore drags');
+  await renderBeacons(pillars, 'cluster:39');
+  beaconGroup.children[3].getMatrixAt(39, matrix); assert(Math.abs(matrix.elements[0] - .7) < 1e-5, 'Cluster selection highlights its pillar');
+  await renderBeacons([pillars[2]]);
+  assert(scene.getObjectByName('monitor-beacons').children.every(mesh => mesh.count === 1), 'Changing windows removes old pillars');
+  await renderBeacons([]); assert(!scene.getObjectByName('monitor-beacons'), 'Zero clusters clears every pillar');
+  await renderBeacons(demoBeacons);
+  scene.getObjectByName('monitor-beacons').children[1].getMatrixAt(0, matrix);
+  assert(Math.abs(matrix.elements[5] - .425) < 1e-5, 'Base pillar heights and scaling are preserved');
+  console.log('PASS: cluster pillars share four batches, retain centers and selection, clear empty results, and preserve base pillars.');
+
   // Run the actual lazy loader, visibility guard and outer error boundary in R3F's React renderer.
   const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   const vehicleHookSource = await readFile(new URL('../src/useVehicleLayer.js', import.meta.url), 'utf8');
@@ -376,16 +429,17 @@ try {
   console.log('PASS: all single-vehicle entrypoints share district focus; rapid selection, cancellation and boundary failure preserve the latest intent.');
   const defaults = new Function(`${appSource.split('\n').find(line => line.startsWith('const DEFAULT_LAYERS = '))}; return DEFAULT_LAYERS;`)();
   let presetLayers = defaults;
-  const makeSetView = new Function('project', 'DEFAULT_LAYERS', 'setMode', 'setLayers', 'setDialog', 'navigateRegion', 'NATIONAL', `${appSource.slice(appSource.indexOf('  const setView = '), appSource.indexOf('  const fullScreen = '))}; return setView;`);
+  const makeSetView = new Function('project', 'DEFAULT_LAYERS', 'setMode', 'setLayers', 'setDialog', 'navigateRegion', 'NATIONAL', 'chooseAnalysisStage', `${appSource.slice(appSource.indexOf('  const setView = '), appSource.indexOf('  const fullScreen = '))}; return setView;`);
   const setView = makeSetView({ vehicles: false }, defaults, () => {}, next => { presetLayers = typeof next === 'function' ? next(presetLayers) : next; }, () => {}, () => assert.fail('Base view presets preserve their current region'), '100000');
   assert.equal(defaults.beacons, false);
   for (const mode of ['overview', 'monitor', 'traffic', 'regions']) {
     presetLayers = { ...presetLayers, beacons: true }; setView(mode);
     assert.equal(presetLayers.beacons, false, `${mode} must start with monitoring pillars disabled`);
   }
-  const vehicleOverviewRegions = [], setVehicleView = makeSetView({ vehicles: true }, defaults, () => {}, () => {}, () => {}, code => vehicleOverviewRegions.push(code), '100000');
+  const vehicleOverviewRegions = [], vehicleStages = [], setVehicleView = makeSetView({ vehicles: true }, defaults, () => {}, () => {}, () => {}, code => vehicleOverviewRegions.push(code), '100000', stage => vehicleStages.push(stage));
   for (const mode of ['monitor', 'traffic', 'regions', 'overview']) setVehicleView(mode);
   assert.deepEqual(vehicleOverviewRegions, ['100000'], 'Vehicle overview ends fleet focus and returns to the national overview');
+  assert.deepEqual(vehicleStages, ['clusters'], 'Data monitoring activates the post-algorithm view');
   console.log('PASS: initial map and all four business view presets leave demo pillars disabled.');
   // Exercise App's actual region selection/effect with deferred map reads and the real source controller.
   const activeCodeSource = appSource.split('\n').find(line => line.includes('const activeCode = '));
@@ -501,8 +555,8 @@ try {
     ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
     : createElement(type, props, ...children);
   const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
-  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { project, vehicles, theme, fontFamily, loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels } = context; ${branchCode}; return branch;`);
-  const context = { project: { vehicles: true }, theme: DEFAULT_THEME, sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { project, vehicles, theme, fontFamily, loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels, analysis, analysisStage, analysisWindow, focusCluster, mode } = context; const clusterMode = project.vehicles && (mode === 'monitor' || analysisStage === 'clusters'); ${branchCode}; return branch;`);
+  const context = { project: { vehicles: true }, analysis: { status: 'ready' }, theme: DEFAULT_THEME, sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
   let loads = 0, received;
   const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
   preload(effect => effect(), context.config, loadedMap.loadMapScene);
@@ -522,6 +576,28 @@ try {
   assert.strictEqual(received.sceneSize, context.sceneSize); assert.strictEqual(received.viewport, context.viewport); assert.strictEqual(received.layers, context.layers);
   assert.strictEqual(received.command, context.command); assert.equal(received.quality, 'high');
   assert.equal(received.vehicleHeat, true, 'Daoyan passes the vehicle heat source even before rows arrive');
+  assert.equal(received.clusterMode, false);
+  context.analysisStage = 'clusters'; context.analysisWindow = { clusters: [{ label: 0 }] }; context.focusCluster = () => {};
+  await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
+  assert.strictEqual(received.clusters, context.analysisWindow.clusters);
+  assert.strictEqual(received.onClusterSelect, context.focusCluster); assert.equal(received.clusterMode, true);
+  context.mode = 'monitor'; context.analysisStage = 'raw';
+  await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
+  assert.equal(received.clusterMode, true, 'Data monitoring always shows algorithm clusters, even after entering from raw points');
+  assert.strictEqual(received.clusters, context.analysisWindow.clusters);
+  context.mode = 'overview';
+  await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
+  assert.equal(received.clusterMode, false);
+  assert.strictEqual(received.clusters, context.analysisWindow.clusters, 'The independent beacon layer retains algorithm clusters in raw-point view');
+  for (const status of ['loading', 'error']) {
+    context.analysis.status = status;
+    await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
+    assert.equal(received.clusters, undefined, 'Pending or failed analysis must clear stale cluster pillars');
+  }
+  context.analysis.status = 'ready';
+  context.project.vehicles = false;
+  await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
+  assert.equal(received.clusterMode, false); assert.equal(received.vehicleHeat, false);
   await act(async () => root.render(null));
   const failure = new Error('Map chunk unavailable'), failedMap = makeLazy(lazy, () => Promise.reject(failure));
   preload(effect => effect(), context.config, failedMap.loadMapScene);
@@ -615,7 +691,7 @@ try {
     const branch = panelBranches.find(branch => branch.includes(`<${name} `));
     assert(branch, `${name} must be inside the boundary`);
     const { code: panelBranchCode } = await transformWithEsbuild(`const panel = ${branch};`, 'PanelBranch.jsx', { loader: 'jsx', jsxFactory: 'h', sourcemap: false });
-    const renderPanel = new Function('h', 'PanelErrorBoundary', 'Suspense', ...panelNames, 'editor', 'setDialog', `const project = { id: 'base', name: '基线版', vehicles: false, showBrand: true }, config = editor.config, selection = config.modules[0], results = {}, activeCode = '100000'; const setSidePanel = () => {}, applySources = () => {}, createFromSource = () => {}, applyConfig = () => {}; ${panelBranchCode}; return panel;`);
+    const renderPanel = new Function('h', 'PanelErrorBoundary', 'Suspense', ...panelNames, 'editor', 'setDialog', `const project = { id: 'base', name: '基线版', vehicles: false, showBrand: true }, config = editor.config, selection = config.modules[0], results = {}, analysis = {}, activeCode = '100000'; const setSidePanel = () => {}, applySources = () => {}, createFromSource = () => {}, applyConfig = () => {}; ${panelBranchCode}; return panel;`);
     function PanelProbe() {
       editorState = useDashboardEditor(() => {});
       const [opened, setOpened] = React.useState(false); openPanel = () => setOpened(true);

@@ -192,7 +192,7 @@ function Clock() {
   return <div className="widget-clock"><time dateTime={now.toISOString()}><strong>{now.toLocaleTimeString('zh-CN', { hour12: false })}</strong><span>{date}</span></time><div className="widget-clock-rule" aria-hidden="true"><i/></div></div>;
 }
 
-export const DashboardWidget = memo(function DashboardWidget({ config, code, index, onNavigate, data: externalData, dataState, onRefresh, theme = DEFAULT_THEME, fontFamily, selectedCodes }) {
+export const DashboardWidget = memo(function DashboardWidget({ config, code, index, onNavigate, data: externalData, dataState, onRefresh, theme = DEFAULT_THEME, fontFamily, selectedCodes, children }) {
   const hasExternalData = externalData !== undefined || Boolean(dataState);
   const data = useMemo(() => {
     if (config.type === 'text' || config.type === 'clock') return normalizeWidgetData(null);
@@ -210,7 +210,8 @@ export const DashboardWidget = memo(function DashboardWidget({ config, code, ind
   const errorMessage = typeof dataState?.error === 'string' ? dataState.error : dataState?.error?.message;
   const loading = dataState?.status === 'loading';
   let body;
-  if (config.type === 'text') body = config.text ? <div className="widget-text" tabIndex="0">{config.text}</div> : <EmptyState message="暂无公告"/>;
+  if (children !== undefined) body = children;
+  else if (config.type === 'text') body = config.text ? <div className="widget-text" tabIndex="0">{config.text}</div> : <EmptyState message="暂无公告"/>;
   else if (config.type === 'clock') body = <Clock/>;
   else if (!hasData) body = <EmptyState message={hasError ? '数据暂不可用' : loading ? '正在加载' : data.emptyMessage || '暂无数据'} detail={hasError ? errorMessage : undefined} onRefresh={hasError ? onRefresh : undefined}/>;
   else if (professional) body = <ChartErrorBoundary key={config.type}><Suspense fallback={<EmptyState message="正在加载图表"/>}><ProfessionalChart theme={theme} fontFamily={fontFamily} config={config} data={data} onNavigate={onNavigate}/></Suspense></ChartErrorBoundary>;

@@ -41,6 +41,12 @@ export function useDashboardEditor(notify, project) {
     try { const next = saveConfig({ ...saved, theme }, project); setSaved(next); dispatch({ type: 'reset', config: next }); }
     catch (error) { notify(error.message); }
   };
+  const setClustering = clustering => {
+    if (editing) throw new Error('请先保存或取消画布编辑，再调整算法参数');
+    const next = saveConfig({ ...saved, map: { ...saved.map, clustering } }, project);
+    setSaved(next); dispatch({ type: 'reset', config: next });
+    notify('算法参数已保存，正在重新计算');
+  };
   const finish = () => {
     try { const next = saveConfig(history.present, project); setSaved(next); dispatch({ type: 'reset', config: next }); setEditing(false); setPreview(false); setGuides([]); notify('画布已保存'); }
     catch (error) { notify(error.message); }
@@ -99,7 +105,7 @@ export function useDashboardEditor(notify, project) {
     };
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [editing, preview, selectedIds, config, patchMany, undo, redo]);
-  return { config, items, editing, preview, selected, selectedIds: selection, select, guides, setGuides, start, finish, cancel, add, patch, patchMany, change, setTheme, duplicate, remove, arrange, align, undo, redo, setPreview, canUndo: Boolean(history.past.length), canRedo: Boolean(history.future.length), dirty: history.present !== saved };
+  return { config, items, editing, preview, selected, selectedIds: selection, select, guides, setGuides, start, finish, cancel, add, patch, patchMany, change, setTheme, setClustering, duplicate, remove, arrange, align, undo, redo, setPreview, canUndo: Boolean(history.past.length), canRedo: Boolean(history.future.length), dirty: history.present !== saved };
 }
 
 export function EditorToolbar({ editor, onDialog }) {

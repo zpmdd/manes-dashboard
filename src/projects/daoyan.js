@@ -33,8 +33,9 @@ const preset = {
   "modules": [
     {
       "id": "devices",
-      "title": "车辆总数",
-      "subtitle": "GPS 快照 · 2026/09/13 00:00",
+      "title": "聚集占比",
+      "vehicleView": "overview",
+      "subtitle": "当前时间窗 · GPS 定位快照",
       "type": "metric",
       "source": "devices",
       "visible": true,
@@ -96,7 +97,8 @@ const preset = {
     },
     {
       "id": "online",
-      "title": "行驶与静止",
+      "title": "分窗变化",
+      "vehicleView": "trend",
       "subtitle": "按 GPS 速度划分 · 点击扇区联动",
       "type": "pie",
       "source": "regions",
@@ -153,7 +155,8 @@ const preset = {
     },
     {
       "id": "trend",
-      "title": "各车 GPS 速度",
+      "title": "聚集规模排行",
+      "vehicleView": "clusters",
       "subtitle": "原始速度值 · 点击车辆定位",
       "type": "bar",
       "source": "regions",

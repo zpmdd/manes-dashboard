@@ -3,6 +3,7 @@ import { DEFAULT_THEME, THEMES } from './themes.js';
 import { DEFAULT_FONT, FONTS } from './fonts.js';
 import baseProject from './projects/base.js';
 import { SERIES_TYPES } from './widgetData.js';
+import { clusterOptions } from './vehicleClustering.js';
 
 export const STORAGE_KEY = 'manes.dashboard.base.config.v2';
 export const LEGACY_STORAGE_KEYS = ['nexus.dashboard.config.v2', 'nexus.dashboard.config.v1'];
@@ -194,14 +195,14 @@ export function normalizeConfig(raw) {
   if (!Array.isArray(raw.navLabels) || raw.navLabels.length !== 4) throw new Error('需配置四个导航名称');
   const canvas = { magnet: true, threshold: 6, ...raw.canvas };
   object(raw.canvas, ['snap', 'grid', ...['magnet', 'threshold'].filter(key => Object.hasOwn(raw.canvas ?? {}, key))], '画布');
-  object(raw.map, ['layout', 'visible', 'locked', ...(Object.hasOwn(raw.map ?? {}, 'vehicleSourceId') ? ['vehicleSourceId'] : [])], '地图');
+  object(raw.map, ['layout', 'visible', 'locked', ...['vehicleSourceId', 'clustering'].filter(key => Object.hasOwn(raw.map ?? {}, key))], '地图');
   if (!Array.isArray(raw.dataSources) || raw.dataSources.length > 40) throw new Error('最多配置 40 个数据源');
   const sourceIds = new Set();
   const dataSources = raw.dataSources.map(input => {
     const source = normalizeDataSource(input);
     if (sourceIds.has(source.id)) throw new Error('数据源标识重复');
     sourceIds.add(source.id);
-    if (source.type !== 'http') parseSourceContent(source.content, source.type, source.rowsPath);
+    if (!['http', 'batch'].includes(source.type)) parseSourceContent(source.content, source.type, source.rowsPath);
     return source;
   });
   const vehicleSourceId = raw.map.vehicleSourceId ?? '';
@@ -209,8 +210,10 @@ export function normalizeConfig(raw) {
   if (!Array.isArray(raw.modules) || raw.modules.length > 40) throw new Error('最多配置 40 个组件');
   const seen = new Set();
   const modules = raw.modules.map(item => {
-    object(item, [...moduleKeys, 'layout', 'locked', 'surface', 'binding', 'aggregate', 'text', 'target', ...['chartOptions', 'precision'].filter(key => Object.hasOwn(item, key))], '组件');
+    object(item, [...moduleKeys, 'layout', 'locked', 'surface', 'binding', 'aggregate', 'text', 'target', ...['chartOptions', 'precision', 'vehicleView'].filter(key => Object.hasOwn(item, key))], '组件');
     const chartOptions = normalizeChartOptions(item.chartOptions);
+    const vehicleView = item.vehicleView || '';
+    if (!['', 'overview', 'trend', 'clusters'].includes(vehicleView) || (vehicleView && (projectId !== 'daoyan' || item.binding?.sourceId !== vehicleSourceId))) throw new Error('聚集图表必须绑定本项目的车辆地图数据源');
     const precision = Object.hasOwn(item, 'precision') ? item.precision : 1;
     if (!Number.isInteger(precision) || precision < 0 || precision > 3) throw new Error('小数位数需为 0–3 的整数');
     if (typeof item.id !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(item.id) || item.id === 'map' || seen.has(item.id)) throw new Error('组件标识不正确或重复');
@@ -238,12 +241,12 @@ export function normalizeConfig(raw) {
     return { id: item.id, title: text(item.title, 20, '组件标题'), subtitle: text(item.subtitle, 40, '副标题', true),
       type: item.type, source: item.source, visible: flag(item.visible, '显示开关'), unit: text(item.unit, 8, '单位', true), rowCount: item.rowCount, columns,
       layout: layout(item.layout), locked: flag(item.locked, '锁定开关'), surface: item.surface,
-      binding: { sourceId: item.binding.sourceId, fields: normalizedFields, ...(item.binding.groupBy ? { groupBy: item.binding.groupBy } : {}) }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值'), precision, chartOptions };
+      binding: { sourceId: item.binding.sourceId, fields: normalizedFields, ...(item.binding.groupBy ? { groupBy: item.binding.groupBy } : {}) }, aggregate: item.aggregate, text: item.text, target: range(item.target, .1, 1e12, '目标值'), precision, chartOptions, ...(vehicleView ? { vehicleView } : {}) };
   });
   const config = { version: 2, projectId, theme, font, brand: brand(raw.brand), title: text(raw.title, 36, '大屏标题'), mapTitle: text(raw.mapTitle, 24, '地图标题'),
     navLabels: raw.navLabels.map(label => text(label, 8, '导航名称')), showClock: flag(raw.showClock, '时钟开关'),
     canvas: { snap: flag(canvas.snap, '网格开关'), grid: range(canvas.grid, .5, 5, '网格步长'), magnet: flag(canvas.magnet, '磁吸开关'), threshold: range(canvas.threshold, 2, 16, '磁吸距离') },
-    map: { layout: layout(raw.map.layout), visible: flag(raw.map.visible, '地图开关'), locked: flag(raw.map.locked, '地图锁定'), vehicleSourceId }, modules, dataSources };
+    map: { layout: layout(raw.map.layout), visible: flag(raw.map.visible, '地图开关'), locked: flag(raw.map.locked, '地图锁定'), vehicleSourceId, ...(Object.hasOwn(raw.map, 'clustering') ? { clustering: clusterOptions(raw.map.clustering) } : {}) }, modules, dataSources };
   if (new TextEncoder().encode(JSON.stringify(config)).byteLength > CONFIG_FILE_LIMIT) throw new Error('配置内容不能超过 2 MB');
   return config;
 }

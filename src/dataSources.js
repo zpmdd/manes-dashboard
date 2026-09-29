@@ -4,6 +4,7 @@ export const NAME_GROUP_TYPES = ['bar', 'column', 'donut', 'pie', 'rose'];
 export const DATA_SOURCE_LIMIT = 40;
 export const DATA_SIZE_LIMIT = 1024 * 1024;
 export const DATA_ROW_LIMIT = 5000;
+export const BATCH_ROW_LIMIT = 100000;
 export const DATA_COLUMN_LIMIT = 40;
 export const DATA_FIELDS = ['name', 'value', 'time', 'status', 'target', 'series', 'code', 'x', 'y', 'value2'];
 const FORBIDDEN = new Set(['__proto__', 'prototype', 'constructor']);
@@ -66,15 +67,16 @@ export function normalizeDataSource(input) {
   const name = boundedText(input.name, '数据源名称', 40).trim();
   if (!name) throw new Error('请填写数据源名称');
   const type = input.type;
-  if (!['json', 'csv', 'http'].includes(type)) throw new Error('不支持的数据源类型');
-  const content = type === 'http' ? '' : boundedText(input.content, '数据内容', DATA_SIZE_LIMIT);
+  if (!['json', 'csv', 'http', 'batch'].includes(type)) throw new Error('不支持的数据源类型');
+  const remote = ['http', 'batch'].includes(type);
+  const content = remote ? '' : boundedText(input.content, '数据内容', DATA_SIZE_LIMIT);
   if (new TextEncoder().encode(content).byteLength > DATA_SIZE_LIMIT) throw new Error('数据内容不能超过 1 MB');
-  const url = type === 'http' ? boundedText(input.url, '接口地址', 2048).trim() : '';
-  if (type === 'http') validateSourceUrl(url);
-  const rowsPath = type === 'csv' ? '' : validateDataPath(boundedText(input.rowsPath, '数据列表路径', 160).trim());
+  const url = remote ? boundedText(input.url, '接口地址', 2048).trim() : '';
+  if (remote) validateSourceUrl(url);
+  const rowsPath = ['csv', 'batch'].includes(type) ? '' : validateDataPath(boundedText(input.rowsPath, '数据列表路径', 160).trim());
   const refreshSeconds = input.refreshSeconds ?? 0;
   if (!Number.isInteger(refreshSeconds) || refreshSeconds < 0 || refreshSeconds > 86400) throw new Error('刷新间隔需为 0–86400 的整数秒');
-  return { id, name, type, content, url, rowsPath, refreshSeconds: refreshSeconds === 0 ? 0 : Math.max(15, refreshSeconds) };
+  return { id, name, type, content, url, rowsPath, refreshSeconds: type === 'batch' || refreshSeconds === 0 ? 0 : Math.max(15, refreshSeconds) };
 }
 
 export function validateRows(rows) {
@@ -220,7 +222,7 @@ async function limitedResponseText(response) {
 
 export async function loadSourcePayload(rawSource, code, { signal, fetcher = globalThis.fetch, timeoutMs = 10000, baseUrl } = {}) {
   const source = normalizeDataSource(rawSource);
-  if (source.type !== 'http') return { content: source.content, type: source.type, source };
+  if (!['http', 'batch'].includes(source.type)) return { content: source.content, type: source.type, source };
   const controller = new AbortController();
   const cancel = () => controller.abort();
   if (signal?.aborted) controller.abort();
@@ -245,6 +247,28 @@ export async function loadSourcePayload(rawSource, code, { signal, fetcher = glo
 
 export async function loadDataSource(source, code, options) {
   const payload = await loadSourcePayload(source, code, options);
+  if (payload.source.type === 'batch') {
+    const manifest = JSON.parse(payload.content);
+    if (manifest.schemaVersion !== 1 || manifest.kind !== 'vehicle-observations' || !Number.isInteger(manifest.rowCount) || manifest.rowCount < 1 || manifest.rowCount > BATCH_ROW_LIMIT || !Array.isArray(manifest.pages) || !manifest.pages.length || manifest.pages.length > 100) throw new Error('原始批次清单无效：最多 100,000 条、100 个分片');
+    const names = new Set();
+    let total = 0;
+    for (const page of manifest.pages) {
+      if (!page || typeof page.file !== 'string' || !/^[a-zA-Z0-9_-]+\.json$/.test(page.file) || names.has(page.file) || !Number.isInteger(page.rowCount) || page.rowCount < 1 || page.rowCount > DATA_ROW_LIMIT) throw new Error('原始批次分片名称或行数无效');
+      names.add(page.file); total += page.rowCount;
+    }
+    if (total !== manifest.rowCount) throw new Error('原始批次总行数与分片不一致');
+    const base = validateSourceUrl(source.url, code, options?.baseUrl), rows = [];
+    // Sequential bounded pages keep fetch/memory pressure predictable; publish only the complete batch.
+    for (const page of manifest.pages) {
+      options?.signal?.throwIfAborted();
+      const part = await loadSourcePayload({ ...payload.source, type: 'http', url: new URL(page.file, base).href }, code, options);
+      options?.signal?.throwIfAborted();
+      const values = parseSourceContent(part.content, 'json', '');
+      if (values.length !== page.rowCount || values.some(row => Object.hasOwn(row, 'CLUSTER_OPTIONS'))) throw new Error('原始批次分片缺失记录或含已去重结果，请重新导出原始 Excel');
+      rows.push(...values);
+    }
+    return rows;
+  }
   return parseSourceContent(payload.content, payload.type, payload.source.rowsPath);
 }
 
@@ -296,7 +320,7 @@ export function createDataSourceController({ onChange, loader = loadDataSource, 
     for (const input of sources) {
       const source = normalizeDataSource(input);
       if (next.has(source.id)) throw new Error('数据源标识重复');
-      const region = source.type === 'http' && source.url.includes('{adcode}') ? code : null;
+      const region = ['http', 'batch'].includes(source.type) && source.url.includes('{adcode}') ? code : null;
       next.set(source.id, { source, code, signature: JSON.stringify([region, source]), timer: null });
     }
     let removed = false;
