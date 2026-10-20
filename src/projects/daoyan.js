@@ -1,4 +1,5 @@
 import vehicles from './daoyan-vehicles.json' with { type: 'json' };
+import restrictions from './daoyan-restrictions.json' with { type: 'json' };
 
 const preset = {
   "version": 2,
@@ -221,4 +222,4 @@ const preset = {
 };
 preset.dataSources = [{ ...{"id": "ds_daoyan_vehicles", "name": "车辆定位快照", "type": "json", "url": "", "rowsPath": "", "refreshSeconds": 0}, content: JSON.stringify(vehicles) }];
 
-export default { id: 'daoyan', name: '道研版', showBrand: false, vehicles: true, preset };
+export default { id: 'daoyan', name: '道研版', showBrand: false, vehicles: true, restrictions, preset };

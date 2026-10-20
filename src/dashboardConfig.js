@@ -4,6 +4,7 @@ import { DEFAULT_FONT, FONTS } from './fonts.js';
 import baseProject from './projects/base.js';
 import { SERIES_TYPES } from './widgetData.js';
 import { clusterOptions } from './vehicleClustering.js';
+import { loadRestrictions, normalizeRestrictions } from './restrictionStore.js';
 
 export const STORAGE_KEY = 'manes.dashboard.base.config.v2';
 export const LEGACY_STORAGE_KEYS = ['nexus.dashboard.config.v2', 'nexus.dashboard.config.v1'];
@@ -195,7 +196,8 @@ export function normalizeConfig(raw) {
   if (!Array.isArray(raw.navLabels) || raw.navLabels.length !== 4) throw new Error('需配置四个导航名称');
   const canvas = { magnet: true, threshold: 6, ...raw.canvas };
   object(raw.canvas, ['snap', 'grid', ...['magnet', 'threshold'].filter(key => Object.hasOwn(raw.canvas ?? {}, key))], '画布');
-  object(raw.map, ['layout', 'visible', 'locked', ...['vehicleSourceId', 'clustering'].filter(key => Object.hasOwn(raw.map ?? {}, key))], '地图');
+  object(raw.map, ['layout', 'visible', 'locked', ...['vehicleSourceId', 'clustering', 'restrictions'].filter(key => Object.hasOwn(raw.map ?? {}, key))], '地图');
+  if (Object.hasOwn(raw.map, 'restrictions') && projectId !== 'daoyan') throw new Error('当前项目未启用车辆限行功能');
   if (!Array.isArray(raw.dataSources) || raw.dataSources.length > 40) throw new Error('最多配置 40 个数据源');
   const sourceIds = new Set();
   const dataSources = raw.dataSources.map(input => {
@@ -247,6 +249,7 @@ export function normalizeConfig(raw) {
     navLabels: raw.navLabels.map(label => text(label, 8, '导航名称')), showClock: flag(raw.showClock, '时钟开关'),
     canvas: { snap: flag(canvas.snap, '网格开关'), grid: range(canvas.grid, .5, 5, '网格步长'), magnet: flag(canvas.magnet, '磁吸开关'), threshold: range(canvas.threshold, 2, 16, '磁吸距离') },
     map: { layout: layout(raw.map.layout), visible: flag(raw.map.visible, '地图开关'), locked: flag(raw.map.locked, '地图锁定'), vehicleSourceId, ...(Object.hasOwn(raw.map, 'clustering') ? { clustering: clusterOptions(raw.map.clustering) } : {}) }, modules, dataSources };
+  if (Object.hasOwn(raw.map, 'restrictions')) config.map.restrictions = normalizeRestrictions(raw.map.restrictions);
   if (new TextEncoder().encode(JSON.stringify(config)).byteLength > CONFIG_FILE_LIMIT) throw new Error('配置内容不能超过 2 MB');
   return config;
 }
@@ -266,6 +269,7 @@ export function configForProject(raw, project = baseProject) {
   const config = normalizeConfig(raw);
   config.projectId = project.id;
   if (!project.vehicles && config.map.vehicleSourceId) throw new Error('当前项目未启用车辆功能');
+  if (project.restrictions && !Object.hasOwn(config.map, 'restrictions')) config.map.restrictions = normalizeRestrictions(project.restrictions);
   // Upgrade the two former vehicle snapshots to one source, preserving the saved card layout.
   if (project.vehicles && !Object.hasOwn(raw.map ?? {}, 'vehicleSourceId')) {
     const oldSource = config.dataSources.find(source => source.id === 'ds_8b34a2de-317b-4b63-bc0c-f991459e5fce');
@@ -292,16 +296,22 @@ export function readLegacyConfig(storage = globalThis.localStorage) {
 }
 
 export function loadConfig(project = baseProject) {
+  const migrate = raw => {
+    const config = configForProject(raw, project);
+    // Read the old separate key only until this canvas explicitly saves its own rules.
+    if (project.restrictions && !Object.hasOwn(raw.map ?? {}, 'restrictions')) config.map.restrictions = loadRestrictions(config.map.restrictions);
+    return config;
+  };
   try {
     const saved = localStorage.getItem(projectStorageKey(project));
     if (saved !== null && saved !== undefined) {
       if (saved.length > CONFIG_FILE_LIMIT) throw new Error('画布超过大小限制');
-      return configForProject(JSON.parse(saved), project);
+      return migrate(JSON.parse(saved));
     }
     const legacy = readLegacyConfig();
-    if (legacy && legacyProject(legacy) === project.id) return configForProject(legacy, project);
+    if (legacy && legacyProject(legacy) === project.id) return migrate(legacy);
   } catch { /* Preserve invalid saved bytes, including the original legacy keys. */ }
-  return defaultConfigForProject(project);
+  return migrate(project.preset || DEFAULT_CONFIG);
 }
 
 export function saveConfig(config, project = baseProject) {

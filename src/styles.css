@@ -139,3 +139,35 @@ button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-vis
 .dashboard-widget{position:relative}
 :root :is(.dashboard-widget,.dialog,.config-dialog,.ep-template-dialog,.ds-dialog,.vehicle-tooltip,.map-interaction){border-color:var(--glass-rim);box-shadow:inset 0 1px 1px color-mix(in srgb,var(--glass-glint) 24%,transparent),inset 1px 0 2px color-mix(in srgb,var(--glass-glint) 9%,transparent),inset 0 -1px 1px color-mix(in srgb,var(--glass-glint) 16%,transparent),0 8px 24px var(--glass-shade),0 0 8px color-mix(in srgb,var(--theme-accent,#eee2b9) 6%,transparent)}
 :is(.dashboard-widget,.dialog,.config-dialog,.ep-template-dialog,.ds-dialog,.vehicle-tooltip,.map-interaction)::after{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;border-radius:inherit;padding:1px;background:radial-gradient(ellipse at 90% 0%,var(--glass-glint),transparent 38%),radial-gradient(ellipse at 0% 100%,var(--glass-glint),transparent 34%),linear-gradient(125deg,var(--glass-rim),transparent 40%,var(--glass-rim) 75%,transparent);mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);mask-composite:exclude;-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor}
+
+/* Approved vehicle workspace: a single navigation row and independent map controls. */
+.vehicle-dashboard .topbar nav{max-width:none;gap:clamp(14px,2vw,42px)}
+.vehicle-dashboard .header-tools .icon-button{width:36px;height:36px;border:0}
+.vehicle-dashboard .header-tools .icon-button svg{width:21px;height:21px}
+.vehicle-dashboard .header-tools .configure-button{width:auto;gap:8px;font-size:12px;white-space:nowrap}
+.vehicle-dashboard .vehicle-map-controls{position:absolute;top:var(--map-inset);right:var(--map-inset);z-index:12;pointer-events:auto}
+.vehicle-dashboard .map-tools{top:calc(var(--map-inset) + 48px)}
+.vehicle-dashboard .vehicle-map-timeline{position:absolute;left:var(--map-inset);top:calc(var(--map-inset) + 80px);bottom:50px;display:flex;align-items:center;z-index:14;pointer-events:none}.vehicle-map-timeline>.vehicle-timeline{pointer-events:auto}
+.vehicle-dashboard .map-bottom{flex-wrap:wrap;gap:8px 20px}
+.vehicle-dashboard .vehicle-toolbar>span{display:none}
+.vehicle-dashboard .vehicle-toolbar{font-size:11px;gap:16px}
+.vehicle-dashboard.is-analysis-page .world-backdrop,.vehicle-dashboard.is-analysis-page .canvas-stage{visibility:hidden;pointer-events:none}
+.vehicle-dashboard .vehicle-analysis-page{position:absolute;left:calc(var(--canvas-inset) + var(--hud-inset));right:calc(var(--canvas-inset) + var(--hud-inset));top:14%;bottom:var(--canvas-inset);overflow:auto;z-index:12;scrollbar-width:thin}
+.vehicle-dashboard.is-analysis-page{background:radial-gradient(ellipse at 55% 100%,#66616a55,transparent 80%),var(--page-bg,#36313b)}
+@media(max-width:1250px){.vehicle-dashboard .dashboard-clock{display:none}.vehicle-dashboard .topbar nav{gap:16px}.vehicle-dashboard .vehicle-map-controls{top:70px;left:var(--map-inset);right:auto}.vehicle-dashboard .map-tools{top:var(--map-inset)}.vehicle-dashboard .back-region{top:110px}.vehicle-dashboard .vehicle-map-timeline{top:150px}}
+@media(max-width:900px) and (min-width:651px){.vehicle-dashboard .topbar{grid-template-columns:24% minmax(0,1fr) auto}.vehicle-dashboard .topbar nav{gap:10px}.vehicle-dashboard .header-tools .configure-button span{display:none}}
+@media(max-width:650px){
+ .editor-shell:not(.is-editing) .vehicle-dashboard .topbar nav{gap:0;justify-content:space-between}
+ .vehicle-dashboard .header-tools .configure-button span{display:none}
+ .vehicle-dashboard .vehicle-map-controls{left:12px;right:12px;top:94px}
+ .vehicle-dashboard .vehicle-map-timeline{left:12px;top:170px;bottom:50px}
+ .vehicle-dashboard .map-tools{top:12px}
+ .vehicle-dashboard .back-region{top:134px}
+ .vehicle-dashboard .map-bottom{font-size:9px;gap:6px 12px}
+ .vehicle-dashboard .map-bottom>button{display:none}
+ .vehicle-dashboard .vehicle-analysis-page{position:relative;inset:auto;margin:8px 6px 18px;overflow:visible}
+ .editor-shell:not(.is-editing) .vehicle-dashboard.is-analysis-page .canvas-stage{position:absolute;top:112px;left:0;right:0;visibility:hidden}
+}
+@media(prefers-reduced-motion:reduce){.vehicle-dashboard *, .dialog:has(.vehicle-page-settings){animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+.vehicle-dashboard.is-analysis-page .world-backdrop{opacity:0}
+.vehicle-dashboard.is-analysis-page .world-backdrop *{visibility:hidden!important}

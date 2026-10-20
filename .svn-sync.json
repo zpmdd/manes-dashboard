@@ -1,0 +1,8 @@
+{
+  "url": "http://112.6.25.174:8081/svn/dbscan",
+  "uuid": "c13cfe37-b6df-224b-9ee1-1a60a7ecb024",
+  "gitRemote": "origin",
+  "gitBranch": "main",
+  "verify": ["npm", "run", "verify"],
+  "include": ["src/", "tests/", "scripts/", "public/", "worker/", "docs/", "测试数据/", ".github/", ".openai/", ".gitignore", ".npmrc", ".svn-sync.json", "AGENTS.md", "README.md", "design-qa.md", "index.html", "vite.config.mjs", "package.json", "package-lock.json"]
+}

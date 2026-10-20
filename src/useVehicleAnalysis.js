@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 
-export function useVehicleAnalysis(source, options, enabled = false) {
+export function useVehicleAnalysis(source, options, enabled = false, restriction) {
   const [state, setState] = useState(null), rows = source?.rows;
-  const signature = JSON.stringify(options ?? null);
+  const signature = JSON.stringify({ options: options ?? null, restriction });
   useEffect(() => {
     if (!enabled || !rows) return;
     const worker = new Worker(new URL('./vehicleClustering.worker.js', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data }) => setState({ rows, signature, ...data });
     worker.onerror = () => setState({ rows, signature, error: '聚类计算失败，请重新加载数据' });
-    worker.postMessage({ rows, options: JSON.parse(signature) });
+    const input = JSON.parse(signature);
+    worker.postMessage({ rows, options: input.options ?? undefined, restriction: input.restriction });
     return () => worker.terminate();
   }, [rows, signature, enabled]);
   if (!enabled) return { status: 'disabled' };

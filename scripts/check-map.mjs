@@ -9,7 +9,7 @@ import { createDataSourceController, validateSourceUrl, getMappedData, parseSour
 import { normalizeConfig } from '../src/dashboardConfig.js';
 import { DEFAULT_THEME, THEMES } from '../src/themes.js';
 import { layoutLabels, lineage, shortName } from '../src/geo.js';
-import { VEHICLE_FIELDS, linkedVehicles as resolveVehicles, groupVehiclePoints, vehicleDistrict, vehicleLocationLabel, vehicleCalloutPosition } from '../src/vehicles.js';
+import { EMPTY_VEHICLES, vehicleDataResult, VEHICLE_FIELDS, linkedVehicles as resolveVehicles, groupVehiclePoints, vehicleDistrict, vehicleLocationLabel, vehicleCalloutPosition } from '../src/vehicles.js';
 import { atlasGrid, roadmapMaterial, viewAtlas } from '../src/useRoadmap.js';
 
 import VEHICLES from '../src/projects/daoyan-vehicles.json' with { type: 'json' };
@@ -85,11 +85,11 @@ try {
   baseModel.regions.forEach(region => region.geometry.dispose()); baseModel.backdrops.forEach(geometry => geometry.dispose());
   const camera = new THREE.PerspectiveCamera(34, 1, .1, 200);
   const vehicleModel = models[0], vehicleSize = { width: 1280, height: 720 }, vehicleViewport = { x: .21, y: .15, width: .78, height: .61 };
-  assert.equal(VEHICLES.length, 5); assert.equal(VEHICLE_FIELDS.length, 15);
+  assert.equal(VEHICLES.length, 5); assert.equal(VEHICLE_FIELDS.length, 17);
   const vehicleCanvas = normalizeConfig(JSON.parse(await readFile(new URL('../docs/daoyan-vehicles.canvas.json', import.meta.url), 'utf8')));
   const rawVehicleSource = vehicleCanvas.dataSources.find(source => source.id === vehicleCanvas.modules[0].binding.sourceId);
   const rawVehicles = parseSourceContent(rawVehicleSource.content, rawVehicleSource.type, rawVehicleSource.rowsPath);
-  assert.deepEqual(rawVehicles.map(row => Object.fromEntries(VEHICLE_FIELDS.map(([key]) => [key, row[key]]))), VEHICLES, 'The page data and map use the same original fifteen-field snapshot');
+  assert.deepEqual(rawVehicles.map(row => Object.fromEntries(VEHICLE_FIELDS.filter(([key]) => Object.hasOwn(row, key)).map(([key]) => [key, row[key]]))), VEHICLES, 'The page data and map use the same original fifteen-field snapshot');
   const cardData = vehicleCanvas.modules.map(item => {
     const source = vehicleCanvas.dataSources.find(source => source.id === item.binding.sourceId);
     return getMappedData({ rows: parseSourceContent(source.content, source.type, source.rowsPath) }, item.binding, item);
@@ -102,7 +102,7 @@ try {
   assert.deepEqual(VEHICLES.map(row => [row.GEO_LON, row.GEO_LAT]), [[116.522857, 39.862656], [116.522857, 39.8627], [116.522857, 39.863], [116.522858, 39.862656], [117.522858, 40]]);
   assert.equal(VEHICLES[2].GPS_SPEED, 10); assert.equal(VEHICLES[4].PALTE_COLOR, '2');
   for (const row of VEHICLES) {
-    assert.deepEqual(Object.keys(row), VEHICLE_FIELDS.map(([key]) => key));
+    assert.deepEqual(Object.keys(row), VEHICLE_FIELDS.filter(([key]) => !['VEHICLE_TYPE', 'CARGO_TYPE'].includes(key)).map(([key]) => key));
     assert.equal(row.GEO_ALT, null); assert.equal(row.MILEAGE, null);
     assert.equal(row.ALARM_CODE, '00000000000000000000000000000011');
     assert.equal(row.STATE_CODE, '00000000000000000000000000000010');
@@ -360,25 +360,47 @@ try {
   assert(!scene.getObjectByName('cluster-points'), 'A zero-cluster window leaves no obsolete points');
   console.log('PASS: all 40 cluster centers share one draw batch, retain coordinates and click linkage, and clear on empty results.');
 
+  const beaconGlobalNames = ['document', 'matchMedia', 'setInterval', 'clearInterval'];
+  const beaconGlobals = Object.fromEntries(beaconGlobalNames.map(name => [name, globalThis[name]]));
+  const pulseListeners = new Map(), visibilityListeners = new Map(), pulseTimers = new Map(); let pulseTimerId = 0;
+  const pulsePreference = { matches: true, addEventListener: (name, fn) => pulseListeners.set(name, fn), removeEventListener: name => pulseListeners.delete(name) };
+  globalThis.document = { hidden: false, addEventListener: (name, fn) => visibilityListeners.set(name, fn), removeEventListener: name => visibilityListeners.delete(name) };
+  globalThis.matchMedia = () => pulsePreference;
+  globalThis.setInterval = (fn, delay) => { assert.equal(delay, 100, 'Soft breathing uses a low frequency timer'); pulseTimers.set(++pulseTimerId, fn); return pulseTimerId; };
+  globalThis.clearInterval = id => pulseTimers.delete(id);
   const demoBeacons = [{ position: [1, .395, 2], height: .85 }], beaconSelections = [];
   assert.strictEqual(beaconPointsFor(clusterModel, demoBeacons, [], false), demoBeacons, 'Base keeps its original demo pillars');
   assert.deepEqual(beaconPointsFor(clusterModel, demoBeacons, [], true), [], 'No algorithm clusters must never fall back to demo pillars');
   for (const model of models) {
     const points = beaconPointsFor(model, demoBeacons, clusterPoints, true);
     assert.equal(points.length, clusterPoints.length);
+    assert(points.every(point => point.height === .95), 'Cluster pillars use the compact soft-light profile without changing cluster coordinates');
     assert.deepEqual(points.map(point => [point.position[0], point.position[2]]), clusterPoints.map(cluster => { const [x, y] = model.project(cluster.center); return [x, -y]; }), 'Pillars retain algorithm centers through drill-down');
   }
-  const renderBeacons = (points, selected) => act(async () => root.render(createElement(Beacons, { points, scale: .5, selected, onSelect: value => beaconSelections.push(value) })));
+  const renderBeacons = (points, selected, clustered = true, theme = DEFAULT_THEME) => act(async () => root.render(createElement(Beacons, { points, scale: .5, selected, clustered, theme, onSelect: value => beaconSelections.push(value) })));
   const pillars = beaconPointsFor(clusterModel, demoBeacons, clusterPoints, true);
   await renderBeacons(pillars);
   const beaconGroup = scene.getObjectByName('monitor-beacons');
-  assert.equal(beaconGroup.children.length, 4, 'All pillars share four draw batches with the original ring, core, halo and tip');
+  assert.equal(beaconGroup.children.length, 4, 'All cluster pillars share four draw batches for soft feet, thin cores, halos and round tips');
   assert(beaconGroup.children.every(mesh => mesh.isInstancedMesh && mesh.count === 40));
   pillars.forEach((point, i) => {
+    beaconGroup.children.forEach(mesh => {
+      mesh.getMatrixAt(i, matrix);
+      assert(Math.abs(matrix.elements[12] - point.position[0]) < 1e-5 && Math.abs(matrix.elements[14] - point.position[2]) < 1e-5, 'Every visual part remains at the algorithm center');
+    });
     beaconGroup.children[1].getMatrixAt(i, matrix);
-    assert(Math.abs(matrix.elements[12] - point.position[0]) < 1e-5 && Math.abs(matrix.elements[14] - point.position[2]) < 1e-5);
     assert(Math.abs(matrix.elements[13] - (point.position[1] + point.height * .25)) < 1e-5, 'The pillar sits on the map with its full height');
   });
+  const [foot, coreMesh, halo, tip] = beaconGroup.children;
+  assert.equal(foot.geometry.type, 'PlaneGeometry'); assert.equal(foot.material.type, 'ShaderMaterial');
+  assert(foot.material.transparent && !foot.material.depthWrite, 'The soft foot blends into the map without occluding neighboring features');
+  assert.equal(foot.material.uniforms.opacity.value, .34);
+  assert.equal(coreMesh.geometry.parameters.radiusTop, coreMesh.geometry.parameters.radiusBottom, 'The thin core is a straight cylinder');
+  assert(coreMesh.geometry.parameters.radiusTop <= .02);
+  assert.equal(halo.geometry.parameters.radiusTop, halo.geometry.parameters.radiusBottom, 'Soft light has no tapered flare'); assert(halo.material.opacity <= .12);
+  assert.equal(tip.geometry.type, 'SphereGeometry'); assert(tip.geometry.parameters.radius <= .04, 'The tip is a small round light, without a diamond or outline shell');
+  assert(beaconGroup.children.every(({ material }) => !material.fog && !material.toneMapped), 'Fog and tone mapping must not wash out the cluster marker colors');
+  assert.equal(pulseTimers.size, 0, 'Reduced-motion preference keeps the soft pillars static');
   beaconGroup.__r3f.handlers.onClick({ instanceId: 39, delta: 0, stopPropagation() {} });
   beaconGroup.__r3f.handlers.onClick({ instanceId: 1, delta: 6, stopPropagation() {} });
   assert.deepEqual(beaconSelections, ['cluster:39'], 'Pillars beyond the text cap locate the correct cluster and ignore drags');
@@ -387,18 +409,92 @@ try {
   await renderBeacons([pillars[2]]);
   assert(scene.getObjectByName('monitor-beacons').children.every(mesh => mesh.count === 1), 'Changing windows removes old pillars');
   await renderBeacons([]); assert(!scene.getObjectByName('monitor-beacons'), 'Zero clusters clears every pillar');
-  await renderBeacons(demoBeacons);
-  scene.getObjectByName('monitor-beacons').children[1].getMatrixAt(0, matrix);
+  await renderBeacons(pillars);
+  const originalClusterGroup = scene.getObjectByName('monitor-beacons'), originalClusterMeshes = [...originalClusterGroup.children];
+  const themeCoreColors = new Set();
+  for (const theme of THEMES) {
+    await renderBeacons(pillars, undefined, true, theme);
+    const current = scene.getObjectByName('monitor-beacons');
+    assert.strictEqual(current, originalClusterGroup, 'Theme changes retain the cluster batches');
+    current.children.forEach((mesh, i) => assert.strictEqual(mesh, originalClusterMeshes[i]));
+    themeCoreColors.add(current.children[1].material.color.getHexString());
+    assert.equal(current.children.length, 4);
+    assert.equal(current.children[0].material.uniforms.color.value.getHexString(), current.children[1].material.color.getHexString(), 'The soft foot follows the active theme core color');
+  }
+  assert.equal(themeCoreColors.size, THEMES.length, 'Every theme updates the actual cluster-core material');
+  await renderBeacons(pillars);
+  const breathingGroup = scene.getObjectByName('monitor-beacons'), staticMatrices = breathingGroup.children.map(mesh => Array.from(mesh.instanceMatrix.array));
+  pulsePreference.matches = false; pulseListeners.get('change')(); assert.equal(pulseTimers.size, 1);
+  pulseTimers.values().next().value();
+  assert(breathingGroup.children[0].material.uniforms.opacity.value >= .34 * .8 && breathingGroup.children[0].material.uniforms.opacity.value <= .34);
+  assert(breathingGroup.children[2].material.opacity >= .12 * .8 && breathingGroup.children[2].material.opacity <= .12);
+  assert.deepEqual(breathingGroup.children.map(mesh => Array.from(mesh.instanceMatrix.array)), staticMatrices, 'Breathing changes opacity without shifting or resizing any GPS marker');
+  document.hidden = true; visibilityListeners.get('visibilitychange')();
+  assert.equal(pulseTimers.size, 0, 'Hidden pages stop the breathing timer'); assert.equal(breathingGroup.children[0].material.uniforms.opacity.value, .34); assert.equal(breathingGroup.children[2].material.opacity, .12);
+  document.hidden = false; visibilityListeners.get('visibilitychange')(); assert.equal(pulseTimers.size, 1);
+  pulsePreference.matches = true; pulseListeners.get('change')(); assert.equal(pulseTimers.size, 0, 'Enabling reduced motion stops an already active timer');
+  pulsePreference.matches = false; pulseListeners.get('change')(); assert.equal(pulseTimers.size, 1);
+  await renderBeacons([]); assert.equal(pulseTimers.size, 0, 'An empty result stops animation');
+  await renderBeacons(pillars); assert.equal(pulseTimers.size, 1);
+  await act(async () => root.render(null));
+  assert.equal(pulseTimers.size, 0); assert.equal(pulseListeners.size, 0); assert.equal(visibilityListeners.size, 0, 'Unmount removes timers and all preference/visibility listeners');
+  await renderBeacons(demoBeacons, undefined, false);
+  const baseBeaconGroup = scene.getObjectByName('monitor-beacons');
+  assert.equal(baseBeaconGroup.children.length, 4, 'Base keeps its original four batches');
+  const baseGeometries = [new THREE.RingGeometry(.11, .15, 32), new THREE.CylinderGeometry(.028, .028, 1, 5), new THREE.CylinderGeometry(.07, .12, 1, 8, 1, true), new THREE.SphereGeometry(.068, 12, 8)];
+  baseBeaconGroup.children.forEach((mesh, i) => { assert.equal(mesh.geometry.type, baseGeometries[i].type); assert.deepEqual(mesh.geometry.parameters, baseGeometries[i].parameters, 'Base geometry dimensions remain unchanged'); baseGeometries[i].dispose(); });
+  assert.deepEqual(baseBeaconGroup.children.map(({ material }) => [material.color.getHexString(), material.transparent, material.opacity, material.toneMapped, material.depthWrite, material.side, material.fog]), [
+    ['efe3bb', true, .65, false, true, THREE.FrontSide, true], ['fff0ce', false, 1, false, true, THREE.FrontSide, true], ['ebd8a3', true, .13, true, false, THREE.DoubleSide, true], ['fff6db', false, 1, false, true, THREE.FrontSide, true],
+  ], 'Base keeps the original ring/core/halo/tip colors and material behavior');
+  baseBeaconGroup.children[1].getMatrixAt(0, matrix);
   assert(Math.abs(matrix.elements[5] - .425) < 1e-5, 'Base pillar heights and scaling are preserved');
-  console.log('PASS: cluster pillars share four batches, retain centers and selection, clear empty results, and preserve base pillars.');
+  assert.equal(pulseTimers.size, 0, 'Base pillars do not start animation');
+  for (const name of beaconGlobalNames) { if (beaconGlobals[name] === undefined) delete globalThis[name]; else globalThis[name] = beaconGlobals[name]; }
+  console.log('PASS: four soft-light pillar batches preserve centers/clicks/selection, theme updates and base materials; breathing stops for empty/hidden/reduced-motion/unmounted states.');
+
+  const beaconGate = mapSource.split('\n').find(line => line.includes('<Beacons points='))?.trim().slice(1, -1);
+  const { code: beaconGateCode } = await transformWithEsbuild(`const branch = ${beaconGate};`, 'beacon-mode.jsx', { loader: 'jsx', jsxFactory: 'createElement', sourcemap: false });
+  const renderBeaconGate = new Function('createElement', 'Beacons', 'layers', 'beaconPoints', 'model', 'theme', 'vehicleHighlight', 'onClusterSelect', 'vehicleHeat', `${beaconGateCode}; return branch;`);
+  for (const vehicleHeat of [false, true]) {
+    const onClusterSelect = () => {};
+    const element = renderBeaconGate(createElement, Beacons, { beacons: true }, pillars, clusterModel, DEFAULT_THEME, 'vehicle:all', onClusterSelect, vehicleHeat);
+    assert.equal(element.props.clustered, vehicleHeat, 'Only vehicle-analysis projects enable the new pillar profile');
+    assert.strictEqual(element.props.onSelect, vehicleHeat ? onClusterSelect : undefined, 'Base demo pillars remain noninteractive');
+  }
+
+  // Compile the actual map-layer gates so all four independent switch combinations are covered.
+  const layerLines = mapSource.split('\n');
+  const pointGate = layerLines.find(line => line.includes('<ClusterPoints clusters='))?.trim().slice(1, -1);
+  const heatGate = layerLines.find(line => line.includes('<HeatLayer points='))?.trim().slice(1, -1);
+  const labelStart = mapSource.indexOf('    {clusterMode && labeledClusters.map');
+  const labelEnd = mapSource.indexOf('    {layers.vehicles && selectedVehicle', labelStart);
+  assert(pointGate && heatGate && labelStart >= 0 && labelEnd > labelStart, 'Map layers expose their independent display gates');
+  const labelGate = mapSource.slice(labelStart, labelEnd).trim().slice(1, -1);
+  const { code: gatesCode } = await transformWithEsbuild(`const rendered = [${pointGate}, ${heatGate}, ${labelGate}];`, 'layer-gates.jsx', { loader: 'jsx', jsxFactory: 'createElement', sourcemap: false });
+  const renderGates = new Function('createElement', 'layers', 'clusterMode', 'clusters', 'model', 'theme', 'vehicleHighlight', 'onClusterSelect', 'labelPortal', 'TOP', 'heatPoints', 'labeledClusters', 'ClusterPoints', 'HeatLayer', 'Html', `${gatesCode}; return rendered;`);
+  const layoutSource = mapSource.slice(mapSource.indexOf('function MapLabelLayout('), mapSource.indexOf('function Roads('));
+  const { code: layoutCode } = await transformWithEsbuild(layoutSource, 'map-label-layout.jsx', { loader: 'jsx', jsxFactory: 'createElement', sourcemap: false });
+  const markerLayout = new Function('createElement', 'useThree', 'useRef', 'useMemo', 'useLayoutEffect', 'useFrame', 'THREE', 'Html', 'Car', 'VEHICLE_MARKER_LIMIT', 'screenOrigin', 'screenOcclusion', `${layoutCode}; return MapLabelLayout;`)(createElement, () => ({ size: vehicleSize, invalidate() {} }), current => ({ current }), fn => fn(), () => {}, () => {}, THREE, 'html', 'car', 500, () => {}, () => {});
+  for (const vehicles of [false, true]) for (const clusters of [false, true]) for (const heat of [false, true]) {
+    const layers = { vehicles, clusters, heat };
+    const [points, heatLayer, labels] = renderGates(createElement, layers, clusters, clusterPoints, clusterModel, DEFAULT_THEME, 'vehicle:all', () => {}, { current: null }, .36, demoHeat, clusterPoints.slice(0, 24), ClusterPoints, 'heat', 'html');
+    assert.equal(Boolean(points), clusters, 'Cluster centers depend only on the label layer');
+    assert.equal(Boolean(labels), clusters, 'Cluster text labels are independent of raw points and heat');
+    assert.equal(Boolean(heatLayer), heat, 'Heat never requires cluster labels or vehicle points');
+    const markers = markerLayout({ model: { regions: [], vehicles: VEHICLES }, clusters: clusterPoints, vehiclesEnabled: vehicles, clusterMode: clusters, highlightedVehicles: [], labelPortal: { current: null } });
+    assert.equal(Boolean(markers), vehicles, 'Raw marker pools remain available with either state of the cluster-label switch');
+    if (vehicles) assert.equal(markers.props.children.length, VEHICLES.length);
+  }
+  console.log('PASS: eight actual map render combinations keep raw points, cluster labels and heat independent.');
 
   // Run the actual lazy loader, visibility guard and outer error boundary in R3F's React renderer.
   const appSource = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   const vehicleHookSource = await readFile(new URL('../src/useVehicleLayer.js', import.meta.url), 'utf8');
   const focusSource = vehicleHookSource.slice(vehicleHookSource.indexOf('  const focusVehicles = '), vehicleHookSource.indexOf('  const pickVehicle = '));
+  let focusLayers = { vehicles: false, clusters: false, heat: true, beacons: false };
   const pendingVehicles = [], focusedVehicles = [], vehicleNotices = [], vehicleHighlights = [], vehicleRequest = { current: null };
   const focusVehicle = new Function('context', 'useCallback', 'vehicleDistrict', 'fetchJson', 'allVehicles', `const NATIONAL = '100000'; const { index, vehicleRequest, navigate, setLayers, setDialog, setVehicleHover, setVehicleHighlight, setVehicle, setToast } = context; ${focusSource}; return focusVehicles;`)(
-    { index: vehicleRegionIndex, vehicleRequest, navigate: (code, vehicle) => focusedVehicles.push([code, Array.isArray(vehicle) ? vehicle.map(item => item.VEHICLENO) : vehicle?.VEHICLENO]), setLayers() {}, setDialog() {}, setVehicleHover() {}, setVehicleHighlight: code => vehicleHighlights.push(code), setVehicle() {}, setToast: message => vehicleNotices.push(message) },
+    { index: vehicleRegionIndex, vehicleRequest, navigate: (code, vehicle) => focusedVehicles.push([code, Array.isArray(vehicle) ? vehicle.map(item => item.VEHICLENO) : vehicle?.VEHICLENO]), setLayers: next => { focusLayers = next(focusLayers); }, setDialog() {}, setVehicleHover() {}, setVehicleHighlight: code => vehicleHighlights.push(code), setVehicle() {}, setToast: message => vehicleNotices.push(message) },
     fn => fn, () => new Promise((resolve, reject) => pendingVehicles.push({ resolve, reject })), () => {}, VEHICLES,
   );
   const restoredRegions = [];
@@ -422,25 +518,36 @@ try {
   assert.deepEqual(focusedVehicles.at(-1), ['100000', ['1', '2', '4', '5']], 'Cross-region selections restore the full map before framing all selected vehicles');
   const sameDistrictFocus = focusVehicle(VEHICLES.slice(0, 2), 'vehicle:all'); pendingVehicles[5].resolve('110105'); await sameDistrictFocus;
   assert.deepEqual(focusedVehicles.at(-1), ['110105', undefined], 'Same-district groups show the complete district');
+  focusLayers = { vehicles: false, clusters: false, heat: true, beacons: false };
+  const clusterFocus = focusVehicle(VEHICLES.slice(0, 2), 'cluster:0'); pendingVehicles[6].resolve('110105'); await clusterFocus;
+  assert.deepEqual(focusLayers, { vehicles: false, clusters: true, heat: true, beacons: false }, 'Explicit cluster focus enables only cluster labels');
+  focusLayers.clusters = false;
+  const noiseFocus = focusVehicle(VEHICLES.slice(0, 2), 'cluster:-1'); pendingVehicles[7].resolve('110105'); await noiseFocus;
+  assert.deepEqual(focusLayers, { vehicles: true, clusters: false, heat: true, beacons: false }, 'Nonclustered vehicle focus enables only raw points');
   const dispatchedGroups = [];
   const navigateGroup = new Function('useCallback', 'linkedVehicles', 'allVehicles', 'focusVehicles', `${vehicleHookSource.slice(vehicleHookSource.indexOf('  const navigateWidget = '), vehicleHookSource.indexOf('  return { vehicle,'))}; return navigateWidget;`)(fn => fn, resolveVehicles, VEHICLES, (vehicles, code) => dispatchedGroups.push([code, vehicles.map(item => item.VEHICLENO)]));
   for (const code of ['vehicle:moving', 'vehicle:stopped', 'vehicle:all']) assert.equal(navigateGroup(code), true);
   assert.deepEqual(dispatchedGroups.slice(0, 2), [['vehicle:moving', ['3']], ['vehicle:stopped', ['1', '2', '4', '5']]], 'National-view chart clicks run the same focus path as individual GPS rows');
   console.log('PASS: all single-vehicle entrypoints share district focus; rapid selection, cancellation and boundary failure preserve the latest intent.');
   const defaults = new Function(`${appSource.split('\n').find(line => line.startsWith('const DEFAULT_LAYERS = '))}; return DEFAULT_LAYERS;`)();
-  let presetLayers = defaults;
-  const makeSetView = new Function('project', 'DEFAULT_LAYERS', 'setMode', 'setLayers', 'setDialog', 'navigateRegion', 'NATIONAL', 'chooseAnalysisStage', `${appSource.slice(appSource.indexOf('  const setView = '), appSource.indexOf('  const fullScreen = '))}; return setView;`);
-  const setView = makeSetView({ vehicles: false }, defaults, () => {}, next => { presetLayers = typeof next === 'function' ? next(presetLayers) : next; }, () => {}, () => assert.fail('Base view presets preserve their current region'), '100000');
+  const makeSetView = new Function('project', 'DEFAULT_LAYERS', 'setMode', 'setLayers', 'setDialog', 'navigateRegion', 'NATIONAL', `${appSource.slice(appSource.indexOf('  const setView = '), appSource.indexOf('  const fullScreen = '))}; return setView;`);
   assert.equal(defaults.beacons, false);
+  assert.equal(defaults.clusters, false);
+  const vehicleModes = [], vehicleDialogs = [], vehicleOverviewRegions = [];
+  const setVehicleView = makeSetView({ vehicles: true }, defaults, next => vehicleModes.push(next), () => assert.fail('Daoyan navigation must preserve every independent layer'), next => vehicleDialogs.push(next), code => vehicleOverviewRegions.push(code), '100000');
+  for (const mode of ['monitor', 'analysis', 'traffic', 'regions', 'overview']) setVehicleView(mode);
+  assert.deepEqual(vehicleModes, ['monitor', 'analysis', 'traffic', 'regions', 'overview']);
+  assert.deepEqual(vehicleDialogs, ['regions']);
+  assert.deepEqual(vehicleOverviewRegions, ['100000'], 'Vehicle overview returns to the national view');
+  let presetLayers = defaults;
+  const setBaseView = makeSetView({ vehicles: false }, defaults, () => {}, next => { presetLayers = typeof next === 'function' ? next(presetLayers) : next; }, () => {}, () => assert.fail('Base navigation keeps its region'), '100000');
   for (const mode of ['overview', 'monitor', 'traffic', 'regions']) {
-    presetLayers = { ...presetLayers, beacons: true }; setView(mode);
-    assert.equal(presetLayers.beacons, false, `${mode} must start with monitoring pillars disabled`);
+    presetLayers = { ...presetLayers, beacons: true }; setBaseView(mode);
+    assert.equal(presetLayers.beacons, false, `${mode} retains the base pillar-off preset`);
+    assert.equal(presetLayers.heat, mode === 'monitor', 'Base heat presets are unchanged');
   }
-  const vehicleOverviewRegions = [], vehicleStages = [], setVehicleView = makeSetView({ vehicles: true }, defaults, () => {}, () => {}, () => {}, code => vehicleOverviewRegions.push(code), '100000', stage => vehicleStages.push(stage));
-  for (const mode of ['monitor', 'traffic', 'regions', 'overview']) setVehicleView(mode);
-  assert.deepEqual(vehicleOverviewRegions, ['100000'], 'Vehicle overview ends fleet focus and returns to the national overview');
-  assert.deepEqual(vehicleStages, ['clusters'], 'Data monitoring activates the post-algorithm view');
-  console.log('PASS: initial map and all four business view presets leave demo pillars disabled.');
+  // No window setter is in scope: neither navigation path can silently reset the selected window.
+  console.log('PASS: five Daoyan pages preserve independent layers/time; base keeps its four original presets.');
   // Exercise App's actual region selection/effect with deferred map reads and the real source controller.
   const activeCodeSource = appSource.split('\n').find(line => line.includes('const activeCode = '));
   const scopeSource = appSource.split('\n').find(line => line.includes('const scope = '));
@@ -555,7 +662,7 @@ try {
     ? createElement('group', { ...props, name: props?.className || type, userData: { role: props?.role, text: children.filter(child => typeof child === 'string').join('') } }, ...children.filter(child => typeof child !== 'string'))
     : createElement(type, props, ...children);
   const Boundary = new Function('Component', 'h', `${boundaryCode}; return MapErrorBoundary;`)(Component, h);
-  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { project, vehicles, theme, fontFamily, loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels, analysis, analysisStage, analysisWindow, focusCluster, mode } = context; const clusterMode = project.vehicles && (mode === 'monitor' || analysisStage === 'clusters'); ${branchCode}; return branch;`);
+  const renderMap = new Function('h', 'MapErrorBoundary', 'Suspense', 'MapScene', 'context', `const { project, vehicles, theme, fontFamily, loaded, config, layers, pickFeature, pickVehicle, hoverVehicle, setVehicleDetailed, vehicleHighlight, clearVehicleSelection, showVehicleDetails, setHover, command, quality, captureTelemetry, viewport, sceneSize, mapLabels, analysis, analysisWindow, focusCluster, mode, restrictionPreview, restrictionDraft, restrictionDrawing, addRestrictionPoint } = context; const clusterMode = project.vehicles && Boolean(layers.clusters); ${branchCode}; return branch;`);
   const context = { project: { vehicles: true }, analysis: { status: 'ready' }, theme: DEFAULT_THEME, sceneSize: { width: 2560, height: 1205 }, loaded: { data: {}, roads: {}, code: '100000' }, config: { map: { visible: false } }, layers: {}, pickFeature() {}, setHover() {}, command: { type: 'reset', sequence: 1 }, quality: 'high', captureTelemetry() {}, viewport: { x: .2, y: .1, width: .8, height: .7 } };
   let loads = 0, received;
   const loadedMap = makeLazy(lazy, async () => { loads++; return { MapScene: props => { received = props; return createElement('group', { name: 'loaded-map' }); } }; });
@@ -577,22 +684,35 @@ try {
   assert.strictEqual(received.command, context.command); assert.equal(received.quality, 'high');
   assert.equal(received.vehicleHeat, true, 'Daoyan passes the vehicle heat source even before rows arrive');
   assert.equal(received.clusterMode, false);
-  context.analysisStage = 'clusters'; context.analysisWindow = { clusters: [{ label: 0 }] }; context.focusCluster = () => {};
+  context.layers.clusters = true; context.analysisWindow = { clusters: [{ label: 0 }] }; context.focusCluster = () => {};
   await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
   assert.strictEqual(received.clusters, context.analysisWindow.clusters);
   assert.strictEqual(received.onClusterSelect, context.focusCluster); assert.equal(received.clusterMode, true);
-  context.mode = 'monitor'; context.analysisStage = 'raw';
+  context.mode = 'monitor'; context.layers.clusters = false;
   await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
-  assert.equal(received.clusterMode, true, 'Data monitoring always shows algorithm clusters, even after entering from raw points');
+  assert.equal(received.clusterMode, false, 'Data monitoring does not force algorithm labels on');
   assert.strictEqual(received.clusters, context.analysisWindow.clusters);
   context.mode = 'overview';
   await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
   assert.equal(received.clusterMode, false);
-  assert.strictEqual(received.clusters, context.analysisWindow.clusters, 'The independent beacon layer retains algorithm clusters in raw-point view');
-  for (const status of ['loading', 'error']) {
+  assert.strictEqual(received.clusters, context.analysisWindow.clusters, 'Independent heat and beacon layers retain algorithm results while labels are off');
+  const vehicleResultSource = appSource.split('\n').find(line => line.includes('const vehicleResult = useMemo('));
+  assert(vehicleResultSource, 'App must adapt analysis rows before passing them to the map');
+  const evaluateVehicleResult = new Function('context', 'vehicleDataResult', 'EMPTY_VEHICLES', `const { project, rawResults, config, analysisWindow, analysis } = context, useMemo = fn => fn(); ${vehicleResultSource}; return vehicleResult;`);
+  context.config.map.vehicleSourceId = 'vehicle-source';
+  context.analysisWindow.rows = VEHICLES.map((row, i) => ({ ...row, CLUSTER_LABEL: i ? -1 : 0 }));
+  context.analysis.result = { windows: [context.analysisWindow] };
+  context.rawResults = { 'vehicle-source': { rows: context.analysisWindow.rows, status: 'ready' } };
+  for (const status of ['ready', 'loading', 'error']) {
     context.analysis.status = status;
+    context.analysis.error = status === 'error' ? 'Source refresh failed' : undefined;
+    const result = evaluateVehicleResult(context, vehicleDataResult, EMPTY_VEHICLES); context.vehicles = result.rows;
+    assert.equal(context.vehicles.length, status === 'ready' ? VEHICLES.length : 0, 'Retained analysis results must not reintroduce stale vehicle rows while refreshing or failed');
+    assert.equal(result.status, status);
     await act(async () => root.render(renderMap(h, Boundary, Suspense, loadedMap.MapScene, context)));
-    assert.equal(received.clusters, undefined, 'Pending or failed analysis must clear stale cluster pillars');
+    assert.strictEqual(received.vehicles, context.vehicles);
+    assert.equal(heatPointsFor({ vehicles: received.vehicles.map(vehicle => ({ vehicle, position: [0, 0, 0] })) }, demoHeat, received.vehicleHeat).length, status === 'ready' ? 1 : 0, 'The actual App adaptation and heat source clear stale member heat');
+    if (status !== 'ready') assert.equal(received.clusters, undefined, 'Pending or failed analysis must clear stale cluster pillars');
   }
   context.analysis.status = 'ready';
   context.project.vehicles = false;
@@ -608,6 +728,136 @@ try {
   assert.equal(scene.getObjectByName('small').userData.text, failure.message);
   assert(reportedErrors.length && reportedErrors.every(error => error === failure), 'React must report only the expected caught import failure');
   console.log('PASS: hidden maps skip engine loading; visible preloads preserve props; chunk failures reach the original error boundary.');
+
+  // Exercise time navigation, playback and independent layer controls with real React state/effects.
+  const uiSource = await readFile(new URL('../src/VehicleAnalysis.jsx', import.meta.url), 'utf8');
+  const timelineCss = await readFile(new URL('../src/vehicle-analysis.css', import.meta.url), 'utf8');
+  const reducedMotionRule = timelineCss.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([^}]+)\}/)?.[1];
+  assert(reducedMotionRule?.includes('.vehicle-timeline *'), 'Reduced-motion styles must include every timeline child');
+  for (const declaration of ['animation:none!important', 'transition:none!important', 'scroll-behavior:auto!important']) assert(reducedMotionRule.replaceAll(/\s/g, '').includes(declaration), `Reduced motion must disable ${declaration.split(':')[0]}`);
+  assert.match(timelineCss, /\.timeline-preview\s*\{[^}]*pointer-events:\s*auto/, 'The floating playback card must receive pointer events');
+  const uiReact = await import('react');
+  const uiFragment = uiSource.slice(uiSource.indexOf('export const windowLabel'), uiSource.indexOf('export function VehicleAnalysisDetails')).replaceAll('export ', '');
+  const { code: uiCode } = await transformWithEsbuild(uiFragment, 'analysis-controls.jsx', { loader: 'jsx', jsxFactory: 'uiH', jsxFragment: 'Fragment', sourcemap: false });
+  const timelineRect = { top: 100, height: 300 };
+  const uiH = (type, props, ...children) => {
+    if (type === 'div' && props?.ref) {
+      if (props.className?.startsWith('timeline-track')) props.ref.current = { getBoundingClientRect: () => timelineRect };
+    }
+    return typeof type === 'string'
+      ? createElement('group', { key: props?.key, name: props?.className || type, userData: { props: props || {}, text: children.flat().filter(value => typeof value === 'string').join('') } }, ...children.flat().filter(value => value && typeof value === 'object'))
+      : createElement(type, props, ...children);
+  };
+  const timers = new Map(); let timerId = 0;
+  const runtime = { uiH, useEffect: uiReact.useEffect, useRef: uiReact.useRef, useState: uiReact.useState, Fragment: uiReact.Fragment, setTimeout: (fn, delay) => { assert.equal(delay, 2000); timers.set(++timerId, fn); return timerId; }, clearTimeout: id => timers.delete(id), CaretLeft: 'icon', CaretRight: 'icon', Pause: 'icon', Play: 'icon', MapPin: 'icon', Fire: 'icon', Tag: 'icon', Sparkle: 'icon' };
+  const { VehicleTimeline, VehicleLayerControls } = new Function(...Object.keys(runtime), `${uiCode}; return { VehicleTimeline, VehicleLayerControls };`)(...Object.values(runtime));
+  let timeWindows = [0, 10, 30, 40].map(minutes => ({ windowStart: new Date(Date.UTC(2026, 8, 28, 1, minutes)).toISOString(), windowEnd: new Date(Date.UTC(2026, 8, 28, 1, minutes + 10)).toISOString() }));
+  const timeAnalysis = { status: 'ready', result: { windows: timeWindows } }; let timeIndex = 0; const timeSelections = [];
+  const renderTimeline = () => root.render(createElement(VehicleTimeline, { analysis: timeAnalysis, window: timeWindows[timeIndex], onWindow: value => { timeSelections.push(value); timeIndex = timeWindows.findIndex(item => item.windowStart === value); renderTimeline(); } }));
+  const uiNode = label => { let found; scene.traverse(node => { if (node.userData.props?.['aria-label'] === label) found = node; }); assert(found, `Control must exist: ${label}`); return found.userData.props; };
+  const timelineTrack = () => { let found; scene.traverse(node => { if (node.name.split(' ')[0] === 'timeline-track') found = node; }); assert(found); return found.userData.props; };
+  let pointerCaptured = false;
+  const pointerTarget = { setPointerCapture() { pointerCaptured = true; }, hasPointerCapture() { return pointerCaptured; }, releasePointerCapture() { pointerCaptured = false; } };
+  const pointer = index => ({ button: 0, pointerId: 1, clientY: timelineRect.top + index / (timeWindows.length - 1) * timelineRect.height, currentTarget: pointerTarget, preventDefault() {} });
+  await act(async () => renderTimeline());
+  assert(!scene.getObjectByName('timeline-arrows')); assert(!scene.getObjectByName('timeline-play')); assert(!scene.getObjectByName('timeline-preview'), 'The resting rail shows no permanent playback controls');
+  await act(async () => timelineTrack().onPointerMove(pointer(1)));
+  assert(scene.getObjectByName('timeline-preview')); assert.equal(uiNode('时间窗预览').role, 'group');
+  await act(async () => uiNode('分析时间窗').onPointerLeave({ currentTarget: { contains: () => true }, relatedTarget: {} }));
+  assert(scene.getObjectByName('timeline-preview')?.getObjectByName('timeline-play'), 'Moving the pointer into the floating card must keep its playback action mounted');
+  await act(async () => uiNode('分析时间窗').onPointerLeave({ currentTarget: { contains: () => false }, relatedTarget: null }));
+  assert(!scene.getObjectByName('timeline-preview'), 'Leaving the whole idle rail closes the floating card');
+  await act(async () => uiNode('切换分析时间窗').onFocus());
+  assert(scene.getObjectByName('timeline-preview')?.getObjectByName('timeline-play'), 'Keyboard focus exposes the same interactive playback card');
+  await act(async () => uiNode('分析时间窗').onBlur({ currentTarget: { contains: () => true }, relatedTarget: {} }));
+  assert(scene.getObjectByName('timeline-play'), 'Tabbing from a tick into the card must preserve the action');
+  assert.equal(uiNode('切换分析时间窗')['aria-orientation'], 'vertical');
+  const pressTimeKey = async key => act(async () => uiNode('切换分析时间窗').onKeyDown({ key, preventDefault() {} }));
+  await pressTimeKey('ArrowDown'); assert.equal(timeIndex, 1, 'Down moves to the next chronological window');
+  await pressTimeKey('ArrowUp'); assert.equal(timeIndex, 0, 'Up moves to the preceding chronological window');
+  await pressTimeKey('ArrowUp'); assert.equal(timeIndex, 0, 'Up clamps at the first window');
+  await act(async () => uiNode('切换分析时间窗').onKeyDown({ key: 'End', preventDefault() {} }));
+  assert.equal(timeIndex, timeWindows.length - 1); await pressTimeKey('ArrowDown'); assert.equal(timeIndex, timeWindows.length - 1, 'Down clamps at the last window');
+  await act(async () => uiNode('播放分窗变化').onClick());
+  assert.equal(timeIndex, 0, 'Playing from the last window restarts at the first actual window'); assert.equal(timers.size, 1);
+  await act(async () => uiNode('分析时间窗').onPointerLeave({ currentTarget: { contains: () => false }, relatedTarget: null }));
+  assert.equal(uiNode('暂停分窗播放')['aria-pressed'], true, 'Playback retains an operable pause action after the pointer leaves');
+  await act(async () => uiNode('暂停分窗播放').onClick());
+  assert.equal(timers.size, 0, 'The floating pause action cancels the pending step'); assert(scene.getObjectByName('timeline-preview'));
+  await act(async () => uiNode('播放分窗变化').onClick()); assert.equal(timers.size, 1);
+  for (let i = 1; i < timeWindows.length; i++) {
+    const [id, tick] = timers.entries().next().value; timers.delete(id);
+    await act(async () => tick()); assert.equal(timeIndex, i);
+  }
+  assert.equal(timers.size, 0, 'Playback stops at the last window'); assert.equal(uiNode('播放分窗变化')['aria-pressed'], false);
+  await act(async () => timelineTrack().onPointerDown(pointer(1.2)));
+  await act(async () => timelineTrack().onPointerMove(pointer(1.7)));
+  assert(pointerCaptured); assert.equal(timeIndex, 3, 'Vertical dragging previews without switching data until release');
+  assert.equal(uiNode('切换分析时间窗').value, 1.7); assert(scene.getObjectByName('timeline-preview'), 'Hover/drag reveals the compact time preview');
+  await act(async () => timelineTrack().onPointerUp(pointer(1.7)));
+  assert.equal(timeIndex, 2, 'Vertical pointer release snaps to an actual data window, including noncontiguous times'); assert(!pointerCaptured);
+  await act(async () => timelineTrack().onPointerDown(pointer(0)));
+  await act(async () => timelineTrack().onPointerCancel());
+  assert.equal(timeIndex, 2, 'Canceled dragging retains the current data window'); assert.equal(uiNode('切换分析时间窗').value, 2); assert(!scene.getObjectByName('timeline-preview'));
+  await act(async () => uiNode('切换分析时间窗').onFocus());
+  await act(async () => uiNode('播放分窗变化').onClick()); assert.equal(timers.size, 1);
+  timeAnalysis.status = 'loading';
+  await act(async () => renderTimeline()); assert.equal(timers.size, 0, 'Recalculation cancels playback and removes obsolete controls');
+  assert(scene.getObjectByName('vehicle-timeline timeline-empty'));
+  assert(timeSelections.every(value => timeWindows.some(item => item.windowStart === value)), 'Navigation never invents missing windows');
+  timeWindows = Array.from({ length: 240 }, (_, minute) => ({ windowStart: new Date(Date.UTC(2026, 8, 28, 1, minute)).toISOString(), windowEnd: new Date(Date.UTC(2026, 8, 28, 1, minute + 1)).toISOString() }));
+  timeIndex = 0; timeAnalysis.status = 'ready'; timeAnalysis.result = { windows: timeWindows };
+  await act(async () => renderTimeline());
+  const ticks = () => scene.getObjectByName('timeline-ticks')?.children || [];
+  assert.equal(ticks().length, 240, 'All one-minute windows remain rendered in a dense timeline');
+  assert(!scene.getObjectByName('timeline-scroll'), 'Dense timelines do not introduce a scrolling viewport');
+  assert.equal(ticks()[0].userData.props.style.top, '0%'); assert.equal(ticks().at(-1).userData.props.style.top, '100%');
+  const tickPositions = ticks().map(node => Number.parseFloat(node.userData.props.style.top));
+  assert(tickPositions.every((position, i) => position >= 0 && position <= 100 && (!i || position > tickPositions[i - 1])), 'Every dense tick fits between the endpoints without being dropped or stacked');
+  await act(async () => timelineTrack().onPointerDown(pointer(119.6)));
+  await act(async () => timelineTrack().onPointerUp(pointer(119.6)));
+  assert.equal(timeIndex, 120, 'The compressed rail maps its middle to the correct one-minute window');
+  await act(async () => timelineTrack().onPointerDown(pointer(239)));
+  await act(async () => timelineTrack().onPointerUp(pointer(239)));
+  assert.equal(timeIndex, 239, 'The final dense tick remains reachable without scrolling');
+  await act(async () => ticks()[0].userData.props.onClick({ detail: 0 })); assert.equal(timeIndex, 0, 'All dense tick buttons retain direct selection');
+  await pressTimeKey('End'); assert.equal(timeIndex, 239); await pressTimeKey('ArrowDown'); assert.equal(timeIndex, 239);
+  timeWindows = [timeWindows[0]]; timeIndex = 0; timeAnalysis.result = { windows: timeWindows };
+  await act(async () => renderTimeline());
+  assert.equal(ticks().length, 1); assert.equal(ticks()[0].userData.props.style.top, '0%');
+  assert.equal(uiNode('切换分析时间窗').disabled, true); assert.equal(Number(uiNode('切换分析时间窗').max), 0);
+  await act(async () => ticks()[0].userData.props.onFocus()); assert.equal(uiNode('播放分窗变化').disabled, true, 'A single-window rail cannot start playback');
+  timeWindows = []; timeAnalysis.result = { windows: timeWindows };
+  await act(async () => renderTimeline());
+  assert.equal(ticks().length, 0); assert(scene.getObjectByName('vehicle-timeline timeline-empty')); assert.equal(timers.size, 0, 'An empty timeline has no ticks or playback timers');
+  let controlLayers = { vehicles: false, heat: true, clusters: false, beacons: false, roads: true };
+  await act(async () => root.render(createElement(VehicleLayerControls, { layers: controlLayers, setLayers: fn => { controlLayers = fn(controlLayers); } })));
+  await act(async () => uiNode('聚集标签').onClick());
+  assert.deepEqual(controlLayers, { vehicles: false, heat: true, clusters: true, beacons: false, roads: true });
+  await act(async () => uiNode('聚集热区').onClick());
+  assert.deepEqual(controlLayers, { vehicles: false, heat: false, clusters: true, beacons: false, roads: true });
+  console.log('PASS: vertical timeline keys, preview-card pointer/focus/play/pause, drag snap/cancel, sparse and dense windows, single/empty states, reduced-motion, end/loading cleanup and independent layer buttons run through actual React state.');
+  const settingsSource = uiSource.slice(uiSource.indexOf('export function VehiclePageSettings'), uiSource.indexOf('export function VehicleAnalysisCard')).replace('export ', '');
+  const { code: settingsCode } = await transformWithEsbuild(settingsSource, 'page-settings.jsx', { loader: 'jsx', jsxFactory: 'uiH', sourcemap: false });
+  const { clusterOptions, DEFAULT_CLUSTER_OPTIONS, optionsForRows } = await import('../src/vehicleClustering.js');
+  const Settings = new Function('uiH', 'useState', 'Dialog', 'Layout', 'CaretRight', 'clusterOptions', 'DEFAULT_CLUSTER_OPTIONS', 'optionsForRows', `${settingsCode}; return VehiclePageSettings;`)(uiH, uiReact.useState, props => props.children, 'icon', 'icon', clusterOptions, DEFAULT_CLUSTER_OPTIONS, optionsForRows);
+  const savedOptions = { ...DEFAULT_CLUSTER_OPTIONS, epsKm: 1, minSamples: 2, windowMinutes: 10 }, appliedOptions = []; let settingsClosed = 0, editorOpened = 0;
+  await act(async () => root.render(createElement(Settings, { options: savedOptions, rows: [], onApply: value => appliedOptions.push(value), onClose: () => settingsClosed++, onEdit: () => editorOpened++ })));
+  const form = () => scene.getObjectByName('vehicle-page-settings analysis-settings').userData.props;
+  const textButton = text => { let found; scene.traverse(node => { if (node.name === 'button' && node.userData.text === text) found = node; }); assert(found); return found.userData.props; };
+  await act(async () => uiNode('邻域半径').onChange({ target: { value: '0' } }));
+  await act(async () => form().onSubmit({ preventDefault() {} }));
+  assert.equal(appliedOptions.length, 0, 'Invalid parameters cannot reach configuration');
+  let validationError; scene.traverse(node => { if (node.userData.props?.role === 'alert') validationError = node.userData.text; }); assert(validationError);
+  await act(async () => uiNode('邻域半径').onChange({ target: { value: '2' } }));
+  assert.equal(savedOptions.epsKm, 1, 'Changing a setting only edits the draft');
+  await act(async () => textButton('取消').onClick()); assert.equal(settingsClosed, 1); assert.equal(appliedOptions.length, 0);
+  await act(async () => form().onSubmit({ preventDefault() {} }));
+  assert.equal(appliedOptions.length, 1); assert.deepEqual(appliedOptions[0], { ...savedOptions, epsKm: 2 });
+  await act(async () => textButton('恢复默认参数').onClick());
+  assert.equal(uiNode('最少车辆数').value, DEFAULT_CLUSTER_OPTIONS.minSamples); assert.equal(appliedOptions.length, 1, 'Restoring defaults remains a draft until save');
+  scene.getObjectByName('settings-editor-entry').getObjectByName('button').userData.props.onClick(); assert.equal(editorOpened, 1);
+  console.log('PASS: page settings validate before saving, keep edits/defaults in a draft, and retain cancel/editor actions.');
 
   // Reuse this real React root to exercise the complete widget and its lazy chart boundary.
   const [widgetSource, React, widgetHelpers, { DATA_FIELDS }] = await Promise.all([

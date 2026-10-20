@@ -73,7 +73,7 @@ npm run verify
 
 `npm run build:all` 顺序构建两版，保留 `releases/base` 和 `releases/daoyan`；每版都有 `client`、`server`、`.openai` 和 `project.json`。静态服务使用各自 `client`，Sites 使用对应整套目录。`dist` 与 `npm run preview` 指向最后一次构建，发布前核对项目，原 Sites 文件约定不变。
 
-界面变更还应运行 `npm run test:browser`。该检查使用独立 Playwright 浏览器，不改日常浏览器配置。可用 `BASE_URL`、`DAOYAN_URL` 指定本地预览地址，`REFERENCE_URL` 提供整合前参考；运行环境需有 Playwright，可用 `PLAYWRIGHT_MODULE` 和 `CHROME_EXECUTABLE` 指定已有安装。脚本检查两版品牌、保存重载、字体资源、底图、区县、车辆联动、迁移和紧凑窗口，截图及结果写入 `docs/evidence/projects/`。
+浏览器验收统一通过 cua_repl 连接用户 Chrome 扩展，在专用标签页检查两版的保存布局、字体、地图导航和窄屏。历史 test:browser 脚本仅作参考。
 
 本轮验证：121 项功能测试、16 组地图回归、4 项 Sites 测试、3238 个地理索引条目及两版构建通过。浏览器验收结果见 [记录](evidence/projects/browser-checks.json)，视觉对照见 [整合前](evidence/projects/before-overview.png)、[道研迁移后](evidence/projects/daoyan-migrated.png)、[基线版](evidence/projects/base-overview.png)、[道研版](evidence/projects/daoyan-overview.png)。这些是本机构建与浏览器验证。
 
@@ -82,3 +82,5 @@ npm run verify
 新需求从最新 `main` 开短期功能分支，改公共 UI 时同时检查两版，改道研数据时仍构建基线确认边界，完成后合入 `main`。原 `daoyan` 分支停在整合前快照 `527a9f6`，只用于历史追溯和回退，不再承担日常产品开发。
 
 回退时新建独立目录检出原快照，或部署保留的上一版产物；旧页面继续读取旧存储键。整合后新保存的画布仍留在新键中，恢复新版后可以继续使用。不要用强制推送或清空浏览器存储进行回退。
+
+同步、冲突恢复和限行配置共享见 [Git / SVN 双人协作](svn-collaboration.md)。

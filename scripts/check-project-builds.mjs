@@ -14,6 +14,6 @@ for (const project of ['base', 'daoyan']) {
   if (project === 'base') assert(!existsSync(path.join(directory, 'client/data/vehicle-demo')), 'base must not include synthetic vehicle batches');
   const assets = path.join(directory, 'client/assets');
   const bundle = readdirSync(assets).filter(file => file.endsWith('.js')).map(file => readFileSync(path.join(assets, file), 'utf8')).join('\n');
-  for (const marker of ['ds_daoyan_vehicles', '2026/9/13 00:00', '00000000000000000000000000000011']) assert.equal(bundle.includes(marker), project === 'daoyan', `${project} project data boundary: ${marker}`);
+  for (const marker of ['ds_daoyan_vehicles', '2026/9/13 00:00', '00000000000000000000000000000011', 'restriction-beijing-demo-01']) assert.equal(bundle.includes(marker), project === 'daoyan', `${project} project data boundary: ${marker}`);
   console.log(`PASS: ${project} 独立产物、品牌及项目数据边界`);
 }

@@ -130,3 +130,10 @@ test('批处理可处理乱序、逐窗输出、重跑幂等；失败不覆盖�
     assert.equal((await runBatch({ input: csv, output })).inputRows, 1);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('聚类清洗保留车型和货种，供同一数据源的限行判定使用', () => {
+  const row = { ...raw[0], VEHICLE_TYPE: '重型货车', CARGO_TYPE: '危险品' };
+  const result = analyzeVehicles([row]);
+  assert.equal(result.windows[0].rows[0].VEHICLE_TYPE, row.VEHICLE_TYPE);
+  assert.equal(result.windows[0].rows[0].CARGO_TYPE, row.CARGO_TYPE);
+});

@@ -43,13 +43,13 @@ export function useVehicleLayer({ allVehicles, locationVehicles = allVehicles, i
     window.addEventListener('keydown', dismiss); return () => window.removeEventListener('keydown', dismiss);
   }, [vehicleHover, vehicleHighlight, dialog, clearVehicleSelection]);
   useEffect(() => { vehicleRequest.current?.abort(); setVehicleHover(null); if (!linkedVehicles(vehicleHighlight, allVehicles)?.length) setVehicleHighlight('vehicle:all'); }, [allVehicles]);
-  const focusVehicles = useCallback(async (item, highlight) => {
+  const focusVehicles = useCallback(async (item, highlight, markerLayer = /^cluster:\d+$/.test(highlight) ? 'clusters' : 'vehicles') => {
     vehicleRequest.current?.abort();
     const abort = new AbortController(); vehicleRequest.current = abort;
     const vehicles = Array.isArray(item) ? item : item ? [item] : allVehicles;
     if (!vehicles.length) return;
     const single = vehicles.length === 1 ? vehicles[0] : null;
-    setLayers(s => ({ ...s, vehicles: true })); setDialog(null); setVehicleHover(null);
+    setLayers(s => ({ ...s, [markerLayer]: true })); setDialog(null); setVehicleHover(null);
     setVehicleHighlight(highlight || (single ? single.code || `vehicle:${single.VEHICLENO}` : 'vehicle:all'));
     setVehicle(vehicles[0]);
     try {

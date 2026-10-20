@@ -21,7 +21,9 @@ export function projection(bounds) {
   const lng = (west + east) / 2, lat = (south + north) / 2;
   const longitudeScale = Math.cos(lat * Math.PI / 180);
   const scale = 16 / Math.max((east - west) * longitudeScale, (north - south) * 1.1, 0.001);
-  return ([x, y]) => [(x - lng) * longitudeScale * scale, (y - lat) * scale];
+  const project = ([x, y]) => [(x - lng) * longitudeScale * scale, (y - lat) * scale];
+  project.inverse = ([x, y]) => [x / (longitudeScale * scale) + lng, y / scale + lat];
+  return project;
 }
 
 export function inRing([x, y], ring) {

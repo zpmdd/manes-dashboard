@@ -6,9 +6,14 @@ import '@fontsource/manrope/latin-500.css';
 import '@fontsource/manrope/latin-600.css';
 import { Dialog, IconButton, LayerPanel, RegionPicker } from './MapPanels';
 import { VehiclePanel, VehicleTooltip, VehicleToolbar, VehicleWidget } from './VehiclePanels';
+import { RestrictionDetails, RestrictionEditor, RestrictionSummary } from './RestrictionPanels';
+import { restrictionMembership } from './restrictions';
+import { restrictionFromDraft, restrictionToDraft } from './restrictionStore';
+import { downloadRestrictionWorkbook, readVehicleFile } from './restrictionWorkbook';
+import { analyzeVehicles } from './vehicleClustering';
 import { useVehicleLayer } from './useVehicleLayer';
 import { useVehicleAnalysis } from './useVehicleAnalysis';
-import { VehicleAnalysis, VehicleAnalysisDetails, VehicleAlgorithmSettings, VehicleAnalysisCard } from './VehicleAnalysis';
+import { VehicleAnalysisDetails, VehiclePageSettings, VehicleAnalysisCard, VehicleAnalysisPage, VehicleTimeline, VehicleLayerControls } from './VehicleAnalysis';
 import project from '@project';
 import { vehicleDataResult, linkedVehicles, EMPTY_VEHICLES } from './vehicles';
 import { DashboardWidget } from './DashboardWidget';
@@ -32,7 +37,7 @@ const TemplatePanel = lazy(() => import('./EditorPanels').then(module => ({ defa
 const DataSourcePanel = lazy(() => import('./DataSourcePanel').then(module => ({ default: module.DataSourcePanel })));
 const ConfigPanel = lazy(() => import('./ConfigPanel').then(module => ({ default: module.ConfigPanel })));
 
-const DEFAULT_LAYERS = { vehicles: false, roadmap: false, roads: true, beacons: false, arcs: false, heat: false, labels: true, highway: true, nationalRoad: true };
+const DEFAULT_LAYERS = { vehicles: false, clusters: false, restrictions: false, roadmap: false, roads: true, beacons: false, arcs: false, heat: false, labels: true, highway: true, nationalRoad: true };
 const fetchJson = async (path, signal) => {
   const response = await fetch(path, { signal, cache: 'force-cache' });
   if (!response.ok) throw new Error(`本地地图文件读取失败（${response.status}）`);
@@ -100,7 +105,16 @@ const BoundWidget = memo(function BoundWidget({ item, result, refresh, code, ind
 
 export function App() {
   const [toast, setToast] = useState('');
+  const [restrictionFileBusy, setRestrictionFileBusy] = useState('');
+  const [restrictionDraft, setRestrictionDraft] = useState(null);
+  const [restrictionDrawing, setRestrictionDrawing] = useState(false);
   const editor = useDashboardEditor(setToast, project), config = editor.config;
+  const restrictions = config.map.restrictions || EMPTY_VEHICLES, restriction = restrictions[0];
+  const latestConfig = useRef(); latestConfig.current = { config, editing: editor.editing };
+  const restrictionPreview = useMemo(() => {
+    if (!restrictionDraft) return restrictions;
+    try { return [restrictionFromDraft(restrictionDraft)]; } catch { return []; }
+  }, [restrictions, restrictionDraft]);
   const theme = getTheme(config.theme);
   const selectedFont = getFont(config.font), [loadedFont, setLoadedFont] = useState(null);
   const fontFamily = loadedFont?.family || SYSTEM_FONT;
@@ -132,19 +146,22 @@ export function App() {
   const [code, setCode] = useState(/^#\d{6}$/.test(location.hash) ? location.hash.slice(1) : NATIONAL);
   const [loaded, setLoaded] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(''), [retry, setRetry] = useState(0);
   const activeCode = config.map.visible && loaded ? loaded.code : index?.[code] ? code : NATIONAL;
-  const [dialog, setDialog] = useState(null), [layers, setLayers] = useState(() => ({ ...DEFAULT_LAYERS, vehicles: project.vehicles })), [quality, setQuality] = useState('high'), [mode, setMode] = useState('overview');
+  const [dialog, setDialog] = useState(null), [layers, setLayers] = useState(() => ({ ...DEFAULT_LAYERS, heat: project.vehicles, clusters: project.vehicles, restrictions: Boolean(project.restrictions?.length) })), [quality, setQuality] = useState('high'), [mode, setMode] = useState('overview');
   const [hover, setHover] = useState(''), [command, setCommand] = useState({ type: 'reset', sequence: 0 }), [telemetry, setTelemetry] = useState({});
   const main = useRef(), stage = useRef(), mapLabels = useRef(), measureRef = useRef(null), telemetryRef = useRef({});
   const previewMapLayout = useCallback(() => measureRef.current?.(), []);
   const navigationRequest = useRef();
-  const usedSources = useMemo(() => config.dataSources.filter(source => ((project.vehicles && config.map.visible && config.map.vehicleSourceId === source.id) || config.modules.some(item => (item.visible || editing) && !['text', 'clock'].includes(item.type) && item.binding.sourceId === source.id))), [config.dataSources, config.modules, editing, config.map.visible, config.map.vehicleSourceId]);
+  const usedSources = useMemo(() => config.dataSources.filter(source => ((project.vehicles && config.map.vehicleSourceId === source.id) || config.modules.some(item => (item.visible || editing) && !['text', 'clock'].includes(item.type) && item.binding.sourceId === source.id))), [config.dataSources, config.modules, editing, config.map.visible, config.map.vehicleSourceId]);
   const { results: rawResults, refresh } = useDataSources(usedSources, activeCode);
-  const analysis = useVehicleAnalysis(rawResults[config.map.vehicleSourceId], config.map.clustering, project.vehicles);
-  const [analysisStage, setAnalysisStage] = useState('raw'), [selectedWindow, setSelectedWindow] = useState('');
-  const clusterMode = project.vehicles && (mode === 'monitor' || analysisStage === 'clusters');
+  const analysis = useVehicleAnalysis(rawResults[config.map.vehicleSourceId], config.map.clustering, project.vehicles, restriction);
+  const [selectedWindow, setSelectedWindow] = useState('');
+  const clusterMode = project.vehicles && Boolean(layers.clusters);
+  const analysisPage = project.vehicles && mode === 'analysis' && !editor.editing;
   const analysisWindow = analysis.result?.windows.find(window => window.windowStart === selectedWindow) || analysis.result?.windows.at(-1);
-  const vehicleResult = useMemo(() => project.vehicles ? vehicleDataResult({ ...rawResults[config.map.vehicleSourceId], rows: analysisWindow?.rows || EMPTY_VEHICLES, ...(analysis.status !== 'ready' ? { status: analysis.status, error: analysis.error } : {}) }) : { rows: EMPTY_VEHICLES }, [rawResults[config.map.vehicleSourceId], analysisWindow, analysis.status, analysis.error]);
+  const vehicleResult = useMemo(() => project.vehicles ? vehicleDataResult({ ...rawResults[config.map.vehicleSourceId], rows: analysis.status === 'ready' ? analysisWindow?.rows || EMPTY_VEHICLES : EMPTY_VEHICLES, ...(analysis.status !== 'ready' ? { status: analysis.status, error: analysis.error } : {}) }) : { rows: EMPTY_VEHICLES }, [rawResults[config.map.vehicleSourceId], analysisWindow, analysis.status, analysis.error]);
   const vehicles = vehicleResult.rows;
+  const restrictedVehicles = useMemo(() => restriction ? restrictionMembership(restriction, vehicles) : [], [restriction, vehicles]);
+  const restrictionAnalysis = analysis.status === 'ready' ? analysis.restrictionAnalysis : undefined;
   const results = project.vehicles && config.map.vehicleSourceId ? { ...rawResults, [config.map.vehicleSourceId]: vehicleResult } : rawResults;
   const selection = editor.selected === 'map' ? config.map : config.modules.find(item => item.id === editor.selected);
   const customCount = config.modules.filter(item => item.visible && !['text', 'clock'].includes(item.type) && item.binding.sourceId !== 'demo').length;
@@ -158,7 +175,7 @@ export function App() {
       const scene = node.querySelector('.world-backdrop').getBoundingClientRect();
       setSceneSize(previous => previous?.width === scene.width && previous?.height === scene.height ? previous : { width: scene.width, height: scene.height });
       node.style.setProperty('--u', `${Math.max(.45, Math.min(bounds.width / 1120, bounds.height / 718))}px`);
-      if (map && scene.width && scene.height) { const next = { x: (map.x - scene.x) / scene.width, y: (map.y - scene.y) / scene.height, width: map.width / scene.width, height: map.height / scene.height }; setViewport(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); }
+      if (map?.width && map.height && scene.width && scene.height) { const next = { x: (map.x - scene.x) / scene.width, y: (map.y - scene.y) / scene.height, width: map.width / scene.width, height: (map.height - (project.vehicles && !editing ? Math.min(56, map.height * .08) : 0)) / scene.height }; setViewport(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); }
     };
     measureRef.current = measure;
     const observer = new ResizeObserver(measure); observer.observe(node); if (stage.current) observer.observe(stage.current); measure();
@@ -224,12 +241,50 @@ export function App() {
   }, [vehicles, analysisWindow, config.modules, config.map.vehicleSourceId]);
   const vehicleLayer = useVehicleLayer({ allVehicles: vehicles, locationVehicles, index, mapVisible: config.map.visible, layers, setLayers, command, code, dialog, setDialog, navigate, setToast, fetchJson, navigationRequest });
   const { vehicle, setVehicle, vehicleHighlight, vehicleDetailed, setVehicleDetailed, vehicleHover, hoverVehicle, hoverTimer, focusVehicles, pickVehicle, clearVehicleSelection, navigateRegion, showVehicleDetails } = vehicleLayer;
-  const chooseAnalysisWindow = value => { clearVehicleSelection(); setSelectedWindow(value); };
-  const chooseAnalysisStage = value => {
-    clearVehicleSelection(); setAnalysisStage(value);
-    if (value === 'raw') { if (mode === 'monitor') setMode('overview'); setLayers(s => ({ ...s, heat: false })); }
+  const focusRestriction = () => {
+    const inside = restrictedVehicles.filter(item => item.inside).map(item => item.vehicle);
+    setLayers(previous => ({ ...previous, restrictions: true, vehicles: true }));
+    setDialog(null);
+    if (inside.length) void focusVehicles(inside, 'vehicle:all', 'vehicles');
   };
-  const focusCluster = value => { chooseAnalysisStage(/^cluster:\d+$/.test(value) ? 'clusters' : 'raw'); setDialog(null); vehicleLayer.navigateWidget(value); };
+  const openRestrictionSettings = () => {
+    focusRestriction();
+    setRestrictionDraft(restrictionToDraft(restriction));
+    setRestrictionDrawing(false);
+  };
+  const addRestrictionPoint = useCallback(point => setRestrictionDraft(current => current ? { ...current, boundary: [...current.boundary, point] } : current), []);
+  const saveRestrictionSettings = () => {
+    try {
+      const value = restrictionFromDraft(restrictionDraft);
+      editor.setRestrictions([value]); setRestrictionDraft(null); setRestrictionDrawing(false);
+      setLayers(previous => ({ ...previous, restrictions: true })); setToast(`已保存 ${value.boundary.length} 个限行边界顶点`);
+    } catch (error) { setToast(error.message); }
+  };
+  const importRestrictionVehicles = async file => {
+    setRestrictionFileBusy('import');
+    try {
+      const rows = await readVehicleFile(file);
+      const checked = analyzeVehicles(rows, config.map.clustering);
+      if (!rows.length) throw new Error('导入文件没有车辆数据');
+      if (checked.rejected.length) throw new Error(`有 ${checked.rejected.length} 条车辆数据无效，第一条：${checked.rejected[0].reason}`);
+      if (latestConfig.current.config !== config || latestConfig.current.editing) throw new Error('页面配置已变化，请重新导入车辆文件');
+      const sourceId = config.map.vehicleSourceId, source = config.dataSources.find(item => item.id === sourceId);
+      if (!source) throw new Error('当前车辆数据源不存在');
+      const content = JSON.stringify(rows);
+      if (new TextEncoder().encode(content).byteLength > 1024 * 1024) throw new Error('规范化后的车辆数据超过 1 MB');
+      editor.setDataSources(config.dataSources.map(item => item.id === sourceId ? { ...source, type: 'json', content, url: '', rowsPath: '', refreshSeconds: 0 } : item), `已导入 ${rows.length} 条车辆记录，正在重新计算`);
+      clearVehicleSelection(); setSelectedWindow(''); setLayers(previous => ({ ...previous, vehicles: true, restrictions: true }));
+    } catch (error) { setToast(error.message); }
+    finally { setRestrictionFileBusy(''); }
+  };
+  const exportRestrictionResults = async () => {
+    setRestrictionFileBusy('export');
+    try { await downloadRestrictionWorkbook(restriction, restrictedVehicles, restrictionAnalysis); setToast(`已导出 ${restrictedVehicles.length} 辆车的 Excel 结果`); }
+    catch (error) { setToast(error.message); }
+    finally { setRestrictionFileBusy(''); }
+  };
+  const chooseAnalysisWindow = value => { clearVehicleSelection(); setSelectedWindow(value); };
+  const focusCluster = value => { clearVehicleSelection(); setMode('monitor'); setDialog(null); vehicleLayer.navigateWidget(value); };
   const navigateWidget = useCallback(next => {
     if (project.vehicles && linkedVehicles(next, vehicles)) { focusCluster(next); return; }
     if (index?.[String(next)]) navigateRegion(next); else setToast('数据中的区域编码不在当前地图范围内');
@@ -237,29 +292,37 @@ export function App() {
   const pickFeature = useCallback(feature => { const next = String(feature.properties.adcode); if (next === code) setToast('已到当前数据的最细层级'); else if (index?.[next]) navigateRegion(next); }, [navigateRegion, code, index]);
   const setView = next => {
     setMode(next);
-    if (next === 'overview') { setLayers({ ...DEFAULT_LAYERS, vehicles: project.vehicles }); if (project.vehicles) navigateRegion(NATIONAL); }
-    if (next === 'monitor') { if (project.vehicles) chooseAnalysisStage('clusters'); setLayers(s => ({ ...s, vehicles: project.vehicles || s.vehicles, heat: true, beacons: false, arcs: false })); }
+    if (project.vehicles) {
+      if (next === 'overview') navigateRegion(NATIONAL);
+      if (next === 'regions') setDialog('regions');
+      return;
+    }
+    if (next === 'overview') setLayers({ ...DEFAULT_LAYERS });
+    if (next === 'monitor') setLayers(s => ({ ...s, heat: true, beacons: false, arcs: false }));
     if (next === 'traffic') setLayers(s => ({ ...s, roads: true, heat: false, arcs: false, beacons: false }));
     if (next === 'regions') { setLayers(s => ({ ...s, heat: false, beacons: false, arcs: false })); setDialog('regions'); }
   };
   const fullScreen = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await main.current.requestFullscreen(); } catch { setToast('当前浏览器暂不支持页面全屏，可使用窗口全屏。'); } };
 
-  const viewNavigation = <nav aria-label="视图切换">{['overview', 'monitor', 'traffic', 'regions'].map((id, i) => <button key={id} className={mode === id ? 'selected' : ''} aria-pressed={mode === id} onClick={() => setView(id)}>{config.navLabels[i]}</button>)}</nav>;
+  const viewNavigation = <nav aria-label="视图切换">{[['overview', config.navLabels[0]], ['monitor', config.navLabels[1]], ...(project.vehicles ? [['analysis', '聚集分析']] : []), ['traffic', config.navLabels[2]], ['regions', config.navLabels[3]]].map(([id, label]) => <button key={id} className={mode === id ? 'selected' : ''} aria-pressed={mode === id} onClick={() => setView(id)}>{label}</button>)}</nav>;
 
   return <div className={`editor-shell ${editing ? 'is-editing' : ''} ${editor.editing ? 'has-toolbar' : ''}`}>
     {editor.editing && <EditorToolbar editor={editor} onDialog={setDialog}/>}
     {editing && <div className="editor-mobile-tabs"><button onClick={() => setSidePanel('library')} aria-pressed={sidePanel === 'library'}>组件库</button><button onClick={() => setSidePanel('inspector')} aria-pressed={sidePanel === 'inspector'}>组件属性</button></div>}
     {editing && <aside className={`editor-library-pane ${sidePanel === 'library' ? 'is-open' : ''}`}><PanelErrorBoundary title="组件库"><Suspense fallback={<p role="status">正在加载组件库…</p>}><ComponentLibrary onAdd={type => { editor.add(type); setSidePanel('inspector'); }}/></Suspense></PanelErrorBoundary><section className="editor-layer-list" aria-label="图层列表"><h3>画布图层</h3>{[{ ...config.map, id: 'map', title: config.mapTitle }, ...config.modules].map(item => <button key={item.id} onClick={event => { editor.select(item.id, { toggle: event.shiftKey || event.metaKey || event.ctrlKey }); setSidePanel('inspector'); }} aria-pressed={editor.selectedIds.includes(item.id)}><span>{item.title || '未命名组件'}</span><small>{item.locked ? '锁定' : !item.visible ? '隐藏' : ''}</small></button>)}</section></aside>}
-    <div className="dashboard-viewport"><main className="dashboard free-dashboard" ref={main}>
-    <div className={`world-backdrop ${loading && !loaded ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}><div ref={mapLabels} className="map-labels" style={viewport ? { clipPath: `inset(${100 * (viewport.y + viewport.height * .12)}% ${100 * (1 - viewport.x - viewport.width * .98)}% ${100 * (1 - viewport.y - viewport.height * .98)}% ${100 * (viewport.x + viewport.width * .02)}%)` } : undefined}/>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene clusters={analysis.status === 'ready' ? analysisWindow?.clusters : undefined} clusterMode={clusterMode} onClusterSelect={focusCluster} vehicles={vehicles} vehicleHeat={project.vehicles} theme={theme} fontFamily={fontFamily} data={loaded.data} collections={loaded.collections} roadData={loaded.roads} labelPortal={mapLabels} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} onVehicleSelect={pickVehicle} onVehicleHover={hoverVehicle} onVehicleDetailChange={setVehicleDetailed} vehicleHighlight={vehicleHighlight} onVehicleClear={clearVehicleSelection} onVehicleDetails={showVehicleDetails} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined} sceneSize={sceneSize}/></Suspense></MapErrorBoundary>}</div>
-    <header className={`topbar${project.vehicles && !editing ? ' has-analysis' : ''}`}>
+    <div className="dashboard-viewport"><main className={`dashboard free-dashboard${project.vehicles ? ' vehicle-dashboard' : ''}${analysisPage ? ' is-analysis-page' : ''}`} ref={main}>
+    <div inert={analysisPage ? true : undefined} className={`world-backdrop ${loading && !loaded ? 'is-loading' : ''}`} onContextMenu={e => e.preventDefault()}><div ref={mapLabels} className="map-labels" style={viewport ? { clipPath: `inset(${100 * (viewport.y + viewport.height * .12)}% ${100 * (1 - viewport.x - viewport.width * .98)}% ${100 * (1 - viewport.y - viewport.height * .98)}% ${100 * (viewport.x + viewport.width * .02)}%)` } : undefined}/>{loaded && config.map.visible && <MapErrorBoundary><Suspense fallback={<div className="map-error" role="status">正在加载三维地图…</div>}><MapScene restrictions={restrictionPreview} restrictionDrawing={restrictionDraft ? restrictionDraft.boundary.filter(point => point.every(value => value !== '' && Number.isFinite(Number(value)))).map(point => point.map(Number)) : null} onRestrictionPoint={restrictionDrawing ? addRestrictionPoint : undefined} clusters={analysis.status === 'ready' ? analysisWindow?.clusters : undefined} clusterMode={clusterMode} onClusterSelect={focusCluster} vehicles={vehicles} vehicleHeat={project.vehicles} theme={theme} fontFamily={fontFamily} data={loaded.data} collections={loaded.collections} roadData={loaded.roads} labelPortal={mapLabels} code={loaded.code} layers={layers} selected={null} onSelect={pickFeature} onHover={setHover} onVehicleSelect={pickVehicle} onVehicleHover={hoverVehicle} onVehicleDetailChange={setVehicleDetailed} vehicleHighlight={vehicleHighlight} onVehicleClear={clearVehicleSelection} onVehicleDetails={showVehicleDetails} command={command} quality={quality} onTelemetry={captureTelemetry} viewport={viewport || undefined} sceneSize={sceneSize}/></Suspense></MapErrorBoundary>}</div>
+    <header className="topbar">
       <div className={`screen-title${project.showBrand ? ' has-brand' : ''}`}>{project.showBrand && <div className="screen-brand"><img src="/brand/manes-icon.svg" alt=""/><strong>{config.brand}</strong></div>}<h1 title={config.title}>{config.title}</h1><span>{dataLabel}</span></div>
-      <div className="header-tools">{config.showClock && <DashboardClock/>}<IconButton label="全屏显示" onClick={fullScreen}><ArrowsOut/></IconButton><IconButton label="设置大屏" className="configure-button" onClick={editor.start} disabled={editor.editing}><Gear/></IconButton></div>
-      {project.vehicles && !editing ? <VehicleAnalysis analysis={analysis} window={analysisWindow} selectedWindow={analysisWindow?.windowStart} onWindow={chooseAnalysisWindow} stage={clusterMode ? 'clusters' : 'raw'} onStage={chooseAnalysisStage} onDetails={() => setDialog('analysis')} onSettings={() => setDialog('algorithm')} onFocus={focusCluster}>{viewNavigation}</VehicleAnalysis> : viewNavigation}
+      <div className="header-tools">{config.showClock && <DashboardClock/>}<IconButton label="全屏显示" onClick={fullScreen}><ArrowsOut/></IconButton><IconButton label={project.vehicles ? "页面设置" : "设置大屏"} className="configure-button" onClick={project.vehicles ? () => setDialog('settings') : editor.start} disabled={editor.editing}><Gear/>{project.vehicles && <span>页面设置</span>}</IconButton></div>
+      {viewNavigation}
     </header>
-    <div ref={stage} className={`canvas-stage ${editing && config.canvas.snap ? 'show-grid' : ''}`} onPointerDown={editing ? () => editor.select(null) : undefined}>
+    <div ref={stage} inert={analysisPage ? true : undefined} className={`canvas-stage ${editing && config.canvas.snap ? 'show-grid' : ''}`} onPointerDown={editing ? () => editor.select(null) : undefined}>
     {(config.map.visible || editing) && <CanvasItem id="map" title={config.mapTitle} item={config.map} editor={editor} isMap onLayoutPreview={previewMapLayout}><section className="map-panel" aria-label="交互式三维行政区地图" aria-busy={loading}>
       <div className="map-heading"><div className="map-section-title">{config.mapTitle}</div><div className="location-strip"><div className="breadcrumb">{path.map((p, i) => <span key={p.code}>{i > 0 && <CaretRight size={11}/>}<button onClick={() => navigateRegion(p.code)}>{shortName(p.name)}</button></span>)}</div><button className="scope-select" onClick={() => setDialog('regions')}>{scope?.name === '中国' ? '全国运行总览' : scope?.name || '全国运行总览'}<CaretDown size={13}/></button></div></div>
+      {project.vehicles && !editing && <div className="vehicle-map-controls"><VehicleLayerControls restrictions={Boolean(restrictions.length)} layers={layers} setLayers={setLayers}/></div>}
+      {restriction && layers.restrictions && !editing && !analysisPage && !restrictionDraft && <RestrictionSummary restriction={restriction} membership={restrictedVehicles} trajectory={restrictionAnalysis} busy={restrictionFileBusy} onImport={importRestrictionVehicles} onExport={exportRestrictionResults} onFocus={focusRestriction} onSettings={openRestrictionSettings} onDetails={() => setDialog('restriction')}/>}
+      {restrictionDraft && !editing && !analysisPage && <RestrictionEditor draft={restrictionDraft} drawing={restrictionDrawing} onChange={setRestrictionDraft} onBegin={() => { setRestrictionDraft(current => ({ ...current, boundary: [] })); setRestrictionDrawing(true); }} onUndo={() => setRestrictionDraft(current => ({ ...current, boundary: current.boundary.slice(0, -1) }))} onFinish={() => setRestrictionDrawing(false)} onSave={saveRestrictionSettings} onCancel={() => { setRestrictionDraft(null); setRestrictionDrawing(false); }}/>}
       <div className="map-tools" aria-label="地图工具"><IconButton label="地图图层" onClick={() => setDialog('layers')}><Stack/></IconButton><IconButton label="恢复默认视角" onClick={() => sendCommand('reset')}><Compass/></IconButton><IconButton label="数据与性能说明" onClick={showInfo}><Info/></IconButton></div>
       <div className="map-interaction"><IconButton label="放大地图" onClick={() => sendCommand('zoomIn')}><Plus/></IconButton><IconButton label="缩小地图" onClick={() => sendCommand('zoomOut')}><Minus/></IconButton><span/><IconButton label="旋转地图十五度" onClick={() => sendCommand('rotate')}><Compass/></IconButton><IconButton label="俯视地图" onClick={() => sendCommand('top')}><MapTrifold/></IconButton></div>
       {loaded?.code === NATIONAL && <SouthSea data={loaded.data}/>}
@@ -267,17 +330,20 @@ export function App() {
       {hover && <div className="hover-caption" role="status">{hover}<span>点击查看区域</span><ArrowUpRight/></div>}
       {loading && <div className={`loading-state${loaded ? ' is-focusing' : ''}`} role="status"><CircleNotch className="spinner" size={24}/><span>正在展开地图</span></div>}
       {error && <div className="load-error" role="alert"><strong>{error}</strong><div><button onClick={() => setRetry(n => n + 1)}>重试</button><button onClick={() => navigateRegion(NATIONAL)}>返回全国</button></div></div>}
-      <div className="map-bottom">{project.vehicles && <VehicleToolbar clusterMode={clusterMode} clusters={analysisWindow?.clusters} vehicles={vehicles} result={vehicleResult} layer={vehicleLayer} loaded={loaded} loading={loading} visible={layers.vehicles}/>}<div className="map-legend">{layers.roadmap && <span>离线道路底图</span>}{layers.roads && <span><i className="legend-line"/>道路网络</span>}{layers.beacons && <span><i className="legend-dot"/>{project.vehicles ? analysis.status === 'ready' ? `聚集光柱 · ${analysisWindow?.metrics.clusterCount || 0} 簇` : analysis.status === 'error' ? '聚集光柱 · 暂不可用' : '聚集光柱 · 计算中' : '监测节点'}</span>}{layers.heat && <span>{project.vehicles ? analysis.status === 'ready' ? `聚集热力 · ${analysisWindow?.metrics.clusterCount || 0} 簇 / ${analysisWindow?.metrics.clusteredVehicles || 0} 辆` : analysis.status === 'error' ? '聚集热力 · 暂不可用' : '聚集热力 · 计算中' : '态势热力'}</span>}</div><button onClick={showInfo}>{layers.roadmap ? '本地道路瓦片 · 1–10 级' : loaded?.code === '420381' ? '© OpenStreetMap contributors' : 'DataV.GeoAtlas · Natural Earth'}<Info size={11}/></button></div>
+      {project.vehicles && !editing && !analysisPage && <div className="vehicle-map-timeline"><VehicleTimeline analysis={analysis} window={analysisWindow} onWindow={chooseAnalysisWindow}/></div>}
+      <div className="map-bottom">{project.vehicles && (layers.vehicles || (vehicleHighlight && vehicleHighlight !== 'vehicle:all')) && <VehicleToolbar clusterMode={clusterMode} clusters={analysisWindow?.clusters} vehicles={vehicles} result={vehicleResult} layer={vehicleLayer} loaded={loaded} loading={loading} visible={layers.vehicles}/>}<div className="map-legend">{layers.roadmap && <span>离线道路底图</span>}{layers.roads && <span><i className="legend-line"/>道路网络</span>}{layers.beacons && <span><i className="legend-dot"/>{project.vehicles ? analysis.status === 'ready' ? `聚集光柱 · ${analysisWindow?.metrics.clusterCount || 0} 簇` : analysis.status === 'error' ? '聚集光柱 · 暂不可用' : '聚集光柱 · 计算中' : '监测节点'}</span>}{layers.heat && <span>{project.vehicles ? analysis.status === 'ready' ? `聚集热区 · ${analysisWindow?.metrics.clusterCount || 0} 簇 / ${analysisWindow?.metrics.clusteredVehicles || 0} 辆` : analysis.status === 'error' ? '聚集热区 · 暂不可用' : '聚集热区 · 计算中' : '态势热力'}</span>}</div><button onClick={showInfo}>{layers.roadmap ? '本地道路瓦片 · 1–10 级' : loaded?.code === '420381' ? '© OpenStreetMap contributors' : 'DataV.GeoAtlas · Natural Earth'}<Info size={11}/></button></div>
     </section></CanvasItem>}
-    {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}>{project.vehicles && item.vehicleView ? <VehicleAnalysisCard selectedCluster={vehicleHighlight} item={editing && !item.visible ? { ...item, visible: true } : item} analysis={analysis} window={analysisWindow} onWindow={chooseAnalysisWindow} onFocus={focusCluster} onDetails={() => setDialog('analysis')} locations={vehicleLayer.vehicleLocations}/> : <BoundWidget vehicleLocations={vehicleLayer.vehicleLocations} selectedCodes={vehicleLayer.selectedCodes} vehicleData={project.vehicles && item.binding.sourceId === config.map.vehicleSourceId} theme={theme} fontFamily={fontFamily} item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={activeCode} index={index} onNavigate={navigateWidget}/>}</CanvasItem>)}
+    {config.modules.map(item => <CanvasItem key={item.id} id={item.id} title={item.title || '未命名组件'} item={item} editor={editor} onLayoutPreview={previewMapLayout}>{project.vehicles && item.vehicleView ? <VehicleAnalysisCard monitoring={mode === 'monitor'} selectedCluster={vehicleHighlight} item={editing && !item.visible ? { ...item, visible: true } : item} analysis={analysis} window={analysisWindow} onWindow={chooseAnalysisWindow} onFocus={focusCluster} onDetails={() => mode === 'monitor' ? setDialog('analysis') : setView('analysis')} locations={vehicleLayer.vehicleLocations}/> : <BoundWidget vehicleLocations={vehicleLayer.vehicleLocations} selectedCodes={vehicleLayer.selectedCodes} vehicleData={project.vehicles && item.binding.sourceId === config.map.vehicleSourceId} theme={theme} fontFamily={fontFamily} item={editing && !item.visible ? { ...item, visible: true } : item} result={results[item.binding.sourceId]} refresh={refresh} code={activeCode} index={index} onNavigate={navigateWidget}/>}</CanvasItem>)}
     {editing && <div className="canvas-guides" aria-hidden="true">{editor.guides.map(guide => <i key={guide.axis} className={`canvas-guide guide-${guide.axis}`} style={guide.axis === 'x' ? { left: `${guide.position}%`, top: `${guide.from}%`, height: `${guide.to - guide.from}%` } : { top: `${guide.position}%`, left: `${guide.from}%`, width: `${guide.to - guide.from}%` }}/>)}</div>}
     </div>
-    {vehicleHover && layers.vehicles && !editing && <VehicleTooltip value={vehicleHover} detailed={vehicleDetailed} onPointerEnter={() => clearTimeout(hoverTimer.current)} onPointerLeave={() => hoverVehicle(null)}/>}
+    {analysisPage && <VehicleAnalysisPage analysis={analysis} window={analysisWindow} onWindow={chooseAnalysisWindow} onFocus={focusCluster} onDetails={() => setDialog('analysis')} locations={vehicleLayer.vehicleLocations} selectedCluster={vehicleHighlight}/>}
+    {vehicleHover && layers.vehicles && !editing && !analysisPage && <VehicleTooltip value={vehicleHover} detailed={vehicleDetailed} onPointerEnter={() => clearTimeout(hoverTimer.current)} onPointerLeave={() => hoverVehicle(null)}/>}
     {editor.editing && dialog === 'theme' && <ThemePanel theme={theme} editing={editor.editing} onChange={editor.setTheme} onClose={() => setDialog(null)}/>}
     {dialog === 'regions' && index && <RegionPicker index={index} code={activeCode} onNavigate={navigateRegion} onClose={() => setDialog(null)}/>}
-    {dialog === 'layers' && <LayerPanel beaconHint={project.vehicles ? '当前时间窗每簇一柱，位于算法簇中心；点击定位聚集，零簇不显示' : undefined} heatHint={project.vehicles ? '仅叠加当前时间窗内的聚集成员，孤立车辆不计入；色斑为密度示意，不代表簇边界' : undefined} extraLayers={project.vehicles ? [['vehicles', clusterMode ? '聚集簇点位' : '车辆信息', clusterMode ? `${analysisWindow?.clusters.length || 0} 个算法簇 · 点位为簇中心` : `${vehicles.length} 辆车 · 数据源可在地图属性中设置`]] : []} layers={layers} setLayers={setLayers} quality={quality} setQuality={setQuality} detail={loaded?.code === '420381'} onClose={() => setDialog(null)}/>}
+    {dialog === 'layers' && <LayerPanel beaconHint={project.vehicles ? '当前时间窗每簇一柱，位于算法簇中心；点击定位聚集，零簇不显示' : undefined} heatHint={project.vehicles ? '仅叠加当前时间窗内的聚集成员，孤立车辆不计入；色斑为密度示意，不代表簇边界' : undefined} extraLayers={project.vehicles ? [['vehicles', '车辆点位', `${vehicles.length} 辆有效车辆`], ['clusters', '聚集标签', `${analysisWindow?.clusters.length || 0} 个算法簇 · 簇中心与标签`], ...(restriction ? [['restrictions', '限行区域', `${restrictedVehicles.filter(item => item.inside).length} 辆范围内 · ${restrictedVehicles.filter(item => !item.inside).length} 辆范围外`]] : [])] : []} layers={layers} setLayers={setLayers} quality={quality} setQuality={setQuality} detail={loaded?.code === '420381'} onClose={() => setDialog(null)}/>}
+    {dialog === 'restriction' && restriction && <RestrictionDetails restriction={restriction} membership={restrictedVehicles} trajectory={restrictionAnalysis} onFocus={focusRestriction} onClose={() => setDialog(null)}/>}
     {dialog === 'vehicle' && vehicle && <VehiclePanel vehicles={vehicles} vehicle={vehicle} onSelect={setVehicle} onFocus={focusVehicles} onClose={() => setDialog(null)}/>}
-    {dialog === 'algorithm' && <VehicleAlgorithmSettings options={config.map.clustering || analysis.result?.options} rows={rawResults[config.map.vehicleSourceId]?.rows} onClose={() => setDialog(null)} onApply={options => { editor.setClustering(options); clearVehicleSelection(); setSelectedWindow(''); setDialog(null); }}/>}
+    {dialog === 'settings' && project.vehicles && <VehiclePageSettings onEdit={() => { setDialog(null); editor.start(); }} options={config.map.clustering || analysis.result?.options} rows={rawResults[config.map.vehicleSourceId]?.rows} onClose={() => setDialog(null)} onApply={options => { editor.setClustering(options); clearVehicleSelection(); setSelectedWindow(''); setDialog(null); }}/>}
     {dialog === 'analysis' && analysis.result && <VehicleAnalysisDetails analysis={analysis} window={analysisWindow} onClose={() => setDialog(null)} onFocus={focusCluster}/>}
     {dialog === 'templates' && <PanelErrorBoundary title="模板库" onClose={() => setDialog(null)}><Suspense fallback={<div className="toast" role="status">正在加载模板库…</div>}><TemplatePanel project={project} config={config} onLoad={next => editor.change(next)} onClose={() => setDialog(null)}/></Suspense></PanelErrorBoundary>}
     {dialog === 'sources' && <PanelErrorBoundary title="数据源管理" onClose={() => setDialog(null)}><Suspense fallback={<div className="toast" role="status">正在加载数据源管理…</div>}><DataSourcePanel sources={config.dataSources} code={activeCode} onChange={applySources} onCreateComponent={createFromSource} onClose={() => setDialog(null)}/></Suspense></PanelErrorBoundary>}

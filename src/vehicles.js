@@ -3,6 +3,7 @@ import { strictDataNumber } from './dataSources.js';
 
 export const VEHICLE_FIELDS = [
   ['VEHICLENO', '号牌号码'], ['PALTE_COLOR', '号牌颜色'],
+  ['VEHICLE_TYPE', '车辆类型'], ['CARGO_TYPE', '货物类型'],
   ['GEO_LON', '经度'], ['GEO_LAT', '纬度'], ['GEO_ANG', '角度'], ['GEO_ALT', '海拔'],
   ['GPS_SPEED', 'GPS速度'], ['RECORD_SPEED', '行车定位速度'], ['MILEAGE', '里程'],
   ['GPS_DATE', 'GPS时间'], ['SI_DT', '入库时间'], ['ALARM_CODE', '报警信息'],

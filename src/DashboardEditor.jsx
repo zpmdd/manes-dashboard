@@ -47,6 +47,16 @@ export function useDashboardEditor(notify, project) {
     setSaved(next); dispatch({ type: 'reset', config: next });
     notify('算法参数已保存，正在重新计算');
   };
+  const setDataSources = (dataSources, message = '数据源已保存') => {
+    if (editing) throw new Error('请先保存或取消画布编辑，再导入车辆数据');
+    const next = saveConfig({ ...saved, dataSources }, project);
+    setSaved(next); dispatch({ type: 'reset', config: next }); notify(message);
+  };
+  const setRestrictions = restrictions => {
+    if (editing) throw new Error('请先保存或取消画布编辑，再保存限行区域');
+    const next = saveConfig({ ...saved, map: { ...saved.map, restrictions } }, project);
+    setSaved(next); dispatch({ type: 'reset', config: next });
+  };
   const finish = () => {
     try { const next = saveConfig(history.present, project); setSaved(next); dispatch({ type: 'reset', config: next }); setEditing(false); setPreview(false); setGuides([]); notify('画布已保存'); }
     catch (error) { notify(error.message); }
@@ -105,7 +115,7 @@ export function useDashboardEditor(notify, project) {
     };
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [editing, preview, selectedIds, config, patchMany, undo, redo]);
-  return { config, items, editing, preview, selected, selectedIds: selection, select, guides, setGuides, start, finish, cancel, add, patch, patchMany, change, setTheme, setClustering, duplicate, remove, arrange, align, undo, redo, setPreview, canUndo: Boolean(history.past.length), canRedo: Boolean(history.future.length), dirty: history.present !== saved };
+  return { config, items, editing, preview, selected, selectedIds: selection, select, guides, setGuides, start, finish, cancel, add, patch, patchMany, change, setTheme, setClustering, setDataSources, setRestrictions, duplicate, remove, arrange, align, undo, redo, setPreview, canUndo: Boolean(history.past.length), canRedo: Boolean(history.future.length), dirty: history.present !== saved };
 }
 
 export function EditorToolbar({ editor, onDialog }) {

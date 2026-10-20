@@ -135,3 +135,28 @@ test('旧模板按归属复制，损坏或重复记录拒绝迁移且保留原�
     assert.throws(() => readLegacyTemplates(store), /记录/); assert.equal(store.getItem(oldKey), raw);
   }
 });
+
+test('限行配置随画布和模板跨浏览器传递，旧独立存储只读迁移且新配置优先', async () => {
+  const { RESTRICTION_STORAGE_KEY } = await import('../src/restrictionStore.js');
+  const store = storage(), rules = structuredClone(daoyan.restrictions);
+  rules[0].name = '两人共同维护的区域';
+  store.setItem(RESTRICTION_STORAGE_KEY, JSON.stringify(rules));
+  withStorage(store, () => {
+    const loaded = loadConfig(daoyan);
+    assert.equal(loaded.map.restrictions[0].name, rules[0].name);
+    assert.equal(store.values.size, 1, '读取旧规则不能写入或删除旧数据');
+    const text = serializeTemplate(loaded, daoyan);
+    const imported = parseTemplateFile(text, daoyan);
+    assert.deepEqual(imported.map.restrictions, rules);
+    saveTemplate('共享限行配置', imported, store, daoyan);
+    assert.deepEqual(readTemplates(store, daoyan)[0].config.map.restrictions, rules);
+    imported.map.restrictions[0].name = '新版已保存'; saveConfig(imported, daoyan);
+    assert.equal(loadConfig(daoyan).map.restrictions[0].name, '新版已保存');
+    assert.equal(store.getItem(RESTRICTION_STORAGE_KEY), JSON.stringify(rules));
+    assert.equal(loadConfig(base).map.restrictions, undefined);
+    assert.throws(() => parseTemplateFile(text, base), /属于/);
+    assert.throws(() => configForProject({ ...DEFAULT_CONFIG, map: { ...DEFAULT_CONFIG.map, restrictions: rules } }, base), /限行/);
+  });
+  const fresh = storage();
+  withStorage(fresh, () => assert.equal(parseTemplateFile(serializeTemplate(defaultConfigForProject(daoyan), daoyan), daoyan).map.restrictions.length, 1));
+});
