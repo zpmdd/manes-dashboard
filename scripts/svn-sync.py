@@ -55,6 +55,9 @@ def svn_manifest(root, config):
     result = {}
     for parent, dirs, files in os.walk(root):
         dirs[:] = [name for name in dirs if name != '.svn']
+        for name in dirs:
+            if (Path(parent) / name).is_symlink():
+                raise RuntimeError(f'不支持目录符号链接：{Path(parent) / name}')
         for name in files:
             path = Path(parent) / name
             name = path.relative_to(root).as_posix()

@@ -131,6 +131,14 @@ class SyncTest(unittest.TestCase):
             self.call('pull')
         self.assertEqual(path.read_text(), 'unfinished')
         path.write_text(before)
+        link = self.wc / 'src/link'
+        link.symlink_to('.', target_is_directory=True)
+        command('svn', 'add', str(link)); self.svn_commit('directory symlink')
+        with self.assertRaisesRegex(RuntimeError, '目录符号链接'):
+            self.call('pull')
+        self.assertFalse((self.root / 'src/link').exists())
+        self.assertNotIn('pending', self.state())
+        command('svn', 'delete', str(link)); self.svn_commit('remove unsupported link')
         (self.wc / '.env').write_text('TEST=not-a-secret')
         command('svn', 'add', str(self.wc / '.env')); self.svn_commit('out of scope')
         with self.assertRaisesRegex(RuntimeError, '范围外文件'):
